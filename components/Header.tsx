@@ -9,6 +9,14 @@ interface HeaderProps {
 const Header: React.FC<HeaderProps> = ({ currentPage, setPage }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
+  const pageNames: { [key: string]: string } = {
+    home: "Home",
+    services: "Services",
+    gallery: "Gallery",
+    about: "Our Story",
+    locations: "Locations",
+  };
+
   const handlePageChange = (page: Page) => {
     setPage(page);
     setMobileMenuOpen(false);
@@ -28,9 +36,9 @@ const Header: React.FC<HeaderProps> = ({ currentPage, setPage }) => {
           </div>
 
           <nav className="hidden md:flex space-x-8">
-            {(["home", "services", "gallery", "about", "locations"] as Page[]).map((p) => (
+            {(["home", "services", "about", "gallery", "locations"] as Page[]).map((p) => (
               <button key={p} onClick={() => setPage(p)} className={`text-sm font-bold uppercase tracking-wider transition-colors ${currentPage === p ? "text-emerald-600 border-b-2 border-emerald-600" : "text-slate-600 hover:text-emerald-600"}`}>
-                {p}
+                {pageNames[p]}
               </button>
             ))}
           </nav>
@@ -53,9 +61,9 @@ const Header: React.FC<HeaderProps> = ({ currentPage, setPage }) => {
         {mobileMenuOpen && (
           <div className="md:hidden absolute top-20 left-0 right-0 bg-white/95 backdrop-blur-md shadow-lg border-t border-slate-200">
             <nav className="flex flex-col p-4 space-y-2">
-              {(["home", "services", "gallery", "about", "locations"] as Page[]).map((p) => (
+              {(["home", "services", "about", "gallery", "locations"] as Page[]).map((p) => (
                 <button key={p} onClick={() => handlePageChange(p)} className={`text-left py-3 px-4 rounded-lg font-bold uppercase tracking-wider transition-colors ${currentPage === p ? "bg-emerald-50 text-emerald-600" : "text-slate-600 hover:bg-slate-50"}`}>
-                  {p}
+                  {pageNames[p]}
                 </button>
               ))}
               <button onClick={() => handlePageChange("booking")} className="bg-emerald-600 text-white py-3 px-4 rounded-lg font-bold hover:bg-emerald-700 transition-all text-center mt-2">

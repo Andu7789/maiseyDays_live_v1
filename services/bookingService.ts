@@ -345,6 +345,34 @@ export const removeUnavailableDay = async (date: string) => {
   }
 };
 
+export const saveUnavailableDateRange = async (startDate: string, endDate: string, reason: string) => {
+  try {
+    console.log("Saving unavailable date range:", startDate, "to", endDate, reason);
+    
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    const datesInRange: string[] = [];
+    
+    // Generate all dates between start and end (inclusive)
+    for (let date = new Date(start); date <= end; date.setDate(date.getDate() + 1)) {
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, "0");
+      const day = String(date.getDate()).padStart(2, "0");
+      datesInRange.push(`${year}-${month}-${day}`);
+    }
+    
+    // Save all dates
+    for (const dateStr of datesInRange) {
+      await saveUnavailableDay(dateStr, reason);
+    }
+    
+    console.log("Successfully saved unavailable date range");
+  } catch (err) {
+    console.error("Catch error in saveUnavailableDateRange:", err);
+    throw err;
+  }
+};
+
 export const saveUnavailableWeekday = async (dayOfWeek: number, reason: string) => {
   try {
     console.log("Saving unavailable weekday:", dayOfWeek, reason);
