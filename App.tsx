@@ -4,7 +4,7 @@ import Header from "./components/Header";
 import Footer from "./components/Footer";
 import AdminDashboard from "./components/AdminDashboard";
 import { CalendarPicker } from "./components/CalendarPicker";
-import { SERVICES, LOCATIONS, STANDARD_HOURS } from "./constants";
+import { SERVICES, LOCATIONS, STANDARD_HOURS, EMAIL_ENDPOINT } from "./constants";
 import { isSlotAvailable, saveAppointment, sendBookingEmail, sendConfirmationEmail, isDateAvailable, getUnavailableDays, getUnavailableWeekdays } from "./services/bookingService";
 
 const App: React.FC = () => {
@@ -29,6 +29,17 @@ const App: React.FC = () => {
   const [agreedToTerms, setAgreedToTerms] = useState(false);
   const [marketingConsent, setMarketingConsent] = useState<"yes" | "no" | "">("");
   const [showAgreement, setShowAgreement] = useState(false);
+  const [enquiryData, setEnquiryData] = useState({
+    name: "",
+    email: "",
+    phone: "",
+    message: "",
+  });
+  const [enquiryStatus, setEnquiryStatus] = useState<"idle" | "sending" | "sent" | "error">("idle");
+  const [enquiryError, setEnquiryError] = useState<string | null>(null);
+
+  const selectedService = SERVICES.find((service) => service.id === formData.serviceid);
+  const isHomeGroom = Boolean(selectedService && (selectedService.id.toLowerCase().includes("home") || selectedService.name.toLowerCase().includes("home") || selectedService.id.toLowerCase().includes("mobile") || selectedService.name.toLowerCase().includes("mobile")));
 
   const testimonials = [
     { name: "", dog: "Rolo", text: "I would highly recommend Maisey Days Dog Grooming. Both of our dogs go to Rachel and they come home looking and smelling great but also they are happy. She takes her time with them doesn’t rush at all and  we know they are happy with her !!", rating: 5, photo: "/IMG_8141 (1).jpg" },
@@ -41,51 +52,7 @@ const App: React.FC = () => {
     { name: "", dog: "Teddy", text: "Hello. My name is Teddy and I love Rachel because she keeps me looking so good and I get lots of treats when I visit her (before his groom) ", rating: 5, photo: "/image2.jpg" },
   ];
 
-  const galleryItems = [
-    { src: "/gallery/image0.jpeg", featured: true },
-    { src: "/gallery/image1.jpeg" },
-    { src: "/gallery/image2.jpeg" },
-    { src: "/gallery/image3.jpeg" },
-    { src: "/gallery/image4.jpeg" },
-    { src: "/gallery/image5.jpeg" },
-    { src: "/gallery/image6.jpeg" },
-    { src: "/gallery/image7.jpeg" },
-    { src: "/gallery/image8.jpeg" },
-    { src: "/gallery/image9.jpeg" },
-    { src: "/gallery/image10.jpeg" },
-    { src: "/gallery/image10_1.jpeg" },
-    { src: "/gallery/image11.jpeg" },
-    { src: "/gallery/image11_1.jpeg" },
-    { src: "/gallery/image12.jpeg" },
-    { src: "/gallery/image13.jpeg" },
-    { src: "/gallery/image14.jpeg" },
-    { src: "/gallery/image14_1.jpeg" },
-    { src: "/gallery/image15.jpeg" },
-    { src: "/gallery/image16.jpeg" },
-    { src: "/gallery/image17.jpeg" },
-    { src: "/gallery/image18.jpeg" },
-    { src: "/gallery/image19.jpeg" },
-    { src: "/gallery/image20.jpeg" },
-    { src: "/gallery/image21.jpeg" },
-    { src: "/gallery/image22.jpeg" },
-    { src: "/gallery/image23.jpeg" },
-    { src: "/gallery/image24.jpeg" },
-    { src: "/gallery/image25.jpeg" },
-    { src: "/gallery/image26.jpeg" },
-    { src: "/gallery/image27.jpeg" },
-    { src: "/gallery/image28.jpeg" },
-    { src: "/gallery/imag29.jpeg" },
-    { src: "/gallery/imag30.jpeg" },
-    { src: "/gallery/imag31.jpeg" },
-    { src: "/gallery/image32.jpeg" },
-    { src: "/gallery/imag33.jpeg" },
-    { src: "/gallery/imag34.jpeg" },
-    { src: "/gallery/image35.jpeg" },
-    { src: "/gallery/image36.jpeg" },
-    { src: "/gallery/imag37.jpeg" },
-    { src: "/gallery/image38.jpeg" },
-    { src: "/gallery/image39.jpeg" },
-  ];
+  const galleryItems = [{ src: "/gallery/1.jpg", featured: true }, { src: "/gallery/2.jpg" }, { src: "/gallery/3.jpg" }, { src: "/gallery/4.jpg" }, { src: "/gallery/5.jpg" }, { src: "/gallery/6.jpg" }, { src: "/gallery/7.jpg" }, { src: "/gallery/8.jpg" }, { src: "/gallery/9.jpg" }, { src: "/gallery/10.jpg" }, { src: "/gallery/11.jpg" }, { src: "/gallery/12.jpg" }, { src: "/gallery/13.jpg" }, { src: "/gallery/14.jpg" }, { src: "/gallery/15.jpg" }, { src: "/gallery/16.jpg" }, { src: "/gallery/17.jpg" }, { src: "/gallery/18.jpg" }, { src: "/gallery/19.jpg" }, { src: "/gallery/20.jpg" }, { src: "/gallery/21.jpg" }, { src: "/gallery/22.jpg" }, { src: "/gallery/23.jpg" }, { src: "/gallery/24.jpg" }, { src: "/gallery/25.jpg" }, { src: "/gallery/26.jpg" }, { src: "/gallery/27.jpg" }, { src: "/gallery/29.jpg" }, { src: "/gallery/30.jpg" }, { src: "/gallery/31.jpg" }, { src: "/gallery/32.jpg" }, { src: "/gallery/33.jpg" }];
 
   useEffect(() => {
     const carousel = document.getElementById("testimonials-carousel");
@@ -160,9 +127,9 @@ const App: React.FC = () => {
       return;
     }
 
-    // Check if marketing consent was selected
+    // Check if consent was selected
     if (marketingConsent === "") {
-      setBookingError("Please select your marketing consent preference (YES or NO).");
+      setBookingError("Please select your contact sharing consent preference (YES or NO).");
       return;
     }
 
@@ -199,6 +166,47 @@ const App: React.FC = () => {
     }
   };
 
+  const handleEnquirySubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (enquiryStatus === "sending") return;
+
+    setEnquiryStatus("sending");
+    setEnquiryError(null);
+
+    const summaryMessage = `
+NEW ENQUIRY
+
+Name: ${enquiryData.name}
+Email: ${enquiryData.email}
+Phone: ${enquiryData.phone || "Not provided"}
+Message: ${enquiryData.message}
+    `;
+
+    try {
+      const response = await fetch(EMAIL_ENDPOINT, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          _subject: `New Enquiry: ${enquiryData.name || "Website"}`,
+          message: summaryMessage,
+          email: enquiryData.email,
+          _replyto: enquiryData.email,
+          name: enquiryData.name,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Enquiry failed");
+      }
+
+      setEnquiryStatus("sent");
+      setEnquiryData({ name: "", email: "", phone: "", message: "" });
+    } catch (err) {
+      setEnquiryStatus("error");
+      setEnquiryError("Something went wrong. Please try again.");
+    }
+  };
+
   const renderPage = () => {
     if (showSuccess) {
       return (
@@ -229,25 +237,22 @@ const App: React.FC = () => {
             {/* Hero Section */}
             <section className="relative h-[85vh] min-h-[600px] flex items-center overflow-hidden">
               <div className="absolute inset-0 z-0">
-                <img src="https://images.unsplash.com/photo-1516734212186-a967f81ad0d7?auto=format&fit=crop&q=80&w=2000" alt="Happy dog being groomed" className="w-full h-full object-cover brightness-[0.4]" />
+                <img src="https://images.unsplash.com/photo-1516734212186-a967f81ad0d7?auto=format&fit=crop&q=80&w=2000" alt="Happy dog being groomed" className="w-full h-full object-cover object-[center_20%] brightness-[0.75]" />
               </div>
-              <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-white">
-                <div className="max-w-2xl">
-                  <h1 className="text-6xl md:text-8xl font-black mb-6 leading-[0.9] tracking-tighter">
-                    WHERE EVERY DOG
-                    <br />
-                    <span className="text-emerald-400">IS A VIP</span> <span className="text-3xl md:text-4xl whitespace-nowrap">(Very&nbsp;&nbsp;Important&nbsp;&nbsp;Pup)</span>
-                  </h1>
-                  <h2 className="text-[32px] font-bold mb-3 text-slate-200">Grooming with Care and Trust</h2>
-                  <p className="text-[20px] mb-8 text-slate-200">Working with your dog to build confidence, reduce stress and create positive grooming experiences</p>
-                  <div className="flex flex-col sm:flex-row gap-4">
-                    <button onClick={() => setCurrentPage("booking")} className="bg-emerald-600 hover:bg-emerald-700 text-white px-10 py-5 rounded-3xl font-black text-lg transition-all transform hover:scale-105 shadow-xl shadow-emerald-900/40">
-                      BOOK NOW
-                    </button>
-                    <button onClick={() => setCurrentPage("services")} className="bg-emerald-600 hover:bg-emerald-700 text-white px-10 py-5 rounded-3xl font-black text-lg transition-all transform hover:scale-105 shadow-xl shadow-emerald-900/40">
-                      SERVICES
-                    </button>
+              <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-white w-full">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
+                  <div className="text-left">
+                    <p className="text-3xl md:text-4xl lg:text-5xl font-extrabold leading-tight">
+                      <span className="block text-[calc(2rem)] md:text-[calc(3.5rem)] lg:text-[calc(5rem)]">Where every dog is a VIP</span>
+                      <span className="block mt-3">(Very Important Pup)</span>
+                    </p>
+                    <p className="mt-3 text-xl md:text-2xl text-slate-100">Grooming with care and trust in Winterton on Sea, Caister or in the comfort of your own home.</p>
+                    <div className="mt-6 flex flex-col sm:flex-row gap-4">
+                      <button className="bg-emerald-600 hover:bg-emerald-700 text-white px-8 py-4 rounded-3xl font-black text-lg transition-all transform hover:scale-105 shadow-xl shadow-emerald-900/40">BOOK NOW</button>
+                      <button className="bg-emerald-600 hover:bg-emerald-700 text-white px-8 py-4 rounded-3xl font-black text-lg transition-all transform hover:scale-105 shadow-xl shadow-emerald-900/40">SERVICES</button>
+                    </div>
                   </div>
+                  <div className="hidden md:block"></div>
                 </div>
               </div>
             </section>
@@ -365,13 +370,17 @@ const App: React.FC = () => {
             </section>
 
             {/* CTA Section */}
-            <section className="bg-teal-600 rounded-[3rem] mx-auto my-20 p-16 max-w-4xl">
+            <section className="bg-emerald-600 rounded-[3rem] mx-auto my-20 p-16 max-w-4xl">
               <div className="text-center">
                 <h2 className="text-5xl md:text-6xl font-black text-white mb-6 tracking-tight">Ready to Pamper Your Pet?</h2>
-                <p className="text-xl text-teal-50 mb-10 leading-relaxed">Choose Winterton-on-Sea or our Caister location to book a grooming appointment tailored to your dogs needs.</p>
-                <button onClick={() => setCurrentPage("booking")} className="bg-white text-teal-600 px-12 py-4 rounded-full font-black text-lg hover:bg-slate-50 transition-all shadow-lg hover:shadow-xl transform hover:scale-105">
-                  Start Booking
-                </button>
+                <div className="flex flex-col sm:flex-row gap-4 justify-center">
+                  <button onClick={() => setCurrentPage("booking")} className="bg-white text-teal-600 px-12 py-4 rounded-full font-black text-lg hover:bg-slate-50 transition-all shadow-lg hover:shadow-xl transform hover:scale-105">
+                    Start Booking
+                  </button>
+                  <button onClick={() => setCurrentPage("gallery")} className="bg-white text-teal-600 px-12 py-4 rounded-full font-black text-lg hover:bg-slate-50 transition-all shadow-lg hover:shadow-xl transform hover:scale-105">
+                    View Gallery
+                  </button>
+                </div>
               </div>
             </section>
           </div>
@@ -380,34 +389,36 @@ const App: React.FC = () => {
       case "services":
         return (
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20 animate-fade-in">
-            <h1 className="text-6xl font-black text-center mb-4 text-slate-800 tracking-tighter">OUR SERVICES</h1>
-            <p className="text-slate-500 text-center mb-16 text-lg max-w-2xl mx-auto">From quick tidy-ups to full transformations, we have the perfect package for your pup.</p>
-            <div className="max-w-4xl mx-auto grid grid-cols-1 gap-10">
-              {SERVICES.map((s) => (
-                <div key={s.id} className="bg-white rounded-[3rem] overflow-hidden shadow-sm border border-slate-100 flex flex-col lg:flex-row group hover:shadow-2xl transition-all duration-500">
-                  <div className="lg:w-2/5 overflow-hidden">
-                    <img src={s.image} alt={s.name} className="w-full h-64 lg:h-full object-cover group-hover:scale-110 transition-transform duration-700" />
-                  </div>
-                  <div className="p-10 flex flex-col justify-between lg:w-3/5">
-                    <div>
-                      <div className="flex justify-between items-start mb-4">
-                        <h3 className="text-3xl font-black text-slate-800 leading-tight">{s.name}</h3>
-                        <span className="text-teal-600 font-black text-xl">{s.price}</span>
-                      </div>
-                      <p className="text-slate-500 mb-6">{s.description}</p>
+            <div className="bg-[#ECFDF5] border-2 border-[#A7F3D0] rounded-[3rem] p-8 sm:p-12">
+              <h1 className="text-6xl font-black text-center mb-4 text-slate-800 tracking-tighter">OUR SERVICES</h1>
+              <p className="text-slate-500 text-center mb-16 text-lg max-w-2xl mx-auto">From quick tidy-ups to full transformations, we have the perfect package for your pup.</p>
+              <div className="max-w-4xl mx-auto grid grid-cols-1 gap-10">
+                {SERVICES.map((s) => (
+                  <div key={s.id} className="bg-white rounded-[3rem] overflow-hidden shadow-sm border border-slate-100 flex flex-col lg:flex-row group hover:shadow-2xl transition-all duration-500">
+                    <div className="lg:w-2/5 overflow-hidden">
+                      <img src={s.image} alt={s.name} className="w-full h-64 lg:h-full object-cover group-hover:scale-110 transition-transform duration-700" />
                     </div>
-                    <button
-                      onClick={() => {
-                        setFormData({ ...formData, serviceid: s.id });
-                        setCurrentPage("booking");
-                      }}
-                      className="mt-8 bg-slate-900 text-white py-4 px-8 rounded-2xl font-bold hover:bg-teal-600 transition-colors"
-                    >
-                      Book This Service
-                    </button>
+                    <div className="p-10 flex flex-col justify-between lg:w-3/5">
+                      <div>
+                        <div className="flex justify-between items-start mb-4">
+                          <h3 className="text-3xl font-black text-slate-800 leading-tight">{s.name}</h3>
+                          <span className="text-teal-600 font-black text-xl">{s.price}</span>
+                        </div>
+                        <p className="text-slate-500 mb-6">{s.description}</p>
+                      </div>
+                      <button
+                        onClick={() => {
+                          setFormData({ ...formData, serviceid: s.id });
+                          setCurrentPage("booking");
+                        }}
+                        className="mt-8 bg-emerald-700 text-white py-4 px-8 rounded-2xl font-bold hover:bg-teal-600 transition-colors"
+                      >
+                        Book This Service
+                      </button>
+                    </div>
                   </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
           </div>
         );
@@ -419,7 +430,6 @@ const App: React.FC = () => {
               <div className="text-center mb-16">
                 <span className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-emerald-100 text-emerald-700 text-xs font-bold uppercase tracking-widest">Gallery</span>
                 <h1 className="text-6xl font-black mt-6 mb-4 text-slate-800 tracking-tighter">GROOMING GALLERY</h1>
-                <p className="text-slate-500 text-lg max-w-3xl mx-auto">A curated look at our calm, one-on-one grooming experience. From first-time puppy visits to full transformations, every photo reflects our gentle, detail-focused care.</p>
               </div>
 
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
@@ -427,22 +437,20 @@ const App: React.FC = () => {
                   <div className="bg-white rounded-[2.5rem] p-10 shadow-sm border border-slate-100">
                     <h3 className="text-3xl font-black text-slate-800 mb-4">Why pet parents love us</h3>
                     <p className="text-slate-600 leading-relaxed">We take time to earn trust, especially with nervous pups. Our environment is calm, cage-free, and tailored to each dog’s comfort level.</p>
-
                   </div>
 
                   <div className="bg-emerald-600 rounded-[2.5rem] p-10 text-white shadow-lg shadow-emerald-500/30">
                     <h3 className="text-3xl font-black mb-4">Ready for a fresh look?</h3>
-                    <p className="text-emerald-50 mb-6">Choose from our Winterton-on-Sea or Caister location to book a grooming appointment tailored to your dog's needs.</p>
                     <button onClick={() => setCurrentPage("booking")} className="bg-white text-emerald-700 px-8 py-4 rounded-2xl font-bold uppercase tracking-widest text-sm hover:bg-emerald-50 transition-all">
-                      Book an Appointment
+                      Request an Appointment
                     </button>
                   </div>
                 </div>
 
-                <div className="lg:col-span-2">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-6 auto-rows-[280px] sm:auto-rows-[220px]">
+                <div className="lg:col-span-2 bg-white border-[5px] border-emerald-500 rounded-[2.5rem] p-4 sm:p-6">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-6 auto-rows-[240px]">
                     {galleryItems.map((item, idx) => (
-                      <div key={`gallery-${idx}`} className={`group relative rounded-[1.5rem] sm:rounded-[2rem] overflow-hidden shadow-md bg-white ${item.featured ? "sm:col-span-2 sm:row-span-2" : ""}`}>
+                      <div key={`gallery-${idx}`} className="group relative rounded-[1.5rem] sm:rounded-[2rem] overflow-hidden shadow-md bg-slate-100">
                         <img src={item.src} alt={`Gallery image ${idx + 1}`} className="w-full h-full object-contain group-hover:scale-105 transition-transform duration-700" />
                       </div>
                     ))}
@@ -456,20 +464,22 @@ const App: React.FC = () => {
       case "about":
         return (
           <div className="max-w-4xl mx-auto px-4 py-24 text-center animate-fade-in">
-            <h1 className="text-6xl font-black mb-10 tracking-tighter">OUR STORY</h1>
-            <div className="mb-12 rounded-[3rem] overflow-hidden shadow-2xl">
-              <img src="/4c3b33ff-5557-415d-beb5-a9ef531d73ae%20(3).jpg" className="w-full h-auto object-contain" />
-            </div>
-            <div className="text-lg text-slate-500 leading-relaxed font-medium space-y-6 text-left">
-              <p>At Maisey Days Grooming, I work with the simple ethos that every dog deserves a positive and professional grooming experience. I am here to provide a calm, compassionate space, with a particular focus on those who may be nervous or sensitive. I believe grooming shouldn't be an ordeal; my focus is to work towards a positive experience where every dog can learn to enjoy their time with me and feel truly comfortable. There is no better reward for my work than seeing waggy tails coming through the door and being greeted with happy licks from a dog who is excited to see me and feels safe and relaxed in my care.</p>
+            <div className="bg-[#ECFDF5] border-2 border-[#A7F3D0] rounded-[3rem] p-8 sm:p-12">
+              <h1 className="text-6xl font-black mb-10 tracking-tighter">OUR STORY</h1>
+              <div className="mb-12 rounded-[3rem] overflow-hidden shadow-2xl">
+                <img src="/4c3b33ff-5557-415d-beb5-a9ef531d73ae%20(3).jpg" className="w-full h-auto object-contain" />
+              </div>
+              <div className="text-lg text-slate-500 leading-relaxed font-medium space-y-6 text-left">
+                <p>At Maisey Days Grooming, I work with the simple ethos that every dog deserves a positive and professional grooming experience. I am here to provide a calm, compassionate space, with a particular focus on those who may be nervous or sensitive. I believe grooming shouldn't be an ordeal; my focus is to work towards a positive experience where every dog can learn to enjoy their time with me and feel truly comfortable. There is no better reward for my work than seeing waggy tails coming through the door and being greeted with happy licks from a dog who is excited to see me and feels safe and relaxed in my care.</p>
 
-              <p>The inspiration behind my journey is the love I have for my German Shepherd, Maisey. When she came home as a puppy in 2016, her incredibly lively nature was a steep learning curve that I hadn't quite prepared for; I soon discovered that life with Maisey was going to be a whirlwind adventure!</p>
+                <p>The inspiration behind my journey is the love I have for my German Shepherd, Maisey. When she came home as a puppy in 2016, her incredibly lively nature was a steep learning curve that I hadn't quite prepared for; I soon discovered that life with Maisey was going to be a whirlwind adventure!</p>
 
-              <p>Our first five years together were a gentle test of heart and soul. We navigated the hurdles of reactivity, a journey that often felt like one step forward and two steps back. There were many moments of tears and frustration, yet through soft perseverance and a deep determination to truly understand one another, we found our way. Maisey has taught me more about behaviour, patience, and trust than any textbook ever could; she was a little pickle, but a beautiful complex girl who challenged me and showed me the true meaning of a bond. Now ten years old, Maisey remains at the heart of everything I do; she is a constant reminder of how much we can learn from our dogs, and she remains my greatest teacher.</p>
+                <p>Our first five years together were a gentle test of heart and soul. We navigated the hurdles of reactivity, a journey that often felt like one step forward and two steps back. There were many moments of tears and frustration, yet through soft perseverance and a deep determination to truly understand one another, we found our way. Maisey has taught me more about behaviour, patience, and trust than any textbook ever could; she was a little pickle, but a beautiful complex girl who challenged me and showed me the true meaning of a bond. Now ten years old, Maisey remains at the heart of everything I do; she is a constant reminder of how much we can learn from our dogs, and she remains my greatest teacher.</p>
 
-              <p>My journey with Maisey inspired me to become a professional dog groomer, qualifying in 2020. I now balance my grooming work with my career in teaching and education . I find that both roles share a common thread, understanding individuals, building confidence, and creating an environment where trust can grow.</p>
+                <p>My journey with Maisey inspired me to become a professional dog groomer, qualifying in 2020. I now balance my grooming work with my career in teaching and education . I find that both roles share a common thread, understanding individuals, building confidence, and creating an environment where trust can grow.</p>
 
-              <p>Customers trust Maisey Days grooming because I provide a professional service where comfort and wellbeing are my top priorities. I don't just groom your dog; I advocate for their happiness, ensuring their emotional needs are at the heart of every brush, bath, and style. I treat every dog with the same care and devotion I give my own, often chatting and laughing with them along the way.</p>
+                <p>Customers trust Maisey Days grooming because I provide a professional service where comfort and wellbeing are my top priorities. I don't just groom your dog; I advocate for their happiness, ensuring their emotional needs are at the heart of every brush, bath, and style. I treat every dog with the same care and devotion I give my own, often chatting and laughing with them along the way.</p>
+              </div>
             </div>
           </div>
         );
@@ -518,47 +528,13 @@ const App: React.FC = () => {
       case "booking":
         return (
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20 animate-fade-in">
-            <div className="max-w-5xl mx-auto bg-white rounded-[3rem] shadow-2xl overflow-hidden flex flex-col md:flex-row min-h-[650px] border border-slate-100">
-              <div className="hidden md:flex md:w-1/3 bg-emerald-600 p-12 text-white flex-col justify-between">
-                <div>
-                  <div className="w-16 h-16 bg-white/20 rounded-2xl flex items-center justify-center mb-8 text-3xl">🐶</div>
-                  <h1 className="text-4xl font-black mb-4 leading-none uppercase tracking-tighter">{bookingStep === 1 ? "Services" : bookingStep === 2 ? "Schedule" : "Contact"}</h1>
-                  {bookingStep === 1 && (
-                    <div className="text-sm leading-relaxed space-y-4">
-                      <div>
-                        <p className="font-black text-base text-emerald-100 mb-2">Option 1: 30 minute sessions (recommended)</p>
-                        <p className="text-emerald-50">Short, calm sessions help your pup build confidence and become familiar with the sounds, smells and equipment in the grooming environment. Sessions include being handled gently, introduction to equipment, play, treats and plenty of love and reassurance.</p>
-                      </div>
-                      <div>
-                        <p className="font-black text-base text-emerald-100 mb-2">Option 2: 1.5 hours Puppy Groom</p>
-                        <p className="text-emerald-50">For puppies ready for a little more, this session includes a bath, dry, brush, puppy trim, paw tidy and nail trim.</p>
-                      </div>
-                    </div>
-                  )}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+              <div className="bg-white rounded-[3rem] shadow-2xl border border-slate-100 p-10 relative">
+                <div className="mb-8">
+                  <p className="text-xs font-black text-emerald-600 uppercase tracking-widest">Booking</p>
+                  <h1 className="text-4xl font-black mt-3 mb-2 tracking-tighter">Book a Groom</h1>
+                  <p className="text-slate-500">Complete the steps to request an appointment.</p>
                 </div>
-                <div className="space-y-4 text-sm bg-emerald-700/50 p-8 rounded-3xl">
-                  {formData.locationid && (
-                    <div className="flex justify-between items-center opacity-80 uppercase tracking-widest text-[10px] font-bold">
-                      <span>Salon</span>
-                      <span className="text-white">{LOCATIONS.find((l) => l.id === formData.locationid)?.name}</span>
-                    </div>
-                  )}
-                  {formData.date && (
-                    <div className="flex justify-between items-center opacity-80 uppercase tracking-widest text-[10px] font-bold">
-                      <span>Date</span>
-                      <span className="text-white">{formData.date}</span>
-                    </div>
-                  )}
-                  {formData.time && (
-                    <div className="flex justify-between items-center opacity-80 uppercase tracking-widest text-[10px] font-bold">
-                      <span>Time</span>
-                      <span className="text-white">{formData.time}</span>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              <div className="w-full md:w-2/3 p-12 relative">
                 {bookingError && (
                   <div className="absolute top-4 left-4 right-4 bg-rose-50 border border-rose-100 text-rose-600 p-4 rounded-2xl text-xs font-bold animate-shake z-10 flex items-center justify-between">
                     <span>⚠️ {bookingError}</span>
@@ -592,7 +568,7 @@ const App: React.FC = () => {
                     </div>
                     <div>
                       <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-3">Select Salon</label>
-                      <select value={formData.locationid} onChange={(e) => setFormData({ ...formData, locationid: e.target.value })} className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-emerald-500 transition-all font-bold">
+                      <select value={formData.locationid} onChange={(e) => setFormData({ ...formData, locationid: e.target.value })} disabled={isHomeGroom} className={`w-full px-6 py-4 border border-slate-200 rounded-2xl outline-none transition-all font-bold ${isHomeGroom ? "bg-slate-100 text-slate-400 cursor-not-allowed" : "bg-slate-50 focus:ring-2 focus:ring-emerald-500"}`}>
                         {LOCATIONS.map((l) => (
                           <option key={l.id} value={l.id}>
                             {l.name}
@@ -709,14 +685,19 @@ const App: React.FC = () => {
                             I confirm that I have read, understood, and agree to the{" "}
                             <button type="button" onClick={() => setShowAgreement(true)} className="underline hover:text-emerald-900 transition-colors font-black">
                               Service Agreement and Privacy Policy
-                            </button>{" "}
-                            of Dirty Dawg / Maisey Days Dog Grooming. I specifically acknowledge the Matting Policy, the £20 deposit requirement, and the 24-hour cancellation fee. I authorise emergency veterinary care at my own expense should it be deemed necessary.
+                            </button>
                           </span>
                         </div>
                       </label>
+                      {!agreedToTerms && (
+                        <div className="mt-4 bg-rose-50 border border-rose-200 text-rose-700 px-4 py-3 rounded-2xl text-sm font-bold flex items-start gap-3">
+                          <span className="text-lg mt-0.5">⚠️</span>
+                          <span>Please read and agree to the Service Agreement & Privacy Policy to proceed.</span>
+                        </div>
+                      )}
                     </div>
-                    <div className="bg-white border-2 border-slate-200 p-6 rounded-2xl">
-                      <label className="block text-sm font-bold text-slate-800 mb-4">Marketing Consent: I agree to the use of my dog's image for social media/advertising</label>
+                    <div className={`p-6 rounded-2xl border-2 transition-all ${marketingConsent === "" ? "bg-rose-50 border-rose-200" : "bg-emerald-50 border-emerald-200"}`}>
+                      <label className={`block text-sm font-bold mb-4 ${marketingConsent === "" ? "text-rose-800" : "text-emerald-800"}`}>Should Maisey Days be unable to fulfil an appointment, I consent to my contact details being shared with the grooming team at Dirty Dawg ONLY for the purpose of arranging an alternative booking.</label>
                       <div className="flex gap-8">
                         <label className="flex items-center gap-3 cursor-pointer">
                           <input type="radio" name="marketing" value="yes" checked={marketingConsent === "yes"} onChange={(e) => setMarketingConsent("yes")} className="w-5 h-5 accent-emerald-600 cursor-pointer" />
@@ -728,16 +709,10 @@ const App: React.FC = () => {
                         </label>
                       </div>
                     </div>
-                    {!agreedToTerms && (
-                      <div className="bg-rose-50 border border-rose-200 text-rose-700 px-6 py-4 rounded-2xl text-sm font-bold flex items-start gap-3">
-                        <span className="text-lg mt-0.5">⚠️</span>
-                        <span>You must read and agree to the Service Agreement & Privacy Policy before submitting your booking.</span>
-                      </div>
-                    )}
                     {marketingConsent === "" && (
                       <div className="bg-amber-50 border border-amber-200 text-amber-700 px-6 py-4 rounded-2xl text-sm font-bold flex items-start gap-3">
                         <span className="text-lg mt-0.5">ℹ️</span>
-                        <span>Please select your marketing consent preference (Yes or No).</span>
+                        <span>Please select your contact sharing consent preference (Yes or No).</span>
                       </div>
                     )}
                     <div className="flex gap-4">
@@ -750,6 +725,36 @@ const App: React.FC = () => {
                     </div>
                   </form>
                 )}
+              </div>
+              <div className="bg-white rounded-[3rem] shadow-2xl border border-slate-100 p-10">
+                <div className="mb-8">
+                  <p className="text-xs font-black text-emerald-600 uppercase tracking-widest">Enquiries</p>
+                  <h2 className="text-3xl font-black mt-3 mb-2 tracking-tighter">Ask a Question</h2>
+                  <p className="text-slate-500">Not ready to book? Send us a message and we will get back to you.</p>
+                </div>
+                <form onSubmit={handleEnquirySubmit} className="space-y-6">
+                  <div>
+                    <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-3">Full Name</label>
+                    <input required type="text" value={enquiryData.name} onChange={(e) => setEnquiryData({ ...enquiryData, name: e.target.value })} className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-emerald-500 transition-all font-bold" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-3">Email Address</label>
+                    <input required type="email" value={enquiryData.email} onChange={(e) => setEnquiryData({ ...enquiryData, email: e.target.value })} className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-emerald-500 transition-all font-bold" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-3">Phone Number</label>
+                    <input type="tel" value={enquiryData.phone} onChange={(e) => setEnquiryData({ ...enquiryData, phone: e.target.value })} placeholder="e.g. 07123 456789" className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-emerald-500 transition-all font-bold" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-3">Message</label>
+                    <textarea required value={enquiryData.message} onChange={(e) => setEnquiryData({ ...enquiryData, message: e.target.value })} className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-emerald-500 transition-all font-bold h-40" />
+                  </div>
+                  {enquiryError && <div className="bg-rose-50 border border-rose-100 text-rose-600 px-6 py-4 rounded-2xl text-sm font-bold">{enquiryError}</div>}
+                  {enquiryStatus === "sent" && <div className="bg-emerald-50 border border-emerald-100 text-emerald-700 px-6 py-4 rounded-2xl text-sm font-bold">Thanks! Your enquiry has been sent.</div>}
+                  <button type="submit" disabled={enquiryStatus === "sending"} className={`w-full text-white py-5 rounded-2xl font-black uppercase tracking-widest shadow-xl transition-all active:scale-95 ${enquiryStatus === "sending" ? "bg-slate-400 cursor-not-allowed" : "bg-emerald-600 shadow-emerald-600/30 hover:bg-emerald-700"}`}>
+                    {enquiryStatus === "sending" ? "Sending..." : "Send Enquiry"}
+                  </button>
+                </form>
               </div>
             </div>
           </div>

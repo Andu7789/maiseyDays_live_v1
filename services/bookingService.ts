@@ -215,7 +215,7 @@ Owner: ${appointment.ownername}
 Email: ${appointment.email}
 Phone: ${appointment.phone || "Not provided"}
 Notes: ${appointment.notes || "None"}
-Marketing Consent: ${appointment.marketingConsent ? (appointment.marketingConsent === "yes" ? "YES - May use dog's image for social media/advertising" : "NO - Do not use dog's image") : "Not specified"}
+Contact Share Consent: ${appointment.marketingConsent ? (appointment.marketingConsent === "yes" ? "YES - May share contact details with Dirty Dawg for alternative booking" : "NO - Do not share contact details") : "Not specified"}
 ${photoLink ? `\nPhoto for ${appointment.dogname} (Owner: ${appointment.ownername}, ${appointment.email}):\n${photoLink}` : "\nNo photo provided"}
     `;
     let response: Response;
@@ -348,11 +348,11 @@ export const removeUnavailableDay = async (date: string) => {
 export const saveUnavailableDateRange = async (startDate: string, endDate: string, reason: string) => {
   try {
     console.log("Saving unavailable date range:", startDate, "to", endDate, reason);
-    
+
     const start = new Date(startDate);
     const end = new Date(endDate);
     const datesInRange: string[] = [];
-    
+
     // Generate all dates between start and end (inclusive)
     for (let date = new Date(start); date <= end; date.setDate(date.getDate() + 1)) {
       const year = date.getFullYear();
@@ -360,12 +360,12 @@ export const saveUnavailableDateRange = async (startDate: string, endDate: strin
       const day = String(date.getDate()).padStart(2, "0");
       datesInRange.push(`${year}-${month}-${day}`);
     }
-    
+
     // Save all dates
     for (const dateStr of datesInRange) {
       await saveUnavailableDay(dateStr, reason);
     }
-    
+
     console.log("Successfully saved unavailable date range");
   } catch (err) {
     console.error("Catch error in saveUnavailableDateRange:", err);
