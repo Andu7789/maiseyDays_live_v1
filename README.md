@@ -4,6 +4,11 @@
 
 # Run and deploy your AI Studio app
 
+## Repo note
+
+Primary repo: https://github.com/Andu7789/maiseyDays_live_v1
+Backup repo: https://github.com/Andu7789/maiseyDays_live
+
 This contains everything you need to run your app locally.
 
 View your app in AI Studio: https://ai.studio/apps/drive/11DLMQKl00os6tuotEfvC3ztkzgGwjcXX
