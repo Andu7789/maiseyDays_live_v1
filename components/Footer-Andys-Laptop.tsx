@@ -51,7 +51,7 @@ const Footer: React.FC<FooterProps> = ({ setPage }) => {
               <span className="text-white text-2xl">🐾</span>
               <span className="text-2xl font-black text-white ml-2">Maisey Days @ Dirty Dawg</span>
             </div>
-            <p className="text-slate-400 max-w-sm">Providing premium, stress-free grooming experiences since 2015. We treat your furry friends like family.</p>
+            <p className="text-slate-400 max-w-sm">Grooming with care since 2018, treating every dog with patience, kindness and sensitivity</p>
           </div>
           <div>
             <h4 className="text-white font-bold mb-4">Quick Links</h4>
@@ -62,13 +62,18 @@ const Footer: React.FC<FooterProps> = ({ setPage }) => {
                 </button>
               </li>
               <li>
-                <button onClick={() => setPage("locations")} className="hover:text-emerald-400 transition-colors bg-none border-none p-0 cursor-pointer">
-                  Find a Location
+                <button onClick={() => setPage("home")} className="hover:text-emerald-400 transition-colors bg-none border-none p-0 cursor-pointer">
+                  Our Story
                 </button>
               </li>
               <li>
-                <button onClick={() => setPage("about")} className="hover:text-emerald-400 transition-colors bg-none border-none p-0 cursor-pointer">
-                  About the Team
+                <button onClick={() => setPage("home")} className="hover:text-emerald-400 transition-colors bg-none border-none p-0 cursor-pointer">
+                  Gallery
+                </button>
+              </li>
+              <li>
+                <button onClick={() => setPage("locations")} className="hover:text-emerald-400 transition-colors bg-none border-none p-0 cursor-pointer">
+                  Find a Location
                 </button>
               </li>
             </ul>
@@ -87,6 +92,10 @@ const Footer: React.FC<FooterProps> = ({ setPage }) => {
                   <p>{LOCATIONS[1].address}</p>
                   <p>{LOCATIONS[1].phone}</p>
                 </div>
+              </div>
+              <div className="border-t border-slate-700 pt-4 text-sm">
+                <p className="font-semibold text-white mb-2">Email</p>
+                <p className="mb-4">hello@dirtydawggrooming.co.uk</p>
               </div>
               <div className="border-t border-slate-700 pt-4 text-center text-sm">
                 <p className="font-semibold text-white">{openDays}</p>

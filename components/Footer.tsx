@@ -1,5 +1,6 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
 import { Page } from "../types";
+import { getUnavailableWeekdays } from "../services/bookingService";
 import { LOCATIONS } from "../constants";
 
 interface FooterProps {
@@ -7,6 +8,40 @@ interface FooterProps {
 }
 
 const Footer: React.FC<FooterProps> = ({ setPage }) => {
+  const [openDays, setOpenDays] = useState("Monday - Saturday");
+
+  useEffect(() => {
+    const loadOpenDays = async () => {
+      try {
+        const unavailableWeekdays = await getUnavailableWeekdays();
+        const allDays = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+        // Map day names to their original Sunday-first indices (0=Sunday, 1=Monday, etc.)
+        const dayIndexMap: { [key: string]: number } = {
+          Sunday: 0,
+          Monday: 1,
+          Tuesday: 2,
+          Wednesday: 3,
+          Thursday: 4,
+          Friday: 5,
+          Saturday: 6,
+        };
+        const availableDays = allDays.filter((day) => !unavailableWeekdays.includes(dayIndexMap[day]));
+
+        if (availableDays.length === 0) {
+          setOpenDays("By appointment only");
+        } else if (availableDays.length === 1) {
+          setOpenDays(availableDays[0]);
+        } else {
+          const formatted = availableDays.join(", ").replace(/, ([^,]*)$/, " & $1");
+          setOpenDays(formatted);
+        }
+      } catch (err) {
+        setOpenDays("Monday - Saturday");
+      }
+    };
+    loadOpenDays();
+  }, []);
+
   return (
     <footer className="bg-slate-900 text-slate-300 py-12">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -22,33 +57,23 @@ const Footer: React.FC<FooterProps> = ({ setPage }) => {
             <h4 className="text-white font-bold mb-4">Quick Links</h4>
             <ul className="space-y-2 text-sm">
               <li>
-                <button onClick={() => setPage("home")} className="hover:text-emerald-400 transition-colors bg-none border-none p-0 cursor-pointer">
-                  Home
-                </button>
-              </li>
-              <li>
                 <button onClick={() => setPage("services")} className="hover:text-emerald-400 transition-colors bg-none border-none p-0 cursor-pointer">
                   Our Services
                 </button>
               </li>
               <li>
-                <button onClick={() => setPage("about")} className="hover:text-emerald-400 transition-colors bg-none border-none p-0 cursor-pointer">
+                <button onClick={() => setPage("home")} className="hover:text-emerald-400 transition-colors bg-none border-none p-0 cursor-pointer">
                   Our Story
                 </button>
               </li>
               <li>
-                <button onClick={() => setPage("gallery")} className="hover:text-emerald-400 transition-colors bg-none border-none p-0 cursor-pointer">
+                <button onClick={() => setPage("home")} className="hover:text-emerald-400 transition-colors bg-none border-none p-0 cursor-pointer">
                   Gallery
                 </button>
               </li>
               <li>
                 <button onClick={() => setPage("locations")} className="hover:text-emerald-400 transition-colors bg-none border-none p-0 cursor-pointer">
                   Find a Location
-                </button>
-              </li>
-              <li>
-                <button onClick={() => setPage("privacy")} className="hover:text-emerald-400 transition-colors bg-none border-none p-0 cursor-pointer">
-                  Privacy Policy
                 </button>
               </li>
             </ul>
@@ -72,7 +97,8 @@ const Footer: React.FC<FooterProps> = ({ setPage }) => {
                   <p>hello@dirtydawggrooming.co.uk</p>
                 </div>
                 <div className="border-t border-slate-700 pt-2 text-xs">
-                  <p className="font-semibold text-white">Open Daily 8am - 8pm</p>
+                  <p className="font-semibold text-white">{openDays}</p>
+                  <p>9am - 8pm</p>
                 </div>
               </div>
             </div>

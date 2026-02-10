@@ -4,7 +4,7 @@ import Header from "./components/Header";
 import Footer from "./components/Footer";
 import AdminDashboard from "./components/AdminDashboard";
 import { CalendarPicker } from "./components/CalendarPicker";
-import { SERVICES, LOCATIONS, STANDARD_HOURS, EMAIL_ENDPOINT } from "./constants";
+import { SERVICES, LOCATIONS, STANDARD_HOURS } from "./constants";
 import { isSlotAvailable, saveAppointment, sendBookingEmail, sendConfirmationEmail, isDateAvailable, getUnavailableDays, getUnavailableWeekdays } from "./services/bookingService";
 
 const App: React.FC = () => {
@@ -27,7 +27,7 @@ const App: React.FC = () => {
   const [unavailableDates, setUnavailableDates] = useState<string[]>([]);
   const [calendarMonth, setCalendarMonth] = useState(new Date());
   const [agreedToTerms, setAgreedToTerms] = useState(false);
-  const [dataShareConsent, setDataShareConsent] = useState<"yes" | "no" | "">("");
+  const [marketingConsent, setMarketingConsent] = useState<"yes" | "no" | "">("");
   const [showAgreement, setShowAgreement] = useState(false);
 
   const testimonials = [
@@ -42,41 +42,49 @@ const App: React.FC = () => {
   ];
 
   const galleryItems = [
-    // Standard Portrait - ~240-280px wide x 320px tall (bulk of collection)
-    { src: "/gallery/2.jpg", featured: false },
-    { src: "/gallery/3.jpg", featured: false },
-    { src: "/gallery/4.jpg", featured: false },
-    { src: "/gallery/5.jpg", featured: false },
-    { src: "/gallery/6.jpg", featured: false },
-    { src: "/gallery/7.jpg", featured: false },
-    { src: "/gallery/8.jpg", featured: false },
-    { src: "/gallery/9.jpg", featured: false },
-    { src: "/gallery/10.jpg", featured: false },
-    { src: "/gallery/12.jpg", featured: false },
-    { src: "/gallery/13.jpg", featured: false },
-    { src: "/gallery/14.jpg", featured: false },
-    { src: "/gallery/15.jpg", featured: false },
-    { src: "/gallery/18.jpg", featured: false },
-    { src: "/gallery/21.jpg", featured: false },
-    { src: "/gallery/22.jpg", featured: false },
-    { src: "/gallery/25.jpg", featured: false },
-    { src: "/gallery/26.jpg", featured: false },
-    { src: "/gallery/29.jpg", featured: false },
-    { src: "/gallery/30.jpg", featured: false },
-    { src: "/gallery/31.jpg", featured: false },
-    { src: "/gallery/33.jpg", featured: false },
-    
-    // Different Aspect Ratios (landscape & unique)
-    { src: "/gallery/11.jpg", featured: false },
-    { src: "/gallery/16.jpg", featured: false },
-    { src: "/gallery/17.jpg", featured: false },
-    { src: "/gallery/19.jpg", featured: false },
-    { src: "/gallery/20.jpg", featured: false },
-    { src: "/gallery/23.jpg", featured: false },
-    { src: "/gallery/24.jpg", featured: false },
-    { src: "/gallery/27.jpg", featured: false },
-    { src: "/gallery/32.jpg", featured: false },
-    { src: "/gallery/1.jpg", featured: false },
+    { src: "/gallery/image0.jpeg", featured: true },
+    { src: "/gallery/image1.jpeg" },
+    { src: "/gallery/image2.jpeg" },
+    { src: "/gallery/image3.jpeg" },
+    { src: "/gallery/image4.jpeg" },
+    { src: "/gallery/image5.jpeg" },
+    { src: "/gallery/image6.jpeg" },
+    { src: "/gallery/image7.jpeg" },
+    { src: "/gallery/image8.jpeg" },
+    { src: "/gallery/image9.jpeg" },
+    { src: "/gallery/image10.jpeg" },
+    { src: "/gallery/image10_1.jpeg" },
+    { src: "/gallery/image11.jpeg" },
+    { src: "/gallery/image11_1.jpeg" },
+    { src: "/gallery/image12.jpeg" },
+    { src: "/gallery/image13.jpeg" },
+    { src: "/gallery/image14.jpeg" },
+    { src: "/gallery/image14_1.jpeg" },
+    { src: "/gallery/image15.jpeg" },
+    { src: "/gallery/image16.jpeg" },
+    { src: "/gallery/image17.jpeg" },
+    { src: "/gallery/image18.jpeg" },
+    { src: "/gallery/image19.jpeg" },
+    { src: "/gallery/image20.jpeg" },
+    { src: "/gallery/image21.jpeg" },
+    { src: "/gallery/image22.jpeg" },
+    { src: "/gallery/image23.jpeg" },
+    { src: "/gallery/image24.jpeg" },
+    { src: "/gallery/image25.jpeg" },
+    { src: "/gallery/image26.jpeg" },
+    { src: "/gallery/image27.jpeg" },
+    { src: "/gallery/image28.jpeg" },
+    { src: "/gallery/imag29.jpeg" },
+    { src: "/gallery/imag30.jpeg" },
+    { src: "/gallery/imag31.jpeg" },
+    { src: "/gallery/image32.jpeg" },
+    { src: "/gallery/imag33.jpeg" },
+    { src: "/gallery/imag34.jpeg" },
+    { src: "/gallery/image35.jpeg" },
+    { src: "/gallery/image36.jpeg" },
+    { src: "/gallery/imag37.jpeg" },
+    { src: "/gallery/image38.jpeg" },
+    { src: "/gallery/image39.jpeg" },
   ];
 
   useEffect(() => {
@@ -142,11 +150,6 @@ const App: React.FC = () => {
     }
   }, [bookingStep, formData.locationid]);
 
-  // Scroll to top when page changes
-  useEffect(() => {
-    window.scrollTo(0, 0);
-  }, [currentPage]);
-
   const handleBookingSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isSubmitting) return;
@@ -158,8 +161,8 @@ const App: React.FC = () => {
     }
 
     // Check if marketing consent was selected
-    if (dataShareConsent === "") {
-      setBookingError("Please confirm your consent to data sharing.");
+    if (marketingConsent === "") {
+      setBookingError("Please select your marketing consent preference (YES or NO).");
       return;
     }
 
@@ -178,7 +181,7 @@ const App: React.FC = () => {
       time: formData.time || "",
       notes: formData.notes || "",
       status: "pending",
-      marketingConsent: dataShareConsent as "yes" | "no",
+      marketingConsent: marketingConsent as "yes" | "no",
     };
 
     try {
@@ -201,7 +204,7 @@ const App: React.FC = () => {
       return (
         <div className="max-w-2xl mx-auto py-32 text-center px-4 animate-fade-in">
           <div className="w-24 h-24 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-8 text-5xl">✅</div>
-          <h1 className="text-3xl sm:text-4xl md:text-5xl font-black mb-4 tracking-tight">Booking Sent!</h1>
+          <h1 className="text-5xl font-black mb-4 tracking-tight uppercase">Booking Sent!</h1>
           <p className="text-slate-500 text-xl leading-relaxed">
             We've received your request for <strong>{formData.dogname}</strong>. We'll be in touch at <strong>{formData.email}</strong> shortly.
           </p>
@@ -230,14 +233,13 @@ const App: React.FC = () => {
               </div>
               <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-white">
                 <div className="max-w-2xl">
-                  <h1 className="text-3xl sm:text-4xl md:text-6xl lg:text-8xl font-black mb-6 leading-[0.9] tracking-tighter">
+                  <h1 className="text-6xl md:text-8xl font-black mb-6 leading-[0.9] tracking-tighter">
                     WHERE EVERY DOG
                     <br />
-                    <span className="text-emerald-400">IS A VIP</span> <span className="text-sm sm:text-lg md:text-3xl lg:text-4xl whitespace-nowrap">(Very&nbsp;&nbsp;Important&nbsp;&nbsp;Pup)</span>
+                    <span className="text-emerald-400">IS A VIP</span> <span className="text-3xl md:text-4xl whitespace-nowrap">(Very&nbsp;&nbsp;Important&nbsp;&nbsp;Pup)</span>
                   </h1>
-                  <h2 className="text-lg sm:text-2xl md:text-[32px] font-bold mb-3 text-slate-200">Grooming with Care and Trust</h2>
-                  <p className="text-sm sm:text-base md:text-[20px] mb-8 text-slate-200">Grooming should always be a positive, stress-free experience tailored to the individual needs and personality of your dog. With seven years of grooming experience, our ethos is focused on building trust and a relationship with your dog, using a patient approach that incorporates consent-based methods to prioritise your pets comfort.</p>
-                  <p className="text-sm sm:text-base md:text-[20px] mb-8 text-slate-200">From quick tidy-ups to full transformations, your pup is in safe hands, working towards a relaxed visit and a happy, waggy tail when leaving.</p>
+                  <h2 className="text-[32px] font-bold mb-3 text-slate-200">Grooming with Care and Trust</h2>
+                  <p className="text-[20px] mb-8 text-slate-200">Working with your dog to build confidence, reduce stress and create positive grooming experiences</p>
                   <div className="flex flex-col sm:flex-row gap-4">
                     <button onClick={() => setCurrentPage("booking")} className="bg-emerald-600 hover:bg-emerald-700 text-white px-10 py-5 rounded-3xl font-black text-lg transition-all transform hover:scale-105 shadow-xl shadow-emerald-900/40">
                       BOOK NOW
@@ -277,7 +279,7 @@ const App: React.FC = () => {
             {/* Testimonials Carousel */}
             <section className="py-8">
               <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-                <h2 className="text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-black text-center mb-16 tracking-tight">What Our Pawsome Clients Say</h2>
+                <h2 className="text-5xl font-black text-center mb-16 tracking-tight">WHAT OUR PAWSOME CLIENTS SAY</h2>
                 <div className="relative">
                   {/* Navigation Buttons */}
                   <button
@@ -316,18 +318,6 @@ const App: React.FC = () => {
                       setIsCarouselPaused(true);
                     }}
                     onMouseLeave={() => {
-                      const carousel = document.getElementById("testimonials-carousel");
-                      if (carousel) carousel.style.scrollBehavior = "smooth";
-                      setIsCarouselPaused(false);
-                    }}
-                    onTouchStart={(e) => {
-                      const carousel = document.getElementById("testimonials-carousel");
-                      if (carousel) {
-                        carousel.style.scrollBehavior = "auto";
-                        setIsCarouselPaused(true);
-                      }
-                    }}
-                    onTouchEnd={() => {
                       const carousel = document.getElementById("testimonials-carousel");
                       if (carousel) carousel.style.scrollBehavior = "smooth";
                       setIsCarouselPaused(false);
@@ -375,18 +365,13 @@ const App: React.FC = () => {
             </section>
 
             {/* CTA Section */}
-            <section className="bg-emerald-600 rounded-[3rem] mx-auto my-20 p-16 max-w-4xl">
+            <section className="bg-teal-600 rounded-[3rem] mx-auto my-20 p-16 max-w-4xl">
               <div className="text-center">
-                <h2 className="text-2xl sm:text-3xl md:text-5xl lg:text-6xl font-black text-white mb-6 tracking-tight">Ready to Pamper Your Pet?</h2>
-                <p className="text-sm sm:text-base md:text-xl text-emerald-50 mb-10 leading-relaxed">Choose Winterton-on-Sea or our Caister location to book a grooming appointment tailored to your dogs needs.</p>
-                <div className="flex flex-col sm:flex-row gap-4 justify-center">
-                  <button onClick={() => setCurrentPage("booking")} className="bg-white text-emerald-600 px-12 py-4 rounded-full font-black text-lg hover:bg-slate-50 transition-all shadow-lg hover:shadow-xl transform hover:scale-105">
-                    Start Booking
-                  </button>
-                  <button onClick={() => setCurrentPage("gallery")} className="bg-white text-emerald-600 px-12 py-4 rounded-full font-black text-lg hover:bg-slate-50 transition-all shadow-lg hover:shadow-xl transform hover:scale-105">
-                    View Gallery
-                  </button>
-                </div>
+                <h2 className="text-5xl md:text-6xl font-black text-white mb-6 tracking-tight">Ready to Pamper Your Pet?</h2>
+                <p className="text-xl text-teal-50 mb-10 leading-relaxed">Choose Winterton-on-Sea or our Caister location to book a grooming appointment tailored to your dogs needs.</p>
+                <button onClick={() => setCurrentPage("booking")} className="bg-white text-teal-600 px-12 py-4 rounded-full font-black text-lg hover:bg-slate-50 transition-all shadow-lg hover:shadow-xl transform hover:scale-105">
+                  Start Booking
+                </button>
               </div>
             </section>
           </div>
@@ -395,80 +380,74 @@ const App: React.FC = () => {
       case "services":
         return (
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20 animate-fade-in">
-            <div className="bg-emerald-50 rounded-[3rem] p-8 sm:p-16 border-2 border-emerald-200">
-              <h1 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-black text-center text-slate-800 tracking-tighter mb-8">Our Services</h1>
-              <p className="text-slate-500 text-center mb-16 text-sm sm:text-base md:text-lg max-w-2xl mx-auto">Whether it's a quick refresh or the full works, we have the perfect package to get your pup looking and feeling their best</p>
-              <div className="max-w-4xl mx-auto grid grid-cols-1 gap-10">
+            <h1 className="text-6xl font-black text-center mb-4 text-slate-800 tracking-tighter">OUR SERVICES</h1>
+            <p className="text-slate-500 text-center mb-16 text-lg max-w-2xl mx-auto">From quick tidy-ups to full transformations, we have the perfect package for your pup.</p>
+            <div className="max-w-4xl mx-auto grid grid-cols-1 gap-10">
               {SERVICES.map((s) => (
                 <div key={s.id} className="bg-white rounded-[3rem] overflow-hidden shadow-sm border border-slate-100 flex flex-col lg:flex-row group hover:shadow-2xl transition-all duration-500">
-                  <div className="lg:w-2/5 overflow-hidden h-48 sm:h-64 lg:h-full">
-                    <img src={s.image} alt={s.name} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" />
+                  <div className="lg:w-2/5 overflow-hidden">
+                    <img src={s.image} alt={s.name} className="w-full h-64 lg:h-full object-cover group-hover:scale-110 transition-transform duration-700" />
                   </div>
-                  <div className="p-6 sm:p-10 flex flex-col justify-between lg:w-3/5">
+                  <div className="p-10 flex flex-col justify-between lg:w-3/5">
                     <div>
-                      <div className="flex justify-between items-start mb-4 gap-2">
-                        <h3 className="text-xl sm:text-2xl md:text-3xl font-black text-slate-800 leading-tight">{s.name}</h3>
-                        <span className="text-teal-600 font-black text-lg sm:text-xl flex-shrink-0">{s.price}</span>
+                      <div className="flex justify-between items-start mb-4">
+                        <h3 className="text-3xl font-black text-slate-800 leading-tight">{s.name}</h3>
+                        <span className="text-teal-600 font-black text-xl">{s.price}</span>
                       </div>
-                      <p className="text-slate-500 mb-6 text-sm sm:text-base">{s.description}</p>
+                      <p className="text-slate-500 mb-6">{s.description}</p>
                     </div>
                     <button
                       onClick={() => {
                         setFormData({ ...formData, serviceid: s.id });
                         setCurrentPage("booking");
                       }}
-                      className="mt-8 bg-slate-900 text-white py-3 sm:py-4 px-6 sm:px-8 rounded-2xl font-bold text-sm sm:text-base hover:bg-teal-600 transition-colors"
+                      className="mt-8 bg-slate-900 text-white py-4 px-8 rounded-2xl font-bold hover:bg-teal-600 transition-colors"
                     >
                       Book This Service
                     </button>
                   </div>
                 </div>
               ))}
-              </div>
             </div>
           </div>
         );
 
       case "gallery":
         return (
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20 animate-fade-in">
-            <div className="text-center mb-16">
-              <h1 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-black text-slate-800 tracking-tighter">Grooming Gallery</h1>
-            </div>
-
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
-              <div className="lg:col-span-1 space-y-6">
-                <div className="bg-white rounded-[2.5rem] p-10 shadow-sm border border-slate-100">
-                  <h3 className="text-3xl font-black text-slate-800 mb-4">Why pet parents love us</h3>
-                  <p className="text-slate-600 leading-relaxed">Trust is earned, not given. We take the time to truly know your dog, providing a peaceful, cage-free space where they can feel safe and looked after at their own pace</p>
-
-                </div>
-
-                <div className="bg-emerald-600 rounded-[2.5rem] p-10 text-white shadow-lg shadow-emerald-500/30">
-                  <h3 className="text-3xl font-black mb-4">Ready for a fresh look?</h3>
-                  <p className="text-emerald-50 mb-6">Choose from our Winterton-on-Sea or Caister location to book a grooming appointment tailored to your dog's needs.</p>
-                  <button onClick={() => setCurrentPage("booking")} className="bg-white text-emerald-700 px-8 py-4 rounded-2xl font-bold uppercase tracking-widest text-sm hover:bg-emerald-50 transition-all">
-                    Book an Appointment
-                  </button>
-                </div>
+          <div className="bg-slate-50 py-20 animate-fade-in">
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+              <div className="text-center mb-16">
+                <span className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-emerald-100 text-emerald-700 text-xs font-bold uppercase tracking-widest">Gallery</span>
+                <h1 className="text-6xl font-black mt-6 mb-4 text-slate-800 tracking-tighter">GROOMING GALLERY</h1>
+                <p className="text-slate-500 text-lg max-w-3xl mx-auto">A curated look at our calm, one-on-one grooming experience. From first-time puppy visits to full transformations, every photo reflects our gentle, detail-focused care.</p>
               </div>
 
-              <div className="lg:col-span-2">
-                {galleryItems.length === 0 ? (
-                  <div className="bg-white rounded-[2.5rem] p-16 shadow-sm border border-slate-100 text-center">
-                    <div className="text-6xl mb-6">📸</div>
-                    <h3 className="text-3xl font-black text-slate-800 mb-4">Coming Soon</h3>
-                    <p className="text-slate-600 text-lg">We're capturing all the beautiful grooming transformations! Check back soon for photos of our latest work.</p>
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
+                <div className="lg:col-span-1 space-y-6">
+                  <div className="bg-white rounded-[2.5rem] p-10 shadow-sm border border-slate-100">
+                    <h3 className="text-3xl font-black text-slate-800 mb-4">Why pet parents love us</h3>
+                    <p className="text-slate-600 leading-relaxed">We take time to earn trust, especially with nervous pups. Our environment is calm, cage-free, and tailored to each dog’s comfort level.</p>
+
                   </div>
-                ) : (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-6 auto-rows-[280px] sm:auto-rows-[220px] border-4 border-emerald-500 rounded-[2.5rem] p-8">
+
+                  <div className="bg-emerald-600 rounded-[2.5rem] p-10 text-white shadow-lg shadow-emerald-500/30">
+                    <h3 className="text-3xl font-black mb-4">Ready for a fresh look?</h3>
+                    <p className="text-emerald-50 mb-6">Choose from our Winterton-on-Sea or Caister location to book a grooming appointment tailored to your dog's needs.</p>
+                    <button onClick={() => setCurrentPage("booking")} className="bg-white text-emerald-700 px-8 py-4 rounded-2xl font-bold uppercase tracking-widest text-sm hover:bg-emerald-50 transition-all">
+                      Book an Appointment
+                    </button>
+                  </div>
+                </div>
+
+                <div className="lg:col-span-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-6 auto-rows-[280px] sm:auto-rows-[220px]">
                     {galleryItems.map((item, idx) => (
                       <div key={`gallery-${idx}`} className={`group relative rounded-[1.5rem] sm:rounded-[2rem] overflow-hidden shadow-md bg-white ${item.featured ? "sm:col-span-2 sm:row-span-2" : ""}`}>
                         <img src={item.src} alt={`Gallery image ${idx + 1}`} className="w-full h-full object-contain group-hover:scale-105 transition-transform duration-700" />
                       </div>
                     ))}
                   </div>
-                )}
+                </div>
               </div>
             </div>
           </div>
@@ -476,68 +455,62 @@ const App: React.FC = () => {
 
       case "about":
         return (
-          <div className="max-w-4xl mx-auto py-8 sm:py-20 px-4 animate-fade-in">
-            <div className="bg-emerald-50 rounded-[3rem] p-8 sm:p-12 md:p-16 border-2 border-emerald-200">
-              <div className="text-center">
-                <h1 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-black text-slate-800 tracking-tighter mb-6 sm:mb-10">Our Story</h1>
-                <div className="mb-8 sm:mb-12 rounded-[3rem] overflow-hidden shadow-2xl max-h-64 sm:max-h-80">
-                  <img src="/4c3b33ff-5557-415d-beb5-a9ef531d73ae%20(3).jpg" className="w-full h-full object-cover" />
-                </div>
-                <div className="text-sm sm:text-base md:text-lg text-slate-500 leading-relaxed font-medium space-y-4 sm:space-y-6 text-left">
-                  <p>At Maisey Days Grooming, I work with the simple ethos that every dog deserves a positive and professional grooming experience. I am here to provide a calm, compassionate space, with a particular focus on those who may be nervous or sensitive. I believe grooming shouldn't be an ordeal; my focus is to work towards a positive experience where every dog can learn to enjoy their time with me and feel truly comfortable. There is no better reward for my work than seeing waggy tails coming through the door and being greeted with happy licks from a dog who is excited to see me and feels safe and relaxed in my care.</p>
+          <div className="max-w-4xl mx-auto px-4 py-24 text-center animate-fade-in">
+            <h1 className="text-6xl font-black mb-10 tracking-tighter">OUR STORY</h1>
+            <div className="mb-12 rounded-[3rem] overflow-hidden shadow-2xl">
+              <img src="/4c3b33ff-5557-415d-beb5-a9ef531d73ae%20(3).jpg" className="w-full h-auto object-contain" />
+            </div>
+            <div className="text-lg text-slate-500 leading-relaxed font-medium space-y-6 text-left">
+              <p>At Maisey Days Grooming, I work with the simple ethos that every dog deserves a positive and professional grooming experience. I am here to provide a calm, compassionate space, with a particular focus on those who may be nervous or sensitive. I believe grooming shouldn't be an ordeal; my focus is to work towards a positive experience where every dog can learn to enjoy their time with me and feel truly comfortable. There is no better reward for my work than seeing waggy tails coming through the door and being greeted with happy licks from a dog who is excited to see me and feels safe and relaxed in my care.</p>
 
-                  <p>The inspiration behind my journey is the love I have for my German Shepherd, Maisey. When she came home as a puppy in 2016, her incredibly lively nature was a steep learning curve that I hadn't quite prepared for; I soon discovered that life with Maisey was going to be a whirlwind adventure!</p>
+              <p>The inspiration behind my journey is the love I have for my German Shepherd, Maisey. When she came home as a puppy in 2016, her incredibly lively nature was a steep learning curve that I hadn't quite prepared for; I soon discovered that life with Maisey was going to be a whirlwind adventure!</p>
 
-                  <p>Our first five years together were a gentle test of heart and soul. We navigated the hurdles of reactivity, a journey that often felt like one step forward and two steps back. There were many moments of tears and frustration, yet through soft perseverance and a deep determination to truly understand one another, we found our way. Maisey has taught me more about behaviour, patience, and trust than any textbook ever could; she was a little pickle, but a beautiful complex girl who challenged me and showed me the true meaning of a bond. Now ten years old, Maisey remains at the heart of everything I do; she is a constant reminder of how much we can learn from our dogs, and she remains my greatest teacher.</p>
+              <p>Our first five years together were a gentle test of heart and soul. We navigated the hurdles of reactivity, a journey that often felt like one step forward and two steps back. There were many moments of tears and frustration, yet through soft perseverance and a deep determination to truly understand one another, we found our way. Maisey has taught me more about behaviour, patience, and trust than any textbook ever could; she was a little pickle, but a beautiful complex girl who challenged me and showed me the true meaning of a bond. Now ten years old, Maisey remains at the heart of everything I do; she is a constant reminder of how much we can learn from our dogs, and she remains my greatest teacher.</p>
 
-                  <p>My journey with Maisey inspired me to become a professional dog groomer, qualifying in 2020. I now balance my grooming work with my career in teaching and education . I find that both roles share a common thread, understanding individuals, building confidence, and creating an environment where trust can grow.</p>
+              <p>My journey with Maisey inspired me to become a professional dog groomer, qualifying in 2020. I now balance my grooming work with my career in teaching and education . I find that both roles share a common thread, understanding individuals, building confidence, and creating an environment where trust can grow.</p>
 
-                  <p>Customers trust Maisey Days grooming because I provide a professional service where comfort and wellbeing are my top priorities. I don't just groom your dog; I advocate for their happiness, ensuring their emotional needs are at the heart of every brush, bath, and style. I treat every dog with the same care and devotion I give my own, often chatting and laughing with them along the way.</p>
-                </div>
-              </div>
+              <p>Customers trust Maisey Days grooming because I provide a professional service where comfort and wellbeing are my top priorities. I don't just groom your dog; I advocate for their happiness, ensuring their emotional needs are at the heart of every brush, bath, and style. I treat every dog with the same care and devotion I give my own, often chatting and laughing with them along the way.</p>
             </div>
           </div>
         );
 
       case "locations":
         return (
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12 md:py-20 animate-fade-in">
-            <div className="bg-emerald-50 rounded-[3rem] p-8 sm:p-12 md:p-16 border-2 border-emerald-200">
-              <h1 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-black text-center text-slate-800 tracking-tighter mb-4 sm:mb-6 md:mb-8">Visit Us</h1>
-              <p className="text-center text-slate-600 text-xs sm:text-base md:text-lg lg:text-xl font-semibold mb-8">Open Daily 8am - 8pm</p>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-8 sm:gap-10 md:gap-12">
-                {LOCATIONS.map((l) => (
-                  <div key={l.id} className="bg-white rounded-[3rem] overflow-hidden shadow-lg border border-slate-100 group flex flex-col h-full">
-                    <div className="h-48 sm:h-64 md:h-96 overflow-hidden bg-slate-100 flex items-center justify-center flex-shrink-0">
-                      <img src={l.image} className="w-full h-full object-contain group-hover:scale-105 transition-transform duration-700 border-[5px] border-gray-300" />
+          <div className="max-w-7xl mx-auto px-4 py-20 animate-fade-in">
+            <h1 className="text-6xl font-black text-center mb-16 tracking-tighter uppercase">Visit Us</h1>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-12">
+              {LOCATIONS.map((l) => (
+                <div key={l.id} className="bg-white rounded-[3rem] overflow-hidden shadow-lg border border-slate-100 group">
+                  <div className="h-72 overflow-hidden">
+                    <img src={l.image} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700" />
+                  </div>
+                  <div className="p-12">
+                    <div className="text-center mb-8">
+                      <h3 className="text-4xl font-black mb-4 text-slate-800">{l.name}</h3>
+                      <p className="text-slate-500 mb-4 text-lg">{l.address}</p>
+                      <p className="text-slate-600 text-sm mb-6">{l.hours}</p>
+                      <p className="text-slate-600 text-sm mb-6">{l.phone}</p>
                     </div>
-                    <div className="p-6 sm:p-8 md:p-12 flex flex-col flex-grow">
-                      <div className="text-center mb-6 sm:mb-8">
-                        <h3 className="text-xl sm:text-2xl md:text-3xl lg:text-4xl font-black mb-2 sm:mb-3 md:mb-4 text-slate-800">{l.name}</h3>
-                        <p className="text-slate-500 mb-2 sm:mb-3 md:mb-4 text-xs sm:text-sm md:text-base lg:text-lg">{l.address}</p>
-                        <p className="text-slate-500 mb-4 sm:mb-5 md:mb-6 text-xs sm:text-sm md:text-base lg:text-lg">{l.phone}</p>
-                      </div>
-                      <div className="mb-6 sm:mb-8 rounded-2xl overflow-hidden shadow-md flex-shrink-0">
-                        <iframe width="100%" height="200" style={{ border: 0 }} loading="lazy" allowFullScreen referrerPolicy="no-referrer-when-downgrade" src={`https://www.google.com/maps/embed/v1/place?key=AIzaSyDE8Su7ph7YLR1ZIqgMdUb6yaGezG5kMCY&q=${encodeURIComponent(l.address)}`}></iframe>
-                      </div>
-                      <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 mt-auto">
-                        <a href={`https://www.google.com/maps/dir/?api=1&destination=${l.coordinates.lat},${l.coordinates.lng}`} target="_blank" rel="noopener noreferrer" className="flex-1 bg-blue-600 text-white px-4 sm:px-6 py-2.5 sm:py-3 rounded-2xl font-bold text-center text-sm sm:text-base hover:bg-blue-700 transition-all shadow-lg shadow-blue-600/30">
-                          Get Directions
-                        </a>
-                        <button
-                          onClick={() => {
-                            setFormData({ ...formData, locationid: l.id });
-                            setCurrentPage("booking");
-                          }}
-                          className="flex-1 bg-emerald-600 text-white px-4 sm:px-6 py-2.5 sm:py-3 rounded-2xl font-bold text-sm sm:text-base shadow-lg shadow-emerald-600/30 hover:bg-emerald-700 transition-all"
-                        >
-                          Book Now
-                        </button>
-                      </div>
+                    <div className="mb-8 rounded-2xl overflow-hidden shadow-md">
+                      <iframe width="100%" height="250" style={{ border: 0 }} loading="lazy" allowFullScreen referrerPolicy="no-referrer-when-downgrade" src={`https://www.google.com/maps/embed/v1/place?key=AIzaSyDE8Su7ph7YLR1ZIqgMdUb6yaGezG5kMCY&q=${encodeURIComponent(l.address)}`}></iframe>
+                    </div>
+                    <div className="flex gap-4">
+                      <a href={`https://www.google.com/maps/dir/?api=1&destination=${l.coordinates.lat},${l.coordinates.lng}`} target="_blank" rel="noopener noreferrer" className="flex-1 bg-blue-600 text-white px-6 py-3 rounded-2xl font-bold text-center hover:bg-blue-700 transition-all shadow-lg shadow-blue-600/30">
+                        Get Directions
+                      </a>
+                      <button
+                        onClick={() => {
+                          setFormData({ ...formData, locationid: l.id });
+                          setCurrentPage("booking");
+                        }}
+                        className="flex-1 bg-emerald-600 text-white px-6 py-3 rounded-2xl font-bold shadow-lg shadow-emerald-600/30 hover:bg-emerald-700 transition-all"
+                      >
+                        Book Now
+                      </button>
                     </div>
                   </div>
-                ))}
-              </div>
+                </div>
+              ))}
             </div>
           </div>
         );
@@ -545,23 +518,55 @@ const App: React.FC = () => {
       case "booking":
         return (
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20 animate-fade-in">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-              {/* Booking Form */}
-              <div className="bg-white rounded-[3rem] shadow-2xl p-12 border border-slate-100">
-                <div className="text-center mb-8">
-                  <h2 className="text-3xl font-black text-slate-800 mb-2">Booking Request Form</h2>
-                  <p className="text-slate-600 text-sm">Schedule your appointment</p>
-                </div>
-
-                <div className="w-full relative">
-                  {bookingError && (
-                    <div className="absolute top-4 left-4 right-4 bg-rose-50 border border-rose-100 text-rose-700 p-4 rounded-2xl text-xs font-bold animate-shake z-10 flex items-center justify-between">
-                      <span>⚠️ {bookingError}</span>
-                      <button onClick={() => setBookingError(null)} className="text-rose-300 hover:text-rose-700">
-                        ✕
-                      </button>
+            <div className="max-w-5xl mx-auto bg-white rounded-[3rem] shadow-2xl overflow-hidden flex flex-col md:flex-row min-h-[650px] border border-slate-100">
+              <div className="hidden md:flex md:w-1/3 bg-emerald-600 p-12 text-white flex-col justify-between">
+                <div>
+                  <div className="w-16 h-16 bg-white/20 rounded-2xl flex items-center justify-center mb-8 text-3xl">🐶</div>
+                  <h1 className="text-4xl font-black mb-4 leading-none uppercase tracking-tighter">{bookingStep === 1 ? "Services" : bookingStep === 2 ? "Schedule" : "Contact"}</h1>
+                  {bookingStep === 1 && (
+                    <div className="text-sm leading-relaxed space-y-4">
+                      <div>
+                        <p className="font-black text-base text-emerald-100 mb-2">Option 1: 30 minute sessions (recommended)</p>
+                        <p className="text-emerald-50">Short, calm sessions help your pup build confidence and become familiar with the sounds, smells and equipment in the grooming environment. Sessions include being handled gently, introduction to equipment, play, treats and plenty of love and reassurance.</p>
+                      </div>
+                      <div>
+                        <p className="font-black text-base text-emerald-100 mb-2">Option 2: 1.5 hours Puppy Groom</p>
+                        <p className="text-emerald-50">For puppies ready for a little more, this session includes a bath, dry, brush, puppy trim, paw tidy and nail trim.</p>
+                      </div>
                     </div>
                   )}
+                </div>
+                <div className="space-y-4 text-sm bg-emerald-700/50 p-8 rounded-3xl">
+                  {formData.locationid && (
+                    <div className="flex justify-between items-center opacity-80 uppercase tracking-widest text-[10px] font-bold">
+                      <span>Salon</span>
+                      <span className="text-white">{LOCATIONS.find((l) => l.id === formData.locationid)?.name}</span>
+                    </div>
+                  )}
+                  {formData.date && (
+                    <div className="flex justify-between items-center opacity-80 uppercase tracking-widest text-[10px] font-bold">
+                      <span>Date</span>
+                      <span className="text-white">{formData.date}</span>
+                    </div>
+                  )}
+                  {formData.time && (
+                    <div className="flex justify-between items-center opacity-80 uppercase tracking-widest text-[10px] font-bold">
+                      <span>Time</span>
+                      <span className="text-white">{formData.time}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="w-full md:w-2/3 p-12 relative">
+                {bookingError && (
+                  <div className="absolute top-4 left-4 right-4 bg-rose-50 border border-rose-100 text-rose-600 p-4 rounded-2xl text-xs font-bold animate-shake z-10 flex items-center justify-between">
+                    <span>⚠️ {bookingError}</span>
+                    <button onClick={() => setBookingError(null)} className="text-rose-300 hover:text-rose-600">
+                      ✕
+                    </button>
+                  </div>
+                )}
 
                 {bookingStep === 1 && (
                   <div className="space-y-8 animate-fade-in">
@@ -704,24 +709,37 @@ const App: React.FC = () => {
                             I confirm that I have read, understood, and agree to the{" "}
                             <button type="button" onClick={() => setShowAgreement(true)} className="underline hover:text-emerald-900 transition-colors font-black">
                               Service Agreement and Privacy Policy
-                            </button>
+                            </button>{" "}
+                            of Dirty Dawg / Maisey Days Dog Grooming. I specifically acknowledge the Matting Policy, the £20 deposit requirement, and the 24-hour cancellation fee. I authorise emergency veterinary care at my own expense should it be deemed necessary.
                           </span>
                         </div>
                       </label>
                     </div>
-                    <div className="bg-rose-50 border-2 border-rose-300 p-6 rounded-2xl">
-                      <label className="block text-sm font-bold text-rose-700 mb-4">Should Maisey Days be unable to fulfil an appointment, I consent to my contact details being shared with the grooming team at Dirty Dawg ONLY for the purpose of arranging an alternative booking.</label>
+                    <div className="bg-white border-2 border-slate-200 p-6 rounded-2xl">
+                      <label className="block text-sm font-bold text-slate-800 mb-4">Marketing Consent: I agree to the use of my dog's image for social media/advertising</label>
                       <div className="flex gap-8">
                         <label className="flex items-center gap-3 cursor-pointer">
-                          <input type="checkbox" checked={dataShareConsent === "yes"} onChange={(e) => setDataShareConsent(e.target.checked ? "yes" : "")} className="w-5 h-5 accent-emerald-600 cursor-pointer" />
+                          <input type="radio" name="marketing" value="yes" checked={marketingConsent === "yes"} onChange={(e) => setMarketingConsent("yes")} className="w-5 h-5 accent-emerald-600 cursor-pointer" />
                           <span className="font-bold text-slate-700">Yes</span>
                         </label>
                         <label className="flex items-center gap-3 cursor-pointer">
-                          <input type="checkbox" checked={dataShareConsent === "no"} onChange={(e) => setDataShareConsent(e.target.checked ? "no" : "")} className="w-5 h-5 accent-slate-400 cursor-pointer" />
+                          <input type="radio" name="marketing" value="no" checked={marketingConsent === "no"} onChange={(e) => setMarketingConsent("no")} className="w-5 h-5 accent-slate-400 cursor-pointer" />
                           <span className="font-bold text-slate-700">No</span>
                         </label>
                       </div>
                     </div>
+                    {!agreedToTerms && (
+                      <div className="bg-rose-50 border border-rose-200 text-rose-700 px-6 py-4 rounded-2xl text-sm font-bold flex items-start gap-3">
+                        <span className="text-lg mt-0.5">⚠️</span>
+                        <span>You must read and agree to the Service Agreement & Privacy Policy before submitting your booking.</span>
+                      </div>
+                    )}
+                    {marketingConsent === "" && (
+                      <div className="bg-amber-50 border border-amber-200 text-amber-700 px-6 py-4 rounded-2xl text-sm font-bold flex items-start gap-3">
+                        <span className="text-lg mt-0.5">ℹ️</span>
+                        <span>Please select your marketing consent preference (Yes or No).</span>
+                      </div>
+                    )}
                     <div className="flex gap-4">
                       <button type="button" onClick={() => setBookingStep(2)} className="w-1/3 py-5 border-2 border-slate-100 rounded-2xl font-bold text-slate-400 transition-transform active:scale-95">
                         Back
@@ -732,100 +750,6 @@ const App: React.FC = () => {
                     </div>
                   </form>
                 )}
-                </div>
-              </div>
-
-              {/* General Enquiries Form */}
-              <div className="bg-white rounded-[3rem] shadow-2xl p-12 border border-slate-100">
-                <div className="text-center mb-8">
-                  <h2 className="text-3xl font-black text-slate-800 mb-2">General Enquiries</h2>
-                  <p className="text-slate-600 text-sm">Have a question?</p>
-                </div>
-
-                <form
-                  onSubmit={async (e) => {
-                    e.preventDefault();
-                    const enquiryName = (document.getElementById("enquiry-name") as HTMLInputElement)?.value || "";
-                    const enquiryEmail = (document.getElementById("enquiry-email") as HTMLInputElement)?.value || "";
-                    const enquiryMessage = (document.getElementById("enquiry-message") as HTMLTextAreaElement)?.value || "";
-
-                    if (!enquiryName || !enquiryEmail || !enquiryMessage) {
-                      alert("Please fill in all fields");
-                      return;
-                    }
-
-                    try {
-                      console.log("Sending enquiry to:", EMAIL_ENDPOINT);
-                      const response = await fetch(EMAIL_ENDPOINT, {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({
-                          _subject: `General Enquiry from ${enquiryName}`,
-                          message: `Name: ${enquiryName}\nEmail: ${enquiryEmail}\n\nEnquiry:\n${enquiryMessage}`,
-                          email: enquiryEmail,
-                          _replyto: enquiryEmail,
-                          name: enquiryName,
-                        }),
-                      });
-
-                      console.log("Enquiry response received:", response.status, response.ok);
-
-                      if (response.ok) {
-                        alert("Thank you! Your enquiry has been sent successfully.");
-                        (document.getElementById("enquiry-name") as HTMLInputElement).value = "";
-                        (document.getElementById("enquiry-email") as HTMLInputElement).value = "";
-                        (document.getElementById("enquiry-message") as HTMLTextAreaElement).value = "";
-                      } else {
-                        const responseText = await response.text();
-                        console.error("Enquiry submission failed:", response.status, response.statusText, responseText);
-                        alert("Something went wrong. Please try again.");
-                      }
-                    } catch (err) {
-                      console.error("Enquiry error:", err instanceof Error ? err.message : String(err));
-                      alert("Failed to send enquiry. Please contact us directly.");
-                    }
-                  }}
-                  className="space-y-4"
-                >
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-2 uppercase">Name</label>
-                    <input
-                      id="enquiry-name"
-                      type="text"
-                      required
-                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-emerald-500 transition-all font-medium text-sm"
-                      placeholder="Your name"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-2 uppercase">Email</label>
-                    <input
-                      id="enquiry-email"
-                      type="email"
-                      required
-                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-emerald-500 transition-all font-medium text-sm"
-                      placeholder="your@email.com"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-2 uppercase">Message</label>
-                    <textarea
-                      id="enquiry-message"
-                      required
-                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-emerald-500 transition-all font-medium text-sm h-24 resize-none"
-                      placeholder="Your enquiry..."
-                    />
-                  </div>
-
-                  <button
-                    type="submit"
-                    className="w-full bg-emerald-600 text-white py-3 rounded-2xl font-bold uppercase tracking-widest text-sm hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-600/30 active:scale-95"
-                  >
-                    Send Message
-                  </button>
-                </form>
               </div>
             </div>
           </div>
@@ -833,76 +757,6 @@ const App: React.FC = () => {
 
       case "admin":
         return <AdminDashboard />;
-
-      case "privacy":
-        return (
-          <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-20 animate-fade-in">
-            <div className="bg-white rounded-3xl shadow-2xl p-8 sm:p-12 md:p-16">
-              <div className="mb-12">
-                <h2 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-black text-slate-800 mb-8">Service Agreement & Privacy Policy</h2>
-              </div>
-              <div className="text-slate-700 text-sm leading-relaxed space-y-6">
-                <div>
-                  <h3 className="text-lg font-black text-slate-800 mb-3">1. Data Privacy (UK GDPR Compliance)</h3>
-                  <p className="mb-3">At Dirty Dawg and Maisey Days, we are committed to protecting your personal data in accordance with UK law.</p>
-                  <ul className="space-y-2 ml-4 list-disc">
-                    <li>
-                      <strong>Data Collection:</strong> We collect your contact details (name, address, phone numbers, email) and your dog's medical, behavioural, and vaccination history.
-                    </li>
-                    <li>
-                      <strong>Purpose:</strong> This data is used solely to manage your bookings, send 24-hour reminders, and ensure your pet's safety during grooming.
-                    </li>
-                    <li>
-                      <strong>Data Sharing:</strong> We may share your contact details and pet information with the grooming team at Dirty Dawg. This data sharing is strictly limited to instances where Maisey Days is unavailable, ensuring we can offer you alternative appointment slots and maintain continuity of care for your dog. Your data will not be shared with any other third parties without your explicit consent.
-                    </li>
-                    <li>
-                      <strong>Security:</strong> Your information is stored securely and only shared with veterinary professionals in an emergency. We do not sell your data to third parties.
-                    </li>
-                    <li>
-                      <strong>Rights:</strong> You have the right to access, update, or request the deletion of your records at any time.
-                    </li>
-                  </ul>
-                </div>
-
-                <div>
-                  <h3 className="text-lg font-black text-slate-800 mb-3">2. Terms & Conditions of Service</h3>
-                  <div className="space-y-3 ml-4">
-                    <div>
-                      <strong>Matting & Welfare:</strong> In compliance with the Animal Welfare Act, pet comfort comes before aesthetics. We will spend no more than 15 minutes attempting to de-mat a coat. If matting is severe, we will clip the coat short to avoid causing your dog unnecessary pain. You acknowledge that a "shave-down" can reveal hidden skin issues or cause irritation; additional fees apply for matted dogs.
-                    </div>
-                    <div>
-                      <strong>Health & Behaviour:</strong> You must disclose any history of aggression or nervous triggers. We reserve the right to use a muzzle or refuse/terminate a groom for safety reasons and the wellbeing of your pet. You authorise us to seek emergency veterinary care at your expense should it be deemed necessary.
-                    </div>
-                  </div>
-                </div>
-
-                <div>
-                  <h3 className="text-lg font-black text-slate-800 mb-3">3. Booking & Cancellation Policy</h3>
-                  <div className="space-y-3 ml-4">
-                    <div>
-                      <strong>Deposits:</strong> A non-refundable deposit of £20 is required to secure your reservation.
-                    </div>
-                    <div>
-                      <strong>Cancellations:</strong> We require a minimum of 24 hours' notice to cancel or reschedule a booking.
-                    </div>
-                    <div>
-                      <strong>Late Cancellations:</strong> If a cancellation is made with less than 24 hours' notice, a charge of 50% of the groom price will apply. In these instances, your £20 deposit will be retained as part of the cancellation fee.
-                    </div>
-                  </div>
-                </div>
-              </div>
-              <div className="mt-12 flex gap-4">
-                <button
-                  onClick={() => setCurrentPage("home")}
-                  className="flex-1 bg-emerald-600 text-white px-6 py-3 rounded-2xl font-bold hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-600/30"
-                >
-                  Back to Home
-                </button>
-              </div>
-            </div>
-          </div>
-        );
-
       default:
         return <div className="p-20 text-center">Page Not Found</div>;
     }
@@ -930,9 +784,6 @@ const App: React.FC = () => {
                   </li>
                   <li>
                     <strong>Purpose:</strong> This data is used solely to manage your bookings, send 24-hour reminders, and ensure your pet's safety during grooming.
-                  </li>
-                  <li>
-                    <strong>Data Sharing:</strong> We may share your contact details and pet information with the grooming team at Dirty Dawg. This data sharing is strictly limited to instances where Maisey Days is unavailable, ensuring we can offer you alternative appointment slots and maintain continuity of care for your dog. Your data will not be shared with any other third parties without your explicit consent.
                   </li>
                   <li>
                     <strong>Security:</strong> Your information is stored securely and only shared with veterinary professionals in an emergency. We do not sell your data to third parties.
