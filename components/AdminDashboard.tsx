@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { checkAuthStatus, confirmAppointmentBooking, createManualAppointment, deleteAppointment, exportAppointmentsToExcel, getAppointments, getCurrentUser, getUnavailableDays, getUnavailableWeekdays, removeUnavailableDay, removeUnavailableWeekday, saveUnavailableDay, saveUnavailableWeekday, signInAdmin, signOutAdmin, syncBookingToCalendar, syncCalendarChangesFromDiary, updateAppointment } from "../services/bookingService";
+import { checkAuthStatus, confirmAppointmentBooking, createManualAppointment, deleteAppointment, exportAppointmentsToExcel, getAppointments, getCurrentUser, getLastAutoSyncTime, getUnavailableDays, getUnavailableWeekdays, removeUnavailableDay, removeUnavailableWeekday, saveUnavailableDay, saveUnavailableWeekday, signInAdmin, signOutAdmin, syncBookingToCalendar, syncCalendarChangesFromDiary, updateAppointment } from "../services/bookingService";
 import { Appointment, Service } from "../types";
 import { LOCATIONS, SERVICES } from "../constants";
 
@@ -27,6 +27,7 @@ const AdminDashboard: React.FC = () => {
   const [showAddModal, setShowAddModal] = useState(false);
   const [activeBooking, setActiveBooking] = useState<Appointment | null>(null);
   const [isWorking, setIsWorking] = useState(false);
+  const [lastAutoSync, setLastAutoSync] = useState<Date | null>(null);
 
   const [editForm, setEditForm] = useState({
     ownername: "",
@@ -111,10 +112,16 @@ const AdminDashboard: React.FC = () => {
   const loadData = async () => {
     setIsLoading(true);
     try {
-      const [apps, unavail, unavailWeekdays] = await Promise.all([getAppointments(), getUnavailableDays(selectedLocation), getUnavailableWeekdays()]);
+      const [apps, unavail, unavailWeekdays, lastSync] = await Promise.all([
+        getAppointments(),
+        getUnavailableDays(selectedLocation),
+        getUnavailableWeekdays(),
+        getLastAutoSyncTime()
+      ]);
       setAppointments(apps);
       setUnavailableDays(unavail);
       setUnavailableWeekdays(unavailWeekdays);
+      setLastAutoSync(lastSync);
       setDbStatus("connected");
     } catch (err) {
       console.error("Database connection error:", err);
@@ -312,7 +319,7 @@ const AdminDashboard: React.FC = () => {
     setIsWorking(true);
     try {
       const result = await syncCalendarChangesFromDiary();
-      await loadData();
+      await loadData(); // This will also refresh lastAutoSync
       alert(`Diary sync complete. Linked: ${result.totalLinked}, Scanned: ${result.scanned}, Synced: ${result.synced}, Updated: ${result.updated}, Errors: ${result.errors}`);
     } catch (error: any) {
       alert(error.message || "Could not sync diary changes.");
@@ -381,7 +388,25 @@ const AdminDashboard: React.FC = () => {
       {view === "bookings" && (
         <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden">
           <div className="p-4 border-b flex flex-wrap justify-between items-center gap-3">
-            <h2 className="font-bold text-slate-600">Bookings</h2>
+            <div>
+              <h2 className="font-bold text-slate-600">Bookings</h2>
+              {lastAutoSync && (
+                <p className="text-xs text-slate-500 mt-1">
+                  Last auto-sync: {(() => {
+                    const now = new Date();
+                    const diffMs = now.getTime() - lastAutoSync.getTime();
+                    const diffMins = Math.floor(diffMs / 60000);
+                    if (diffMins < 1) return "just now";
+                    if (diffMins === 1) return "1 minute ago";
+                    if (diffMins < 60) return `${diffMins} minutes ago`;
+                    const diffHours = Math.floor(diffMins / 60);
+                    if (diffHours === 1) return "1 hour ago";
+                    if (diffHours < 24) return `${diffHours} hours ago`;
+                    return lastAutoSync.toLocaleString();
+                  })()}
+                </p>
+              )}
+            </div>
             <div className="flex gap-2">
               <button onClick={handleSyncDiaryChanges} disabled={isWorking} className="bg-slate-700 hover:bg-slate-800 disabled:opacity-60 text-white px-6 py-2 rounded-lg font-bold text-sm transition-all">
                 ↻ Sync Diary Changes

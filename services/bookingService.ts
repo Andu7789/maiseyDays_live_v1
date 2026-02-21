@@ -14,6 +14,41 @@ if (SUPABASE_ANON_KEY && !SUPABASE_ANON_KEY.startsWith("eyJ")) {
 // Initialize Supabase Client
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
+const invokeEdgeFunction = async (functionName: string, payload: Record<string, unknown>) => {
+  try {
+    const response = await fetch(`${SUPABASE_URL}/functions/v1/${functionName}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const responseText = await response.text();
+    let responseJson: any = {};
+    try {
+      responseJson = responseText ? JSON.parse(responseText) : {};
+    } catch {
+      responseJson = { raw: responseText };
+    }
+
+    if (!response.ok) {
+      const details = responseJson?.error || responseJson?.message || responseText || `Edge function ${functionName} failed`;
+      throw new Error(details);
+    }
+
+    return responseJson;
+  } catch (error: any) {
+    const message = String(error?.message || "").toLowerCase();
+    if (message.includes("failed to fetch") || message.includes("network") || message.includes("fetch")) {
+      throw new Error(`Could not reach SMS service (${functionName}). Check that the function is deployed and reachable in Supabase.`);
+    }
+    throw error;
+  }
+};
+
 // Admin Authentication
 export const signInAdmin = async (email: string, password: string) => {
   console.log("Attempting login with:", email);
@@ -86,29 +121,252 @@ const uploadBookingPhoto = async (appointment: Appointment, photo: File) => {
   throw new Error("Unable to generate photo URL.");
 };
 
+const normalizeLocationId = (rawValue: unknown) => {
+  const value = String(rawValue || "").trim();
+  if (!value) return LOCATIONS[0].id;
+
+  const direct = LOCATIONS.find((location) => location.id.toLowerCase() === value.toLowerCase());
+  if (direct) return direct.id;
+
+  const byName = LOCATIONS.find((location) => location.name.toLowerCase() === value.toLowerCase());
+  if (byName) return byName.id;
+
+  const byContains = LOCATIONS.find((location) => value.toLowerCase().includes(location.id.toLowerCase()) || value.toLowerCase().includes(location.name.toLowerCase()));
+  if (byContains) return byContains.id;
+
+  return LOCATIONS[0].id;
+};
+
 export const getAppointments = async (): Promise<Appointment[]> => {
   try {
     const { data, error } = await supabase.from("appointments").select("*");
     if (error) throw error;
-    return data || [];
+    const normalized = (data || []).map((row: any) => ({
+      ...row,
+      locationid: normalizeLocationId(row.locationid || row.locationId || row.location_id || row.location || row.branch),
+      serviceid: row.serviceid || row.serviceId || row.service_id || SERVICES[0].id,
+      requested_time_preference: row.requested_time_preference || row.requestedTimePreference || row.time || "",
+      is_confirmed: row.is_confirmed ?? row.isConfirmed ?? row.status === "confirmed",
+      booking_source: row.booking_source || row.bookingSource || "web",
+      calendar_event_id: row.calendar_event_id || null,
+      calendar_sync_status: row.calendar_sync_status || "not_synced",
+      calendar_last_synced_at: row.calendar_last_synced_at || null,
+      calendar_last_error: row.calendar_last_error || null,
+    }));
+    return normalized;
   } catch (err) {
     console.error("Fetch Appointments Failed:", err);
     return [];
   }
 };
 
+const ENHANCED_BOOKING_COLUMNS = ["requested_time_preference", "confirmed_date", "confirmed_time", "confirmed_duration_minutes", "is_confirmed", "confirmed_at", "confirmation_sent_at", "booking_source", "calendar_event_id", "calendar_sync_status", "calendar_last_synced_at", "calendar_last_error"];
+
+const isSchemaColumnCacheError = (error: any) => {
+  const message = String(error?.message || "").toLowerCase();
+  return message.includes("schema cache") || message.includes("could not find the '");
+};
+
+const stripEnhancedBookingColumns = (payload: Record<string, unknown>) => {
+  const fallback = { ...payload };
+  ENHANCED_BOOKING_COLUMNS.forEach((column) => {
+    delete fallback[column];
+  });
+  return fallback;
+};
+
 export const saveAppointment = async (app: Appointment) => {
   // Remove phone if empty to avoid DB schema errors
   const appointmentData: any = { ...app };
+  appointmentData.requested_time_preference = app.requested_time_preference || app.time || null;
+  appointmentData.confirmed_date = app.confirmed_date ?? null;
+  appointmentData.confirmed_time = app.confirmed_time ?? null;
+  appointmentData.confirmed_duration_minutes = app.confirmed_duration_minutes ?? null;
+  appointmentData.is_confirmed = app.is_confirmed ?? false;
+  appointmentData.confirmed_at = app.confirmed_at ?? null;
+  appointmentData.confirmation_sent_at = app.confirmation_sent_at ?? null;
+  appointmentData.booking_source = app.booking_source || "web";
   if (!appointmentData.phone) {
     delete appointmentData.phone;
   }
   const { data, error } = await supabase.from("appointments").insert([appointmentData]).select();
+  if (!error) return data;
+
+  if (isSchemaColumnCacheError(error)) {
+    const fallbackPayload = stripEnhancedBookingColumns(appointmentData);
+    const fallbackResult = await supabase.from("appointments").insert([fallbackPayload]).select();
+    if (!fallbackResult.error) {
+      console.warn("Inserted appointment using legacy schema fallback.");
+      return fallbackResult.data;
+    }
+    console.error("Supabase Save Fallback Error:", fallbackResult.error);
+    throw new Error(`Database Error: ${fallbackResult.error.message}`);
+  }
+
+  console.error("Supabase Save Error:", error);
+  throw new Error(`Database Error: ${error.message}`);
+};
+
+export const createManualAppointment = async (app: Appointment) => {
+  return saveAppointment({
+    ...app,
+    booking_source: "manual",
+    requested_time_preference: app.requested_time_preference || app.time || "",
+    status: app.status || "pending",
+  });
+};
+
+export const updateAppointment = async (id: string, updates: Partial<Appointment>) => {
+  const payload: Record<string, unknown> = { ...updates };
+  if (Object.prototype.hasOwnProperty.call(payload, "requested_time_preference") === false && updates.time) {
+    payload.requested_time_preference = updates.time;
+  }
+
+  const { data, error } = await supabase.from("appointments").update(payload).eq("id", id).select();
+  if (!error) return data;
+
+  if (isSchemaColumnCacheError(error)) {
+    const fallbackPayload = stripEnhancedBookingColumns(payload);
+    const fallbackResult = await supabase.from("appointments").update(fallbackPayload).eq("id", id).select();
+    if (!fallbackResult.error) {
+      console.warn("Updated appointment using legacy schema fallback.");
+      return fallbackResult.data;
+    }
+    console.error("Supabase Update Fallback Error:", fallbackResult.error);
+    throw new Error(`Database Error: ${fallbackResult.error.message}`);
+  }
+
+  console.error("Supabase Update Error:", error);
+  throw new Error(`Database Error: ${error.message}`);
+};
+
+export const deleteAppointment = async (id: string) => {
+  const { error } = await supabase.from("appointments").delete().eq("id", id);
   if (error) {
-    console.error("Supabase Save Error:", error);
+    console.error("Supabase Delete Error:", error);
     throw new Error(`Database Error: ${error.message}`);
   }
-  return data;
+};
+
+const formatHumanDate = (dateStr: string) => {
+  if (!dateStr) return "TBC";
+  const date = new Date(`${dateStr}T00:00:00`);
+  return date.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+};
+
+const getLocationName = (locationId: string) => LOCATIONS.find((loc) => loc.id === locationId)?.name || locationId;
+const getServiceName = (serviceId: string) => SERVICES.find((service) => service.id === serviceId)?.name || serviceId;
+
+export const sendCustomerConfirmationSms = async (appointment: Appointment) => {
+  if (!appointment.phone) {
+    throw new Error("Customer phone number is missing.");
+  }
+
+  const confirmedDate = appointment.confirmed_date || appointment.date;
+  const confirmedTime = appointment.confirmed_time || "TBC";
+  const message = `Hi ${appointment.ownername}, ${appointment.dogname} is booked for a ${getServiceName(appointment.serviceid)} at Maisey Days (${getLocationName(appointment.locationid)}) on ${formatHumanDate(confirmedDate)} at ${confirmedTime}. Please reply YES to confirm or call us if you need changes. Thank you 🐾`;
+
+  const result = await invokeEdgeFunction("send-customer-confirmation-sms", {
+    to: appointment.phone,
+    message,
+    bookingId: appointment.id,
+  });
+  const smsSuccess = Boolean((result as any)?.success ?? false);
+  if (!smsSuccess) {
+    const providerError = (result as any)?.error || "SMS provider rejected the message.";
+    throw new Error(`SMS failed: ${providerError}`);
+  }
+
+  return true;
+};
+
+export const syncBookingToCalendar = async (appointmentId: string) => {
+  const result = await invokeEdgeFunction("sync-booking-to-calendar", {
+    appointmentId,
+  });
+
+  const success = Boolean((result as any)?.success ?? false);
+  if (!success) {
+    const syncError = (result as any)?.error || "Calendar sync failed.";
+    throw new Error(`Calendar sync failed: ${syncError}`);
+  }
+
+  return result;
+};
+
+export const syncCalendarChangesFromDiary = async () => {
+  const result = await invokeEdgeFunction("calendar-webhook-handler", {});
+  const success = Boolean((result as any)?.success ?? false);
+  if (!success) {
+    const syncError = (result as any)?.error || "Diary inbound sync failed.";
+    throw new Error(`Diary sync failed: ${syncError}`);
+  }
+  return {
+    synced: Number((result as any)?.synced || 0),
+    updated: Number((result as any)?.updated || 0),
+    errors: Number((result as any)?.errors || 0),
+    scanned: Number((result as any)?.scanned || 0),
+    totalLinked: Number((result as any)?.totalLinked || 0),
+  };
+};
+
+export const ensureCalendarWatchChannel = async (force = false) => {
+  const result = await invokeEdgeFunction("ensure-calendar-watch-channel", { force });
+  const success = Boolean((result as any)?.success ?? false);
+  if (!success) {
+    const renewError = (result as any)?.error || "Could not ensure calendar watch channel.";
+    throw new Error(`Watch setup failed: ${renewError}`);
+  }
+  return {
+    renewed: Boolean((result as any)?.renewed ?? false),
+    expiration: (result as any)?.expiration || null,
+    channelId: (result as any)?.channelId || null,
+  };
+};
+
+export const confirmAppointmentBooking = async (
+  appointment: Appointment,
+  confirmation: {
+    confirmedDate: string;
+    confirmedTime: string;
+    confirmedDurationMinutes: number;
+  },
+) => {
+  if (!appointment.id) {
+    throw new Error("Booking ID is required to confirm.");
+  }
+
+  const nowIso = new Date().toISOString();
+  const smsPayload: Appointment = {
+    ...appointment,
+    confirmed_date: confirmation.confirmedDate,
+    confirmed_time: confirmation.confirmedTime,
+    confirmed_duration_minutes: confirmation.confirmedDurationMinutes,
+  };
+
+  const smsSent = await sendCustomerConfirmationSms(smsPayload);
+  if (!smsSent) {
+    throw new Error("SMS confirmation failed to send.");
+  }
+
+  await updateAppointment(appointment.id, {
+    status: "confirmed",
+    is_confirmed: true,
+    confirmed_date: confirmation.confirmedDate,
+    confirmed_time: confirmation.confirmedTime,
+    confirmed_duration_minutes: confirmation.confirmedDurationMinutes,
+    confirmed_at: nowIso,
+    confirmation_sent_at: nowIso,
+  });
+
+  try {
+    await syncBookingToCalendar(appointment.id);
+  } catch (syncErr: any) {
+    await updateAppointment(appointment.id, {
+      calendar_sync_status: "error",
+      calendar_last_error: syncErr?.message || "Calendar sync failed",
+    });
+  }
 };
 
 export const getAvailabilityOverrides = async (): Promise<AvailabilitySlot[]> => {
@@ -432,6 +690,23 @@ export const isDateAvailable = async (locationId: string, date: string): Promise
 export const saveUnavailableDays = async (locationId: string, days: number[]) => {
   // This function is no longer used
   return;
+};
+
+export const getLastAutoSyncTime = async (): Promise<Date | null> => {
+  try {
+    const { data, error } = await supabase
+      .from("calendar_webhook_logs")
+      .select("created_at")
+      .eq("message", "Webhook received")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .single();
+
+    if (error || !data) return null;
+    return new Date(data.created_at);
+  } catch (err) {
+    return null;
+  }
 };
 
 export const exportAppointmentsToExcel = (appointments: Appointment[]) => {
