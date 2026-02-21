@@ -36,6 +36,18 @@ export interface Appointment {
   notes: string;
   status: "pending" | "confirmed" | "cancelled";
   marketingConsent?: "yes" | "no";
+  requested_time_preference?: string;
+  confirmed_date?: string | null;
+  confirmed_time?: string | null;
+  confirmed_duration_minutes?: number | null;
+  is_confirmed?: boolean;
+  confirmed_at?: string | null;
+  confirmation_sent_at?: string | null;
+  booking_source?: "web" | "manual";
+  calendar_event_id?: string | null;
+  calendar_sync_status?: "not_synced" | "synced" | "error";
+  calendar_last_synced_at?: string | null;
+  calendar_last_error?: string | null;
 }
 
 export interface AvailabilitySlot {

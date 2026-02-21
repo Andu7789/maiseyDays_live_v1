@@ -185,6 +185,12 @@ serve(async (req: Request) => {
       await supabaseLog("Appointment updated from calendar", { appointmentId: appointment.id, eventId, changed });
     }
 
+    // Update last sync timestamp
+    await supabase
+      .from("calendar_sync_settings")
+      .update({ last_sync_at: new Date().toISOString() })
+      .eq("id", 1);
+
     return new Response(JSON.stringify({ success: true, totalLinked: appointments?.length || 0, scanned, synced, updated, errors }), {
       status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" },

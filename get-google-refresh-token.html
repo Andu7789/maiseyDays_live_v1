@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Get Google Refresh Token - Maisey Days</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #4285f4;
+        }
+        .step {
+            background: #f8f9fa;
+            padding: 15px;
+            margin: 20px 0;
+            border-left: 4px solid #4285f4;
+            border-radius: 4px;
+        }
+        button {
+            background: #4285f4;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            font-size: 16px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 10px 5px;
+        }
+        button:hover {
+            background: #357ae8;
+        }
+        input, textarea {
+            width: 100%;
+            padding: 10px;
+            margin: 10px 0;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 14px;
+        }
+        textarea {
+            min-height: 100px;
+        }
+        .success {
+            background: #d4edda;
+            border-color: #28a745;
+            color: #155724;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 20px 0;
+            display: none;
+        }
+        .error {
+            background: #f8d7da;
+            border-color: #dc3545;
+            color: #721c24;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 20px 0;
+            display: none;
+        }
+        .code-block {
+            background: #2d2d2d;
+            color: #f8f8f2;
+            padding: 15px;
+            border-radius: 5px;
+            overflow-x: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            line-height: 1.5;
+        }
+        .copy-btn {
+            background: #28a745;
+            font-size: 14px;
+            padding: 8px 16px;
+        }
+        .hidden {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔐 Google Refresh Token Generator</h1>
+        <p><strong>Maisey Days Booking System - Calendar Sync Setup</strong></p>
+
+        <!-- Step 1: Authorize -->
+        <div class="step" id="step1">
+            <h2>Step 1: Authorize with Google</h2>
+            <p>Click the button below to authorize this app to access your Google Calendar:</p>
+            <button onclick="startOAuthFlow()">🔓 Authorize Google Calendar Access</button>
+        </div>
+
+        <!-- Step 2: Enter Authorization Code -->
+        <div class="step hidden" id="step2">
+            <h2>Step 2: Enter Authorization Code</h2>
+            <p>After authorizing, you'll be redirected to a URL like:</p>
+            <code>http://localhost/?code=4/0A...</code>
+            <p>Copy the <strong>code</strong> parameter from the URL and paste it below:</p>
+            <input type="text" id="authCode" placeholder="4/0AcvDMrA...">
+            <button onclick="exchangeCode()">🔄 Exchange Code for Refresh Token</button>
+            <div class="error" id="codeError"></div>
+        </div>
+
+        <!-- Step 3: Results -->
+        <div class="step hidden" id="step3">
+            <h2>✅ Success! Your Credentials</h2>
+            <div class="success" id="successMessage">
+                <strong>Refresh token generated successfully!</strong>
+            </div>
+
+            <h3>Your Credentials (Keep These Safe):</h3>
+            <div style="margin: 20px 0;">
+                <label><strong>Client ID:</strong></label>
+                <input type="text" id="displayClientId" readonly>
+
+                <label><strong>Client Secret:</strong></label>
+                <input type="text" id="displayClientSecret" readonly>
+
+                <label><strong>Refresh Token:</strong></label>
+                <textarea id="displayRefreshToken" readonly></textarea>
+
+                <label><strong>Calendar ID:</strong></label>
+                <input type="text" id="displayCalendarId" readonly value="andrew.britain@gmail.com">
+            </div>
+
+            <h3>Supabase Command to Run:</h3>
+            <div class="code-block" id="supabaseCommand"></div>
+            <button class="copy-btn" onclick="copyCommand()">📋 Copy Command</button>
+        </div>
+
+        <div class="error" id="errorMessage"></div>
+    </div>
+
+    <script>
+        const CLIENT_ID = "440123314585-fcoinivjrlpp9bd3li5v2bqptfo88e16.apps.googleusercontent.com";
+        const CLIENT_SECRET = "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";
+        const REDIRECT_URI = "http://localhost";
+        const SCOPES = "https://www.googleapis.com/auth/calendar";
+
+        let refreshToken = "";
+
+        function startOAuthFlow() {
+            const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?` +
+                `client_id=${CLIENT_ID}&` +
+                `redirect_uri=${encodeURIComponent(REDIRECT_URI)}&` +
+                `response_type=code&` +
+                `scope=${encodeURIComponent(SCOPES)}&` +
+                `access_type=offline&` +
+                `prompt=consent`;
+
+            // Show step 2
+            document.getElementById('step2').classList.remove('hidden');
+
+            // Open auth URL
+            window.open(authUrl, '_blank');
+        }
+
+        async function exchangeCode() {
+            const code = document.getElementById('authCode').value.trim();
+            const errorDiv = document.getElementById('codeError');
+            const mainErrorDiv = document.getElementById('errorMessage');
+
+            if (!code) {
+                errorDiv.style.display = 'block';
+                errorDiv.textContent = 'Please enter the authorization code';
+                return;
+            }
+
+            errorDiv.style.display = 'none';
+            mainErrorDiv.style.display = 'none';
+
+            try {
+                const response = await fetch('https://oauth2.googleapis.com/token', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                    },
+                    body: new URLSearchParams({
+                        code: code,
+                        client_id: CLIENT_ID,
+                        client_secret: CLIENT_SECRET,
+                        redirect_uri: REDIRECT_URI,
+                        grant_type: 'authorization_code',
+                    }),
+                });
+
+                const data = await response.json();
+
+                if (!response.ok || !data.refresh_token) {
+                    throw new Error(data.error_description || JSON.stringify(data));
+                }
+
+                refreshToken = data.refresh_token;
+
+                // Display results
+                document.getElementById('displayClientId').value = CLIENT_ID;
+                document.getElementById('displayClientSecret').value = CLIENT_SECRET;
+                document.getElementById('displayRefreshToken').value = refreshToken;
+
+                const command = `npx supabase secrets set --project-ref rmooksnngqyzqraeicvr \\
+  GOOGLE_CLIENT_ID="${CLIENT_ID}" \\
+  GOOGLE_CLIENT_SECRET="${CLIENT_SECRET}" \\
+  GOOGLE_REFRESH_TOKEN="${refreshToken}"`;
+
+                document.getElementById('supabaseCommand').textContent = command;
+                document.getElementById('successMessage').style.display = 'block';
+                document.getElementById('step3').classList.remove('hidden');
+
+            } catch (error) {
+                mainErrorDiv.style.display = 'block';
+                mainErrorDiv.textContent = `Error: ${error.message}`;
+            }
+        }
+
+        function copyCommand() {
+            const command = document.getElementById('supabaseCommand').textContent;
+            navigator.clipboard.writeText(command).then(() => {
+                alert('✅ Command copied to clipboard!');
+            });
+        }
+    </script>
+</body>
+</html>
