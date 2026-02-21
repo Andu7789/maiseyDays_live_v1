@@ -76,7 +76,7 @@ serve(async (req: Request) => {
     }, 0);
 
     const formatAppointmentList = (apts: typeof appointments) => {
-      if (apts.length === 0) return '<p><em>No appointments</em></p>';
+      if (apts.length === 0) return 'No appointments\n';
 
       return apts.map(apt => {
         const time = apt.confirmed_time || 'Time TBC';
@@ -86,72 +86,46 @@ serve(async (req: Request) => {
                            apt.serviceid === 'nail-clipping' ? 'Nail Clipping' :
                            apt.serviceid === 'home-grooming' ? 'Home Grooming' : 'Service';
 
-        return `
-      <div style="background: #f9fafb; padding: 15px; margin: 10px 0; border-left: 4px solid #10b981; border-radius: 4px;">
-        <h3 style="margin: 0 0 10px 0; color: #10b981;">${time} - ${apt.dogname} (${apt.dogbreed || 'Mixed Breed'})</h3>
-        <div style="margin: 5px 0;"><strong>Service:</strong> ${serviceName}</div>
-        <div style="margin: 5px 0;"><strong>Owner:</strong> ${apt.ownername} | <strong>Phone:</strong> <a href="tel:${apt.phone}">${apt.phone || 'N/A'}</a></div>
-        ${apt.notes ? `<div style="margin: 5px 0; background: #fef3c7; padding: 8px; border-radius: 4px;"><strong>⚠️ Notes:</strong> ${apt.notes}</div>` : ''}
-      </div>`;
-      }).join('');
+        let text = `\n${time} - ${apt.dogname} (${apt.dogbreed || 'Mixed Breed'})\n`;
+        text += `  Service: ${serviceName}\n`;
+        text += `  Owner: ${apt.ownername}\n`;
+        text += `  Phone: ${apt.phone || 'N/A'}\n`;
+        if (apt.notes) text += `  ⚠️ NOTES: ${apt.notes}\n`;
+        return text;
+      }).join('\n---\n');
     };
 
-    let emailBody = `<!DOCTYPE html>
-<html>
-<head>
-  <style>
-    body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-    .container { max-width: 700px; margin: 0 auto; padding: 20px; }
-    .header { background: #10b981; color: white; padding: 20px; border-radius: 8px 8px 0 0; }
-    .section { padding: 20px; background: white; margin-bottom: 20px; }
-    .location-header { background: #065f46; color: white; padding: 10px 15px; border-radius: 6px; margin: 20px 0 10px 0; }
-    .stats { background: #d1fae5; padding: 15px; border-radius: 6px; margin: 15px 0; }
-    .footer { margin-top: 20px; padding-top: 20px; border-top: 2px solid #e5e7eb; font-size: 12px; color: #666; }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <div class="header">
-      <h1 style="margin: 0;">📅 Tomorrow's Grooming Schedule</h1>
-      <p style="margin: 10px 0 0 0;">${tomorrow.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</p>
-    </div>
+    let emailBody = `📅 TOMORROW'S GROOMING SCHEDULE
+${tomorrow.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
 
-    <div class="section">
-      <div class="stats">
-        <h2 style="margin: 0 0 10px 0;">📊 Overview</h2>
-        <p style="margin: 5px 0;"><strong>Total Appointments:</strong> ${appointments.length}</p>
-        <p style="margin: 5px 0;"><strong>Caister:</strong> ${caisterApts.length} | <strong>Winterton:</strong> ${wintertonApts.length}</p>
-        <p style="margin: 5px 0;"><strong>Estimated Revenue:</strong> £${totalRevenue}</p>
-      </div>
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-      <div class="location-header">
-        <h2 style="margin: 0;">🏢 Caister Branch (${caisterApts.length} appointments)</h2>
-      </div>
-      ${formatAppointmentList(caisterApts)}
+📊 OVERVIEW
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Total Appointments: ${appointments.length}
+Caister: ${caisterApts.length} | Winterton: ${wintertonApts.length}
+Estimated Revenue: £${totalRevenue}
 
-      <div class="location-header">
-        <h2 style="margin: 0;">🏡 Winterton Branch (${wintertonApts.length} appointments)</h2>
-      </div>
-      ${formatAppointmentList(wintertonApts)}
 
-      <div style="margin-top: 30px; padding: 15px; background: #eff6ff; border-radius: 6px;">
-        <h3 style="margin: 0 0 10px 0; color: #1e40af;">💡 Preparation Checklist</h3>
-        <ul style="margin: 5px 0;">
-          <li>Review special notes for any nervous dogs</li>
-          <li>Check grooming supplies and equipment</li>
-          <li>Confirm all appointment times with customers if needed</li>
-          <li>Prepare reception area and workspace</li>
-        </ul>
-      </div>
-    </div>
+🏢 CAISTER BRANCH (${caisterApts.length} appointments)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+${formatAppointmentList(caisterApts)}
 
-    <div class="footer">
-      <p>This is an automated summary from Maisey Days @ Dirty Dawg booking system.</p>
-      <p>View full schedule in your <a href="https://maiseydays.com/admin">admin panel</a>.</p>
-    </div>
-  </div>
-</body>
-</html>`;
+🏡 WINTERTON BRANCH (${wintertonApts.length} appointments)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+${formatAppointmentList(wintertonApts)}
+
+💡 PREPARATION CHECKLIST
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+• Review special notes for any nervous dogs
+• Check grooming supplies and equipment
+• Confirm all appointment times with customers if needed
+• Prepare reception area and workspace
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+This is an automated summary from Maisey Days @ Dirty Dawg.
+View full schedule: https://maiseydays.com/admin
+`;
 
     // Send email using Formspree
     const emailEndpoint = "https://formspree.io/f/xnjvowlz";
@@ -163,7 +137,6 @@ serve(async (req: Request) => {
         email: settings.reminder_email,
         _replyto: settings.reminder_email,
         message: emailBody,
-        _format: "html",
       }),
     });
 

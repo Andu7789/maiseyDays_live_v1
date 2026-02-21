@@ -80,30 +80,16 @@ serve(async (req: Request) => {
       try {
         const locationName = location === 'caister' ? 'Caister' : location === 'winterton' ? 'Winterton' : 'All Locations';
 
-        let emailBody = `<!DOCTYPE html>
-<html>
-<head>
-  <style>
-    body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-    .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-    .header { background: #10b981; color: white; padding: 20px; border-radius: 8px 8px 0 0; }
-    .booking { background: #f9fafb; padding: 15px; margin: 10px 0; border-left: 4px solid #10b981; border-radius: 4px; }
-    .booking h3 { margin: 0 0 10px 0; color: #10b981; }
-    .detail { margin: 5px 0; }
-    .label { font-weight: bold; color: #666; }
-    .footer { margin-top: 20px; padding-top: 20px; border-top: 2px solid #e5e7eb; font-size: 12px; color: #666; }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <div class="header">
-      <h1 style="margin: 0;">🐾 ${daysInterval}-Day Rebooking Reminder</h1>
-      <p style="margin: 10px 0 0 0;">${locationName} - ${new Date().toLocaleDateString('en-GB')}</p>
-    </div>
+        let emailBody = `🐾 ${daysInterval}-DAY REBOOKING REMINDER
+${locationName} - ${new Date().toLocaleDateString('en-GB')}
 
-    <div style="padding: 20px; background: white;">
-      <p>Hi there!</p>
-      <p>The following customers are due for their next grooming appointment (${daysInterval} days since last visit):</p>
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Hi there!
+
+The following customers are due for their next grooming appointment (${daysInterval} days since last visit):
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `;
 
         for (const apt of apts) {
@@ -111,30 +97,26 @@ serve(async (req: Request) => {
           const serviceName = apt.serviceid || 'Unknown Service';
 
           emailBody += `
-      <div class="booking">
-        <h3>${apt.dogname} (${apt.dogbreed || 'Mixed Breed'})</h3>
-        <div class="detail"><span class="label">Owner:</span> ${apt.ownername}</div>
-        <div class="detail"><span class="label">Phone:</span> <a href="tel:${apt.phone}">${apt.phone || 'N/A'}</a></div>
-        <div class="detail"><span class="label">Email:</span> <a href="mailto:${apt.email}">${apt.email || 'N/A'}</a></div>
-        <div class="detail"><span class="label">Last Service:</span> ${serviceName}</div>
-        <div class="detail"><span class="label">Last Visit:</span> ${completedDate}</div>
-        <div class="detail"><span class="label">Location:</span> ${locationName}</div>
-        ${apt.notes ? `<div class="detail"><span class="label">Notes:</span> ${apt.notes}</div>` : ''}
-      </div>
+${apt.dogname} (${apt.dogbreed || 'Mixed Breed'})
+---
+Owner: ${apt.ownername}
+Phone: ${apt.phone || 'N/A'}
+Email: ${apt.email || 'N/A'}
+Last Service: ${serviceName}
+Last Visit: ${completedDate}
+Location: ${locationName}${apt.notes ? `\n⚠️ Notes: ${apt.notes}` : ''}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `;
         }
 
         emailBody += `
-      <p><strong>Action Required:</strong> Contact these customers to schedule their next grooming appointment!</p>
-    </div>
+✅ ACTION REQUIRED: Contact these customers to schedule their next grooming appointment!
 
-    <div class="footer">
-      <p>This is an automated reminder from Maisey Days @ Dirty Dawg booking system.</p>
-      <p>Manage your reminder settings in the admin panel.</p>
-    </div>
-  </div>
-</body>
-</html>`;
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+This is an automated reminder from Maisey Days @ Dirty Dawg.
+Manage reminder settings in your admin panel.
+`;
 
         // Send email using Formspree
         const emailEndpoint = "https://formspree.io/f/xnjvowlz";
@@ -146,7 +128,6 @@ serve(async (req: Request) => {
             email: settings.reminder_email,
             _replyto: settings.reminder_email,
             message: emailBody,
-            _format: "html",
           }),
         });
 
