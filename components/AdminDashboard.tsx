@@ -390,22 +390,10 @@ const AdminDashboard: React.FC = () => {
           <div className="p-4 border-b flex flex-wrap justify-between items-center gap-3">
             <div>
               <h2 className="font-bold text-slate-600">Bookings</h2>
-              {lastAutoSync && (
-                <p className="text-xs text-slate-500 mt-1">
-                  Last auto-sync: {(() => {
-                    const now = new Date();
-                    const diffMs = now.getTime() - lastAutoSync.getTime();
-                    const diffMins = Math.floor(diffMs / 60000);
-                    if (diffMins < 1) return "just now";
-                    if (diffMins === 1) return "1 minute ago";
-                    if (diffMins < 60) return `${diffMins} minutes ago`;
-                    const diffHours = Math.floor(diffMins / 60);
-                    if (diffHours === 1) return "1 hour ago";
-                    if (diffHours < 24) return `${diffHours} hours ago`;
-                    return lastAutoSync.toLocaleString();
-                  })()}
-                </p>
-              )}
+              <p className="text-xs text-emerald-600 mt-1 flex items-center gap-1">
+                <span className="inline-block w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></span>
+                Auto-sync active (every 10 minutes)
+              </p>
             </div>
             <div className="flex gap-2">
               <button onClick={handleSyncDiaryChanges} disabled={isWorking} className="bg-slate-700 hover:bg-slate-800 disabled:opacity-60 text-white px-6 py-2 rounded-lg font-bold text-sm transition-all">
