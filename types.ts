@@ -48,6 +48,11 @@ export interface Appointment {
   calendar_sync_status?: "not_synced" | "synced" | "error";
   calendar_last_synced_at?: string | null;
   calendar_last_error?: string | null;
+  booking_status?: "pending" | "confirmed" | "completed" | "due_for_rebook" | "cancelled";
+  completed_at?: string | null;
+  reminder_28day_sent_at?: string | null;
+  parent_booking_id?: string | null;
+  is_repeat_booking?: boolean;
 }
 
 export interface AvailabilitySlot {
