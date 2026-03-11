@@ -41,14 +41,20 @@ serve(async (req: Request) => {
     const daysInterval = settings.days_interval || 28;
     const targetDate = new Date();
     targetDate.setDate(targetDate.getDate() - daysInterval);
-    const targetDateStr = targetDate.toISOString().split('T')[0];
+
+    // Create start and end of target day in UTC
+    const startOfDay = new Date(targetDate);
+    startOfDay.setUTCHours(0, 0, 0, 0);
+    const endOfDay = new Date(targetDate);
+    endOfDay.setUTCHours(23, 59, 59, 999);
 
     // Find completed bookings that are exactly N days old and haven't had reminder sent
     const { data: appointments, error } = await supabase
       .from("appointments")
       .select("*")
       .eq("booking_status", "completed")
-      .eq("completed_at::date", targetDateStr)
+      .gte("completed_at", startOfDay.toISOString())
+      .lte("completed_at", endOfDay.toISOString())
       .is("reminder_28day_sent_at", null);
 
     if (error) {

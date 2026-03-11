@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { checkAuthStatus, confirmAppointmentBooking, createManualAppointment, deleteAppointment, exportAppointmentsToExcel, getAppointments, getCurrentUser, getLastAutoSyncTime, getUnavailableDays, getUnavailableWeekdays, removeUnavailableDay, removeUnavailableWeekday, saveUnavailableDay, saveUnavailableWeekday, signInAdmin, signOutAdmin, syncBookingToCalendar, syncCalendarChangesFromDiary, updateAppointment } from "../services/bookingService";
+import { checkAuthStatus, confirmAppointmentBooking, createManualAppointment, deleteAppointment, exportAppointmentsToExcel, getAppointments, getCurrentUser, getLastAutoSyncTime, getReminderSettings, getUnavailableDays, getUnavailableWeekdays, removeUnavailableDay, removeUnavailableWeekday, saveUnavailableDay, saveUnavailableWeekday, sendCustomerConfirmationSms, signInAdmin, signOutAdmin, syncBookingToCalendar, syncCalendarChangesFromDiary, updateAppointment, updateReminderSettings } from "../services/bookingService";
 import { Appointment, Service } from "../types";
 import { LOCATIONS, SERVICES } from "../constants";
 
@@ -13,7 +13,7 @@ const AdminDashboard: React.FC = () => {
   const [password, setPassword] = useState("");
   const [authError, setAuthError] = useState("");
   const [appointments, setAppointments] = useState<Appointment[]>([]);
-  const [view, setView] = useState<"bookings" | "unavailable" | "services">("bookings");
+  const [view, setView] = useState<"bookings" | "unavailable" | "services" | "settings" | "customers">("bookings");
   const [selectedLocation, setSelectedLocation] = useState(LOCATIONS[0].id);
   const [isLoading, setIsLoading] = useState(true);
   const [dbStatus, setDbStatus] = useState<"connecting" | "connected" | "error">("connecting");
@@ -28,6 +28,20 @@ const AdminDashboard: React.FC = () => {
   const [activeBooking, setActiveBooking] = useState<Appointment | null>(null);
   const [isWorking, setIsWorking] = useState(false);
   const [lastAutoSync, setLastAutoSync] = useState<Date | null>(null);
+  const [showDepositModal, setShowDepositModal] = useState(false);
+
+  const [reminderSettings, setReminderSettings] = useState({
+    enabled_28day: true,
+    days_interval: 28,
+    reminder_email: "",
+    enabled_next_day: true,
+    next_day_time: "17:00",
+    split_by_location: true,
+  });
+
+  const [customerSearch, setCustomerSearch] = useState("");
+  const [selectedCustomer, setSelectedCustomer] = useState<string | null>(null);
+  const [showCustomerModal, setShowCustomerModal] = useState(false);
 
   const [editForm, setEditForm] = useState({
     ownername: "",
@@ -41,6 +55,10 @@ const AdminDashboard: React.FC = () => {
     confirmed_time: "",
     confirmed_duration_minutes: 90,
     notes: "",
+    deposit_paid: false,
+    deposit_amount: 20,
+    deposit_notes: "",
+    deposit_paid_at: null as string | null,
   });
 
   const [addForm, setAddForm] = useState({
@@ -52,8 +70,13 @@ const AdminDashboard: React.FC = () => {
     serviceid: SERVICES[0].id,
     locationid: LOCATIONS[0].id,
     date: new Date().toISOString().split("T")[0],
-    requested_time_preference: "Morning",
+    confirmed_time: "",
+    confirmed_duration_minutes: 90,
     notes: "",
+    deposit_paid: false,
+    deposit_amount: 20,
+    deposit_notes: "",
+    send_sms: true,
   });
 
   // Pagination and sorting state
@@ -112,16 +135,20 @@ const AdminDashboard: React.FC = () => {
   const loadData = async () => {
     setIsLoading(true);
     try {
-      const [apps, unavail, unavailWeekdays, lastSync] = await Promise.all([
+      const [apps, unavail, unavailWeekdays, lastSync, remSettings] = await Promise.all([
         getAppointments(),
         getUnavailableDays(selectedLocation),
         getUnavailableWeekdays(),
-        getLastAutoSyncTime()
+        getLastAutoSyncTime(),
+        getReminderSettings().catch(() => null)
       ]);
       setAppointments(apps);
       setUnavailableDays(unavail);
       setUnavailableWeekdays(unavailWeekdays);
       setLastAutoSync(lastSync);
+      if (remSettings) {
+        setReminderSettings(remSettings);
+      }
       setDbStatus("connected");
     } catch (err) {
       console.error("Database connection error:", err);
@@ -171,6 +198,10 @@ const AdminDashboard: React.FC = () => {
       confirmed_time: booking.confirmed_time || "",
       confirmed_duration_minutes: booking.confirmed_duration_minutes || 90,
       notes: booking.notes || "",
+      deposit_paid: booking.deposit_paid || false,
+      deposit_amount: booking.deposit_amount || 20,
+      deposit_notes: booking.deposit_notes || "",
+      deposit_paid_at: booking.deposit_paid_at || null,
     });
     setShowUpdateModal(true);
   };
@@ -181,7 +212,24 @@ const AdminDashboard: React.FC = () => {
   };
 
   const openAddModal = () => {
-    setAddForm((prev) => ({ ...prev, locationid: selectedLocation === ALL_LOCATIONS ? LOCATIONS[0].id : selectedLocation }));
+    // Reset form to default values to clear any previous data
+    setAddForm({
+      ownername: "",
+      email: "",
+      phone: "",
+      dogname: "",
+      dogbreed: "",
+      serviceid: SERVICES[0].id,
+      locationid: selectedLocation === ALL_LOCATIONS ? LOCATIONS[0].id : selectedLocation,
+      date: new Date().toISOString().split("T")[0],
+      confirmed_time: "",
+      confirmed_duration_minutes: 90,
+      notes: "",
+      deposit_paid: false,
+      deposit_amount: 20,
+      deposit_notes: "",
+      send_sms: true,
+    });
     setShowAddModal(true);
   };
 
@@ -201,6 +249,10 @@ const AdminDashboard: React.FC = () => {
         confirmed_date: editForm.confirmed_date || null,
         confirmed_time: editForm.confirmed_time || null,
         confirmed_duration_minutes: editForm.confirmed_duration_minutes,
+        deposit_paid: editForm.deposit_paid,
+        deposit_amount: editForm.deposit_amount,
+        deposit_paid_at: editForm.deposit_paid ? new Date().toISOString() : null,
+        deposit_notes: editForm.deposit_notes,
       });
       if (editForm.confirmed_date && editForm.confirmed_time) {
         try {
@@ -224,6 +276,19 @@ const AdminDashboard: React.FC = () => {
       alert("Please set confirmed date, time and duration first.");
       return;
     }
+
+    // Check if deposit is paid - if not, show deposit confirmation modal
+    if (!editForm.deposit_paid) {
+      setShowDepositModal(true);
+      return;
+    }
+
+    // Proceed with confirmation
+    await proceedWithConfirmation();
+  };
+
+  const proceedWithConfirmation = async () => {
+    if (!activeBooking?.id) return;
 
     const shouldConfirm = window.confirm("Do you want to confirm this booking?");
     if (!shouldConfirm) return;
@@ -256,6 +321,69 @@ const AdminDashboard: React.FC = () => {
     }
   };
 
+  const handleDepositPaid = async () => {
+    setShowDepositModal(false);
+    setEditForm({ ...editForm, deposit_paid: true, deposit_paid_at: new Date().toISOString() });
+
+    // Save deposit status first
+    if (activeBooking?.id) {
+      await updateAppointment(activeBooking.id, {
+        deposit_paid: true,
+        deposit_paid_at: new Date().toISOString(),
+      });
+    }
+
+    // Then proceed with confirmation
+    await proceedWithConfirmation();
+  };
+
+  const handleSkipDeposit = async () => {
+    setShowDepositModal(false);
+    // Proceed with confirmation without marking deposit as paid
+    await proceedWithConfirmation();
+  };
+
+  const handleMarkCompleted = async (booking: Appointment) => {
+    if (!booking.id) return;
+    const shouldComplete = window.confirm(`Mark ${booking.dogname}'s appointment as completed?`);
+    if (!shouldComplete) return;
+
+    try {
+      await updateAppointment(booking.id, {
+        booking_status: "completed",
+        completed_at: new Date().toISOString(),
+      });
+      await loadData();
+      alert("Appointment marked as completed. Customer will receive a 28-day rebooking reminder.");
+    } catch (error: any) {
+      alert(error.message || "Could not mark as completed.");
+    }
+  };
+
+  const handleRebook = async (booking: Appointment) => {
+    if (!booking.id) return;
+
+    // Open add modal with prefilled data from the previous booking
+    setAddForm({
+      ownername: booking.ownername || "",
+      email: booking.email || "",
+      phone: booking.phone || "",
+      dogname: booking.dogname || "",
+      dogbreed: booking.dogbreed || "",
+      serviceid: booking.serviceid || SERVICES[0].id,
+      locationid: booking.locationid || LOCATIONS[0].id,
+      date: new Date().toISOString().split("T")[0],
+      confirmed_time: "",
+      confirmed_duration_minutes: booking.confirmed_duration_minutes || 90,
+      notes: `Rebooking from ${booking.confirmed_date || booking.date}`,
+      deposit_paid: false,
+      deposit_amount: 20,
+      deposit_notes: "",
+      send_sms: true,
+    });
+    setShowAddModal(true);
+  };
+
   const handleDeleteBooking = async (booking: Appointment) => {
     if (!booking.id) return;
     const shouldDelete = window.confirm(`Delete booking for ${booking.dogname}?`);
@@ -275,9 +403,14 @@ const AdminDashboard: React.FC = () => {
       return;
     }
 
+    if (!addForm.confirmed_time) {
+      alert("Please set the appointment time.");
+      return;
+    }
+
     setIsWorking(true);
     try {
-      await createManualAppointment({
+      const result = await createManualAppointment({
         ownername: addForm.ownername,
         email: addForm.email,
         phone: addForm.phone,
@@ -286,12 +419,48 @@ const AdminDashboard: React.FC = () => {
         serviceid: addForm.serviceid,
         locationid: addForm.locationid,
         date: addForm.date,
-        time: addForm.requested_time_preference,
-        requested_time_preference: addForm.requested_time_preference,
+        time: addForm.confirmed_time,
+        confirmed_date: addForm.date,
+        confirmed_time: addForm.confirmed_time,
+        confirmed_duration_minutes: addForm.confirmed_duration_minutes,
         notes: addForm.notes,
-        status: "pending",
+        status: "confirmed",
+        booking_status: "confirmed",
         booking_source: "manual",
+        deposit_paid: addForm.deposit_paid,
+        deposit_amount: addForm.deposit_amount,
+        deposit_paid_at: addForm.deposit_paid ? new Date().toISOString() : null,
+        deposit_notes: addForm.deposit_notes,
       });
+
+      const createdBooking = Array.isArray(result) ? result[0] : null;
+
+      if (addForm.send_sms && createdBooking?.id) {
+        const nowIso = new Date().toISOString();
+        try {
+          await sendCustomerConfirmationSms({
+            ...createdBooking,
+            confirmed_date: addForm.date,
+            confirmed_time: addForm.confirmed_time,
+            confirmed_duration_minutes: addForm.confirmed_duration_minutes,
+          });
+          await updateAppointment(createdBooking.id, {
+            is_confirmed: true,
+            confirmed_at: nowIso,
+            confirmation_sent_at: nowIso,
+          });
+          try {
+            await syncBookingToCalendar(createdBooking.id);
+          } catch (syncErr: any) {
+            await updateAppointment(createdBooking.id, {
+              calendar_sync_status: "error",
+              calendar_last_error: syncErr?.message || "Calendar sync failed",
+            });
+          }
+        } catch (smsErr: any) {
+          alert(`Booking created but SMS failed to send: ${smsErr.message}`);
+        }
+      }
 
       await loadData();
       setShowAddModal(false);
@@ -302,12 +471,17 @@ const AdminDashboard: React.FC = () => {
         dogname: "",
         dogbreed: "",
         serviceid: SERVICES[0].id,
-        locationid: selectedLocation,
+        locationid: selectedLocation === ALL_LOCATIONS ? LOCATIONS[0].id : selectedLocation,
         date: new Date().toISOString().split("T")[0],
-        requested_time_preference: "Morning",
+        confirmed_time: "",
+        confirmed_duration_minutes: 90,
         notes: "",
+        deposit_paid: false,
+        deposit_amount: 20,
+        deposit_notes: "",
+        send_sms: true,
       });
-      alert("Manual booking added.");
+      alert(addForm.send_sms ? "Booking added and SMS confirmation sent." : "Booking added.");
     } catch (error: any) {
       alert(error.message || "Could not add booking.");
     } finally {
@@ -365,11 +539,17 @@ const AdminDashboard: React.FC = () => {
           <button onClick={() => setView("bookings")} className={`px-4 py-2 rounded-lg font-bold transition-all ${view === "bookings" ? "bg-white shadow-sm text-emerald-600" : "text-slate-600"}`}>
             Bookings
           </button>
+          <button onClick={() => setView("customers")} className={`px-4 py-2 rounded-lg font-bold transition-all ${view === "customers" ? "bg-white shadow-sm text-emerald-600" : "text-slate-600"}`}>
+            Customers
+          </button>
           <button onClick={() => setView("unavailable")} className={`px-4 py-2 rounded-lg font-bold transition-all ${view === "unavailable" ? "bg-white shadow-sm text-emerald-600" : "text-slate-600"}`}>
             Closed Dates
           </button>
           <button onClick={() => setView("services")} className={`px-4 py-2 rounded-lg font-bold transition-all ${view === "services" ? "bg-white shadow-sm text-emerald-600" : "text-slate-600"}`}>
             Services
+          </button>
+          <button onClick={() => setView("settings")} className={`px-4 py-2 rounded-lg font-bold transition-all ${view === "settings" ? "bg-white shadow-sm text-emerald-600" : "text-slate-600"}`}>
+            Settings
           </button>
         </div>
       </div>
@@ -453,6 +633,7 @@ const AdminDashboard: React.FC = () => {
                     <th className="p-4 font-bold text-slate-600">Time</th>
                     <th className="p-4 font-bold text-slate-600">Duration</th>
                     <th className="p-4 font-bold text-slate-600">Status</th>
+                    <th className="p-4 font-bold text-slate-600">Deposit</th>
                     <th className="p-4 font-bold text-slate-600">Diary Sync</th>
                     <th className="p-4 font-bold text-slate-600">Actions</th>
                   </tr>
@@ -460,8 +641,25 @@ const AdminDashboard: React.FC = () => {
                 <tbody>
                   {paginatedAppointments.map((app) => {
                     const isConfirmed = Boolean(app.is_confirmed || app.status === "confirmed");
-                    const rowClass = isConfirmed ? "bg-emerald-50 hover:bg-emerald-100" : "bg-orange-50 hover:bg-orange-100";
                     const serviceName = SERVICES.find((s) => s.id === app.serviceid)?.name || app.serviceid;
+
+                    // Color-code rows based on booking_status
+                    let rowClass = "bg-orange-50 hover:bg-orange-100"; // Default: pending
+                    if (app.booking_status === "confirmed") {
+                      rowClass = "bg-emerald-50 hover:bg-emerald-100"; // Green: confirmed
+                    } else if (app.booking_status === "completed") {
+                      rowClass = "bg-blue-50 hover:bg-blue-100"; // Blue: completed
+                    } else if (app.booking_status === "due_for_rebook") {
+                      rowClass = "bg-amber-50 hover:bg-amber-100"; // Yellow: due for rebook
+                    } else if (app.booking_status === "cancelled") {
+                      rowClass = "bg-slate-100 hover:bg-slate-200"; // Grey: cancelled
+                    } else if (isConfirmed) {
+                      rowClass = "bg-emerald-50 hover:bg-emerald-100"; // Green: legacy confirmed
+                    }
+
+                    // Check if appointment is in the past and confirmed (eligible for "Mark as Completed")
+                    const isPastAppointment = app.confirmed_date && new Date(app.confirmed_date) < new Date();
+                    const canMarkCompleted = isPastAppointment && app.booking_status === "confirmed";
 
                     return (
                       <tr key={app.id} className={`border-b ${rowClass}`}>
@@ -477,7 +675,26 @@ const AdminDashboard: React.FC = () => {
                         <td className="p-4 text-sm">{app.confirmed_time || ""}</td>
                         <td className="p-4 text-sm">{app.confirmed_duration_minutes ? `${app.confirmed_duration_minutes} mins` : "—"}</td>
                         <td className="p-4">
-                          <span className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${isConfirmed ? "bg-emerald-100 text-emerald-700" : "bg-orange-100 text-orange-700"}`}>{isConfirmed ? "Confirmed" : "Pending"}</span>
+                          {app.booking_status === "confirmed" && (
+                            <span className="px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider bg-emerald-100 text-emerald-700">Confirmed</span>
+                          )}
+                          {app.booking_status === "completed" && (
+                            <span className="px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider bg-blue-100 text-blue-700">Completed</span>
+                          )}
+                          {app.booking_status === "due_for_rebook" && (
+                            <span className="px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider bg-amber-100 text-amber-700">Due Rebook</span>
+                          )}
+                          {app.booking_status === "cancelled" && (
+                            <span className="px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider bg-slate-200 text-slate-600">Cancelled</span>
+                          )}
+                          {(!app.booking_status || app.booking_status === "pending") && (
+                            <span className="px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider bg-orange-100 text-orange-700">Pending</span>
+                          )}
+                        </td>
+                        <td className="p-4">
+                          <span className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${app.deposit_paid ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`} title={app.deposit_notes || ""}>
+                            {app.deposit_paid ? "✓ Paid" : "Pending"}
+                          </span>
                         </td>
                         <td className="p-4">
                           <span className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${app.calendar_sync_status === "synced" ? "bg-emerald-100 text-emerald-700" : app.calendar_sync_status === "error" ? "bg-rose-100 text-rose-700" : "bg-slate-100 text-slate-600"}`} title={app.calendar_last_error || ""}>
@@ -485,10 +702,20 @@ const AdminDashboard: React.FC = () => {
                           </span>
                         </td>
                         <td className="p-4">
-                          <div className="flex gap-2">
+                          <div className="flex gap-2 flex-wrap">
                             <button onClick={() => openUpdateModal(app)} className="bg-slate-200 hover:bg-slate-300 text-slate-700 px-3 py-1 rounded-md text-xs font-bold">
                               Update
                             </button>
+                            {canMarkCompleted && (
+                              <button onClick={() => handleMarkCompleted(app)} className="bg-blue-100 hover:bg-blue-200 text-blue-700 px-3 py-1 rounded-md text-xs font-bold">
+                                ✓ Complete
+                              </button>
+                            )}
+                            {app.booking_status === "due_for_rebook" && (
+                              <button onClick={() => handleRebook(app)} className="bg-amber-100 hover:bg-amber-200 text-amber-700 px-3 py-1 rounded-md text-xs font-bold">
+                                Rebook
+                              </button>
+                            )}
                             <button onClick={() => handleDeleteBooking(app)} className="bg-rose-100 hover:bg-rose-200 text-rose-700 px-3 py-1 rounded-md text-xs font-bold">
                               Delete
                             </button>
@@ -500,7 +727,7 @@ const AdminDashboard: React.FC = () => {
 
                   {paginatedAppointments.length === 0 && (
                     <tr>
-                      <td colSpan={9} className="p-20 text-center text-slate-400">
+                      <td colSpan={10} className="p-20 text-center text-slate-400">
                         No bookings yet.
                       </td>
                     </tr>
@@ -716,6 +943,31 @@ const AdminDashboard: React.FC = () => {
               <textarea value={editForm.notes} onChange={(e) => setEditForm({ ...editForm, notes: e.target.value })} placeholder="Notes" className="md:col-span-2 px-4 py-3 border rounded-lg min-h-24" />
             </div>
 
+            <div className="mt-4 p-4 bg-amber-50 border border-amber-200 rounded-lg">
+              <h4 className="text-sm font-bold text-amber-900 mb-3">£20 Deposit Status</h4>
+              <div className="flex items-center gap-4">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={editForm.deposit_paid}
+                    onChange={(e) => setEditForm({ ...editForm, deposit_paid: e.target.checked })}
+                    className="w-5 h-5 rounded border-amber-300 text-amber-600 focus:ring-amber-500"
+                  />
+                  <span className="text-sm font-medium text-amber-900">Deposit Paid</span>
+                </label>
+                {editForm.deposit_paid && (
+                  <span className="text-xs text-emerald-600 font-semibold">✓ Confirmed</span>
+                )}
+              </div>
+              <input
+                type="text"
+                value={editForm.deposit_notes}
+                onChange={(e) => setEditForm({ ...editForm, deposit_notes: e.target.value })}
+                placeholder="Deposit notes (optional - payment method, date, etc.)"
+                className="mt-3 w-full px-3 py-2 border border-amber-200 rounded-lg text-sm"
+              />
+            </div>
+
             <div className="flex gap-3 mt-6">
               <button disabled={isWorking} onClick={saveBookingDetails} className="bg-slate-700 hover:bg-slate-800 disabled:opacity-60 text-white px-5 py-2 rounded-lg font-bold">
                 Save Details
@@ -731,10 +983,455 @@ const AdminDashboard: React.FC = () => {
         </div>
       )}
 
+      {showDepositModal && (
+        <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center p-4 z-[60]">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-2xl">
+            <div className="text-center mb-6">
+              <div className="w-16 h-16 bg-amber-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <span className="text-3xl">💰</span>
+              </div>
+              <h3 className="text-xl font-black text-slate-800 mb-2">Deposit Reminder</h3>
+              <p className="text-sm text-slate-600">Has the customer paid their £20 deposit?</p>
+            </div>
+
+            <div className="space-y-3">
+              <button
+                onClick={handleDepositPaid}
+                disabled={isWorking}
+                className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white px-5 py-3 rounded-lg font-bold transition-colors"
+              >
+                ✓ Yes, Deposit Paid
+              </button>
+              <button
+                onClick={handleSkipDeposit}
+                disabled={isWorking}
+                className="w-full bg-slate-200 hover:bg-slate-300 text-slate-700 px-5 py-3 rounded-lg font-bold transition-colors"
+              >
+                Skip for Now
+              </button>
+              <button
+                onClick={() => setShowDepositModal(false)}
+                disabled={isWorking}
+                className="w-full text-slate-500 hover:text-slate-700 px-5 py-2 text-sm font-medium"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {view === "settings" && (
+        <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-8">
+          <h2 className="text-2xl font-black mb-6 text-slate-800">Reminder Settings</h2>
+          <p className="text-slate-600 mb-8">Configure automatic email reminders for rebookings and daily summaries.</p>
+
+          <div className="space-y-8">
+            {/* 28-Day Rebooking Reminders */}
+            <div className="p-6 bg-emerald-50 border-2 border-emerald-200 rounded-2xl">
+              <h3 className="text-xl font-bold text-slate-800 mb-4">28-Day Rebooking Reminders</h3>
+              <div className="space-y-4">
+                <label className="flex items-center gap-3">
+                  <input
+                    type="checkbox"
+                    checked={reminderSettings.enabled_28day}
+                    onChange={(e) => setReminderSettings({ ...reminderSettings, enabled_28day: e.target.checked })}
+                    className="w-5 h-5 rounded border-emerald-300 text-emerald-600"
+                  />
+                  <span className="font-medium text-slate-700">Enable 28-day rebooking reminders</span>
+                </label>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-2">Days Interval</label>
+                    <input
+                      type="number"
+                      value={reminderSettings.days_interval}
+                      onChange={(e) => setReminderSettings({ ...reminderSettings, days_interval: Number(e.target.value) })}
+                      className="w-full px-4 py-2 border rounded-lg"
+                      min={1}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-2">Reminder Email</label>
+                    <input
+                      type="email"
+                      value={reminderSettings.reminder_email}
+                      onChange={(e) => setReminderSettings({ ...reminderSettings, reminder_email: e.target.value })}
+                      className="w-full px-4 py-2 border rounded-lg"
+                    />
+                  </div>
+                </div>
+                <label className="flex items-center gap-3">
+                  <input
+                    type="checkbox"
+                    checked={reminderSettings.split_by_location}
+                    onChange={(e) => setReminderSettings({ ...reminderSettings, split_by_location: e.target.checked })}
+                    className="w-5 h-5 rounded border-emerald-300 text-emerald-600"
+                  />
+                  <span className="font-medium text-slate-700">Split emails by location</span>
+                </label>
+              </div>
+            </div>
+
+            {/* Next-Day Summary */}
+            <div className="p-6 bg-blue-50 border-2 border-blue-200 rounded-2xl">
+              <h3 className="text-xl font-bold text-slate-800 mb-4">Next-Day Summary</h3>
+              <div className="space-y-4">
+                <label className="flex items-center gap-3">
+                  <input
+                    type="checkbox"
+                    checked={reminderSettings.enabled_next_day}
+                    onChange={(e) => setReminderSettings({ ...reminderSettings, enabled_next_day: e.target.checked })}
+                    className="w-5 h-5 rounded border-blue-300 text-blue-600"
+                  />
+                  <span className="font-medium text-slate-700">Enable next-day summary emails</span>
+                </label>
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-2">Send Time (24-hour format)</label>
+                  <input
+                    type="time"
+                    value={reminderSettings.next_day_time}
+                    onChange={(e) => setReminderSettings({ ...reminderSettings, next_day_time: e.target.value })}
+                    className="px-4 py-2 border rounded-lg"
+                  />
+                  <p className="text-xs text-slate-500 mt-1">Currently set to {reminderSettings.next_day_time}</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Save Button */}
+            <div className="flex gap-4">
+              <button
+                onClick={async () => {
+                  try {
+                    await updateReminderSettings(reminderSettings);
+                    alert("Reminder settings updated successfully!");
+                  } catch (error: any) {
+                    alert(error.message || "Failed to update settings");
+                  }
+                }}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-3 rounded-lg font-bold"
+              >
+                Save Settings
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {view === "customers" && (() => {
+        // Group appointments by customer (email + owner name)
+        const customerMap = new Map<string, {
+          ownername: string;
+          email: string;
+          phone: string;
+          dogs: Set<string>;
+          bookings: Appointment[];
+          totalSpent: number;
+          lastVisit: string | null;
+          nextVisit: string | null;
+        }>();
+
+        appointments.forEach(apt => {
+          const key = `${apt.email}-${apt.ownername}`;
+          if (!customerMap.has(key)) {
+            customerMap.set(key, {
+              ownername: apt.ownername,
+              email: apt.email,
+              phone: apt.phone || "",
+              dogs: new Set(),
+              bookings: [],
+              totalSpent: 0,
+              lastVisit: null,
+              nextVisit: null,
+            });
+          }
+          const customer = customerMap.get(key)!;
+          customer.dogs.add(apt.dogname);
+          customer.bookings.push(apt);
+
+          // Calculate spend
+          const servicePrice = apt.serviceid === 'full-groom' ? 35 :
+                              apt.serviceid === 'bath-brush' ? 25 :
+                              apt.serviceid === 'puppy-intro' ? 15 :
+                              apt.serviceid === 'nail-clipping' ? 12 :
+                              apt.serviceid === 'home-grooming' ? 45 : 0;
+          customer.totalSpent += servicePrice;
+
+          // Track last and next visits
+          if (apt.booking_status === "completed" && apt.completed_at) {
+            if (!customer.lastVisit || apt.completed_at > customer.lastVisit) {
+              customer.lastVisit = apt.completed_at;
+            }
+          }
+          if (apt.booking_status === "confirmed" && apt.confirmed_date) {
+            if (!customer.nextVisit || apt.confirmed_date < customer.nextVisit) {
+              customer.nextVisit = apt.confirmed_date;
+            }
+          }
+        });
+
+        const customers = Array.from(customerMap.values());
+
+        // Filter by search
+        const filteredCustomers = customers.filter(c =>
+          c.ownername.toLowerCase().includes(customerSearch.toLowerCase()) ||
+          c.email.toLowerCase().includes(customerSearch.toLowerCase()) ||
+          c.phone.includes(customerSearch) ||
+          Array.from(c.dogs).some(dog => dog.toLowerCase().includes(customerSearch.toLowerCase()))
+        );
+
+        return (
+          <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-8">
+            <h2 className="text-2xl font-black mb-6 text-slate-800">Customer Database</h2>
+
+            {/* Search Bar */}
+            <div className="mb-6">
+              <input
+                type="text"
+                value={customerSearch}
+                onChange={(e) => setCustomerSearch(e.target.value)}
+                placeholder="Search by customer name, email, phone, or dog name..."
+                className="w-full px-6 py-4 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-emerald-500 font-medium"
+              />
+            </div>
+
+            {/* Stats Summary */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+              <div className="bg-emerald-50 p-4 rounded-xl border border-emerald-200">
+                <div className="text-2xl font-black text-emerald-700">{customers.length}</div>
+                <div className="text-xs font-bold text-emerald-600 uppercase">Total Customers</div>
+              </div>
+              <div className="bg-blue-50 p-4 rounded-xl border border-blue-200">
+                <div className="text-2xl font-black text-blue-700">{appointments.length}</div>
+                <div className="text-xs font-bold text-blue-600 uppercase">Total Bookings</div>
+              </div>
+              <div className="bg-amber-50 p-4 rounded-xl border border-amber-200">
+                <div className="text-2xl font-black text-amber-700">
+                  £{customers.reduce((sum, c) => sum + c.totalSpent, 0)}
+                </div>
+                <div className="text-xs font-bold text-amber-600 uppercase">Total Revenue</div>
+              </div>
+              <div className="bg-purple-50 p-4 rounded-xl border border-purple-200">
+                <div className="text-2xl font-black text-purple-700">
+                  £{Math.round(customers.reduce((sum, c) => sum + c.totalSpent, 0) / Math.max(customers.length, 1))}
+                </div>
+                <div className="text-xs font-bold text-purple-600 uppercase">Avg Per Customer</div>
+              </div>
+            </div>
+
+            {/* Customer List */}
+            <div className="space-y-3">
+              {filteredCustomers.length === 0 && (
+                <div className="text-center py-12 text-slate-400">
+                  {customerSearch ? "No customers found matching your search" : "No customers yet"}
+                </div>
+              )}
+
+              {filteredCustomers.map((customer, idx) => (
+                <div
+                  key={idx}
+                  className="p-6 bg-slate-50 hover:bg-slate-100 rounded-2xl border border-slate-200 transition-colors cursor-pointer"
+                  onClick={() => {
+                    setSelectedCustomer(`${customer.email}-${customer.ownername}`);
+                    setShowCustomerModal(true);
+                  }}
+                >
+                  <div className="flex justify-between items-start">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-3 mb-2">
+                        <h3 className="text-lg font-black text-slate-800">{customer.ownername}</h3>
+                        <span className="px-3 py-1 bg-emerald-100 text-emerald-700 text-xs font-bold rounded-full">
+                          {customer.bookings.length} booking{customer.bookings.length !== 1 ? 's' : ''}
+                        </span>
+                      </div>
+                      <div className="text-sm text-slate-600 space-y-1">
+                        <div>🐕 {Array.from(customer.dogs).join(', ')}</div>
+                        <div>📧 {customer.email}</div>
+                        {customer.phone && <div>📞 {customer.phone}</div>}
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-2xl font-black text-emerald-600">£{customer.totalSpent}</div>
+                      <div className="text-xs text-slate-500 mt-1">
+                        {customer.lastVisit && `Last: ${new Date(customer.lastVisit).toLocaleDateString('en-GB')}`}
+                      </div>
+                      {customer.nextVisit && (
+                        <div className="text-xs text-blue-600 font-bold mt-1">
+                          Next: {new Date(customer.nextVisit).toLocaleDateString('en-GB')}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Customer Detail Modal */}
+      {showCustomerModal && selectedCustomer && (() => {
+        const customerData = appointments.filter(apt =>
+          `${apt.email}-${apt.ownername}` === selectedCustomer
+        );
+        if (customerData.length === 0) return null;
+
+        const customer = customerData[0];
+        const dogs = [...new Set(customerData.map(apt => apt.dogname))];
+        const totalSpent = customerData.reduce((sum, apt) => {
+          const price = apt.serviceid === 'full-groom' ? 35 :
+                       apt.serviceid === 'bath-brush' ? 25 :
+                       apt.serviceid === 'puppy-intro' ? 15 :
+                       apt.serviceid === 'nail-clipping' ? 12 :
+                       apt.serviceid === 'home-grooming' ? 45 : 0;
+          return sum + price;
+        }, 0);
+
+        // Count service preferences
+        const serviceCount = customerData.reduce((acc, apt) => {
+          acc[apt.serviceid] = (acc[apt.serviceid] || 0) + 1;
+          return acc;
+        }, {} as Record<string, number>);
+        const preferredService = Object.entries(serviceCount).sort((a, b) => b[1] - a[1])[0];
+
+        return (
+          <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center p-4 z-[60]">
+            <div className="bg-white rounded-2xl p-8 w-full max-w-4xl max-h-[90vh] overflow-y-auto">
+              <div className="flex justify-between items-start mb-6">
+                <div>
+                  <h3 className="text-2xl font-black text-slate-800">{customer.ownername}</h3>
+                  <p className="text-slate-600">{customer.email}</p>
+                  {customer.phone && <p className="text-slate-600">{customer.phone}</p>}
+                </div>
+                <button
+                  onClick={() => setShowCustomerModal(false)}
+                  className="text-slate-400 hover:text-slate-600 text-2xl font-bold"
+                >
+                  ×
+                </button>
+              </div>
+
+              {/* Stats Grid */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+                <div className="bg-emerald-50 p-4 rounded-xl text-center">
+                  <div className="text-3xl font-black text-emerald-700">{customerData.length}</div>
+                  <div className="text-xs font-bold text-emerald-600">Total Visits</div>
+                </div>
+                <div className="bg-blue-50 p-4 rounded-xl text-center">
+                  <div className="text-3xl font-black text-blue-700">£{totalSpent}</div>
+                  <div className="text-xs font-bold text-blue-600">Total Spent</div>
+                </div>
+                <div className="bg-purple-50 p-4 rounded-xl text-center">
+                  <div className="text-3xl font-black text-purple-700">{dogs.length}</div>
+                  <div className="text-xs font-bold text-purple-600">Dog{dogs.length !== 1 ? 's' : ''}</div>
+                </div>
+                <div className="bg-amber-50 p-4 rounded-xl text-center">
+                  <div className="text-sm font-black text-amber-700">{SERVICES.find(s => s.id === preferredService[0])?.name || '-'}</div>
+                  <div className="text-xs font-bold text-amber-600">Preferred Service</div>
+                </div>
+              </div>
+
+              {/* Dogs */}
+              <div className="mb-6">
+                <h4 className="text-sm font-bold text-slate-700 mb-3">Dogs</h4>
+                <div className="flex flex-wrap gap-2">
+                  {dogs.map(dog => (
+                    <span key={dog} className="px-4 py-2 bg-slate-100 text-slate-700 rounded-lg font-medium">
+                      🐕 {dog}
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              {/* Booking History */}
+              <div>
+                <h4 className="text-sm font-bold text-slate-700 mb-3">Booking History ({customerData.length})</h4>
+                <div className="space-y-2 max-h-96 overflow-y-auto">
+                  {customerData.sort((a, b) => {
+                    const aDate = a.confirmed_date || a.date;
+                    const bDate = b.confirmed_date || b.date;
+                    return bDate.localeCompare(aDate);
+                  }).map(apt => (
+                    <div key={apt.id} className="p-4 bg-slate-50 rounded-lg border border-slate-200">
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <div className="font-bold text-slate-800">{apt.dogname}</div>
+                          <div className="text-sm text-slate-600">
+                            {SERVICES.find(s => s.id === apt.serviceid)?.name || apt.serviceid}
+                          </div>
+                          <div className="text-xs text-slate-500 mt-1">
+                            {apt.confirmed_date || apt.date} {apt.confirmed_time && `at ${apt.confirmed_time}`}
+                          </div>
+                          {apt.notes && (
+                            <div className="text-xs text-amber-700 mt-1">📝 {apt.notes}</div>
+                          )}
+                        </div>
+                        <div className="text-right">
+                          <span className={`px-3 py-1 rounded-full text-xs font-bold ${
+                            apt.booking_status === 'completed' ? 'bg-blue-100 text-blue-700' :
+                            apt.booking_status === 'confirmed' ? 'bg-emerald-100 text-emerald-700' :
+                            apt.booking_status === 'due_for_rebook' ? 'bg-amber-100 text-amber-700' :
+                            apt.booking_status === 'cancelled' ? 'bg-slate-200 text-slate-600' :
+                            'bg-orange-100 text-orange-700'
+                          }`}>
+                            {apt.booking_status || 'pending'}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex gap-3 mt-6">
+                <button
+                  onClick={() => {
+                    setAddForm({
+                      ownername: customer.ownername,
+                      email: customer.email,
+                      phone: customer.phone || "",
+                      dogname: dogs[0] || "",
+                      dogbreed: "",
+                      serviceid: preferredService[0] || SERVICES[0].id,
+                      locationid: LOCATIONS[0].id,
+                      date: new Date().toISOString().split("T")[0],
+                      confirmed_time: "",
+                      confirmed_duration_minutes: 90,
+                      notes: "",
+                      deposit_paid: false,
+                      deposit_amount: 20,
+                      deposit_notes: "",
+                      send_sms: false,
+                    });
+                    setShowCustomerModal(false);
+                    setShowAddModal(true);
+                  }}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-3 rounded-lg font-bold"
+                >
+                  Book Again
+                </button>
+                <button
+                  onClick={() => setShowCustomerModal(false)}
+                  className="bg-slate-200 hover:bg-slate-300 text-slate-700 px-6 py-3 rounded-lg font-bold"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       {showAddModal && (
         <div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl p-6 w-full max-w-3xl max-h-[90vh] overflow-y-auto">
-            <h3 className="text-xl font-black text-slate-800 mb-4">Add New Booking</h3>
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-xl font-black text-slate-800">Add New Booking</h3>
+              <a href={DIARY_URL} target="_blank" rel="noreferrer" className="text-sm font-bold text-teal-700 hover:text-teal-900 underline">
+                Open Diary
+              </a>
+            </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <input value={addForm.ownername} onChange={(e) => setAddForm({ ...addForm, ownername: e.target.value })} placeholder="Owner name" className="px-4 py-3 border rounded-lg" />
               <input value={addForm.dogname} onChange={(e) => setAddForm({ ...addForm, dogname: e.target.value })} placeholder="Dog name" className="px-4 py-3 border rounded-lg" />
@@ -756,16 +1453,54 @@ const AdminDashboard: React.FC = () => {
                 ))}
               </select>
               <input type="date" value={addForm.date} onChange={(e) => setAddForm({ ...addForm, date: e.target.value })} className="px-4 py-3 border rounded-lg" />
-              <select value={addForm.requested_time_preference} onChange={(e) => setAddForm({ ...addForm, requested_time_preference: e.target.value })} className="px-4 py-3 border rounded-lg">
-                <option value="Morning">Morning</option>
-                <option value="Afternoon">Afternoon</option>
-                <option value="Evening">Evening</option>
-              </select>
+              <input type="time" value={addForm.confirmed_time} onChange={(e) => setAddForm({ ...addForm, confirmed_time: e.target.value })} placeholder="Time" className="px-4 py-3 border rounded-lg" />
+              <input type="number" min={15} step={15} value={addForm.confirmed_duration_minutes} onChange={(e) => setAddForm({ ...addForm, confirmed_duration_minutes: Number(e.target.value) })} placeholder="Duration (mins)" className="px-4 py-3 border rounded-lg" />
               <textarea value={addForm.notes} onChange={(e) => setAddForm({ ...addForm, notes: e.target.value })} placeholder="Notes" className="md:col-span-2 px-4 py-3 border rounded-lg min-h-24" />
             </div>
-            <div className="flex gap-3 mt-6">
+
+            <div className="mt-4 p-4 bg-amber-50 border border-amber-200 rounded-lg">
+              <h4 className="text-sm font-bold text-amber-900 mb-3">£20 Deposit Status</h4>
+              <div className="flex items-center gap-4">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={addForm.deposit_paid}
+                    onChange={(e) => setAddForm({ ...addForm, deposit_paid: e.target.checked })}
+                    className="w-5 h-5 rounded border-amber-300 text-amber-600 focus:ring-amber-500"
+                  />
+                  <span className="text-sm font-medium text-amber-900">Deposit Paid</span>
+                </label>
+                {addForm.deposit_paid && (
+                  <span className="text-xs text-emerald-600 font-semibold">✓ Confirmed</span>
+                )}
+              </div>
+              <input
+                type="text"
+                value={addForm.deposit_notes}
+                onChange={(e) => setAddForm({ ...addForm, deposit_notes: e.target.value })}
+                placeholder="Deposit notes (optional - payment method, date, etc.)"
+                className="mt-3 w-full px-3 py-2 border border-amber-200 rounded-lg text-sm"
+              />
+            </div>
+
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mt-4">
+              <label className="flex items-center gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={addForm.send_sms}
+                  onChange={(e) => setAddForm({ ...addForm, send_sms: e.target.checked })}
+                  className="w-4 h-4 accent-blue-600"
+                />
+                <div>
+                  <span className="text-sm font-semibold text-blue-900">Send SMS confirmation to customer</span>
+                  <p className="text-xs text-blue-700 mt-0.5">Sends a confirmation text with the booking details to {addForm.phone || "customer's phone"}</p>
+                </div>
+              </label>
+            </div>
+
+            <div className="flex gap-3 mt-4">
               <button disabled={isWorking} onClick={handleAddBooking} className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white px-5 py-2 rounded-lg font-bold">
-                Add Booking
+                {isWorking ? "Adding..." : addForm.send_sms ? "Add & Send SMS" : "Add Booking"}
               </button>
               <button onClick={() => setShowAddModal(false)} className="bg-slate-200 hover:bg-slate-300 text-slate-700 px-5 py-2 rounded-lg font-bold">
                 Close

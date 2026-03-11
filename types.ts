@@ -53,6 +53,10 @@ export interface Appointment {
   reminder_28day_sent_at?: string | null;
   parent_booking_id?: string | null;
   is_repeat_booking?: boolean;
+  deposit_paid?: boolean;
+  deposit_amount?: number;
+  deposit_paid_at?: string | null;
+  deposit_notes?: string;
 }
 
 export interface AvailabilitySlot {

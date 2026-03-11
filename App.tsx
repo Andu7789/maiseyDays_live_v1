@@ -4,8 +4,8 @@ import Header from "./components/Header";
 import Footer from "./components/Footer";
 import AdminDashboard from "./components/AdminDashboard";
 import { CalendarPicker } from "./components/CalendarPicker";
-import { SERVICES, LOCATIONS, STANDARD_HOURS, EMAIL_ENDPOINT } from "./constants";
-import { isSlotAvailable, saveAppointment, sendBookingEmail, sendConfirmationEmail, isDateAvailable, getUnavailableDays, getUnavailableWeekdays } from "./services/bookingService";
+import { SERVICES, LOCATIONS, STANDARD_HOURS, EMAIL_ENDPOINT, HOLIDAY_START, HOLIDAY_END } from "./constants";
+import { isSlotAvailable, saveAppointment, sendBookingEmail, sendConfirmationEmail, isDateAvailable, getUnavailableDays, getUnavailableWeekdays, sendHolidayEnquiryConfirmation } from "./services/bookingService";
 
 const App: React.FC = () => {
   const [currentPage, setCurrentPage] = useState<Page>("home");
@@ -40,6 +40,9 @@ const App: React.FC = () => {
 
   const selectedService = SERVICES.find((service) => service.id === formData.serviceid);
   const isHomeGroom = Boolean(selectedService && (selectedService.id.toLowerCase().includes("home") || selectedService.name.toLowerCase().includes("home") || selectedService.id.toLowerCase().includes("mobile") || selectedService.name.toLowerCase().includes("mobile")));
+
+  const today = new Date().toISOString().split("T")[0];
+  const isHolidayMode = today >= HOLIDAY_START && today <= HOLIDAY_END;
 
   const testimonials = [
     { name: "", dog: "Rolo", text: "I would highly recommend Maisey Days Dog Grooming. Both of our dogs go to Rachel and they come home looking and smelling great but also they are happy. She takes her time with them doesn’t rush at all and  we know they are happy with her !!", rating: 5, photo: "/IMG_8141 (1).jpg" },
@@ -199,6 +202,9 @@ Message: ${enquiryData.message}
         throw new Error("Enquiry failed");
       }
 
+      if (isHolidayMode) {
+        await sendHolidayEnquiryConfirmation(enquiryData.name, enquiryData.email);
+      }
       setEnquiryStatus("sent");
       setEnquiryData({ name: "", email: "", phone: "", message: "" });
     } catch (err) {
@@ -234,6 +240,14 @@ Message: ${enquiryData.message}
       case "home":
         return (
           <div className="space-y-20 pb-20 animate-fade-in">
+            {isHolidayMode && (
+              <div className="bg-amber-400 text-amber-900 text-center py-8 px-6 font-bold text-lg">
+                🌴 Maisey Days at Dirty Dawg is away on holiday and back on 6th April. Please leave your details and we'll be in touch when we return!{" "}
+                <button onClick={() => setCurrentPage("booking")} className="underline font-black hover:text-amber-700 transition-colors">
+                  Get in touch
+                </button>
+              </div>
+            )}
             {/* Hero Section */}
             <section className="relative h-[85vh] min-h-[600px] flex items-center overflow-hidden">
               <div className="absolute inset-0 z-0">
@@ -491,8 +505,8 @@ Message: ${enquiryData.message}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-12">
               {LOCATIONS.map((l) => (
                 <div key={l.id} className="bg-white rounded-[3rem] overflow-hidden shadow-lg border border-slate-100 group">
-                  <div className="h-72 overflow-hidden">
-                    <img src={l.image} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700" />
+                  <div className="h-[40rem] overflow-hidden bg-slate-50">
+                    <img src={l.image} className="w-full h-full object-contain group-hover:scale-105 transition-transform duration-700" />
                   </div>
                   <div className="p-12">
                     <div className="text-center mb-8">
@@ -529,6 +543,19 @@ Message: ${enquiryData.message}
         return (
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20 animate-fade-in">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+              {isHolidayMode ? (
+                <div className="bg-amber-50 border-2 border-amber-300 rounded-[3rem] shadow-2xl p-10 flex flex-col justify-center items-center text-center">
+                  <div className="text-7xl mb-6">🌴</div>
+                  <p className="text-xs font-black text-amber-600 uppercase tracking-widest mb-3">We're on holiday!</p>
+                  <h1 className="text-4xl font-black mt-1 mb-4 tracking-tighter text-slate-800">Back on 6th April</h1>
+                  <p className="text-slate-600 text-lg leading-relaxed">
+                    We're currently away and unable to take new bookings right now. Fill in the form and we'll be in touch as soon as we return!
+                  </p>
+                  <div className="mt-8 bg-amber-100 rounded-2xl px-6 py-4 text-amber-800 font-bold text-sm">
+                    Away: 14th March – 6th April 2026
+                  </div>
+                </div>
+              ) : (
               <div className="bg-white rounded-[3rem] shadow-2xl border border-slate-100 p-10 relative">
                 <div className="mb-8">
                   <p className="text-xs font-black text-emerald-600 uppercase tracking-widest">Booking</p>
@@ -726,11 +753,12 @@ Message: ${enquiryData.message}
                   </form>
                 )}
               </div>
+              )}
               <div className="bg-white rounded-[3rem] shadow-2xl border border-slate-100 p-10">
                 <div className="mb-8">
-                  <p className="text-xs font-black text-emerald-600 uppercase tracking-widest">Enquiries</p>
-                  <h2 className="text-3xl font-black mt-3 mb-2 tracking-tighter">Ask a Question</h2>
-                  <p className="text-slate-500">Not ready to book? Send us a message and we will get back to you.</p>
+                  <p className="text-xs font-black text-emerald-600 uppercase tracking-widest">{isHolidayMode ? "Leave Your Details" : "Enquiries"}</p>
+                  <h2 className="text-3xl font-black mt-3 mb-2 tracking-tighter">{isHolidayMode ? "We'll Be In Touch!" : "Ask a Question"}</h2>
+                  <p className="text-slate-500">{isHolidayMode ? "Pop your details below and we'll get back to you as soon as we're back on 6th April." : "Not ready to book? Send us a message and we will get back to you."}</p>
                 </div>
                 <form onSubmit={handleEnquirySubmit} className="space-y-6">
                   <div>
@@ -750,7 +778,7 @@ Message: ${enquiryData.message}
                     <textarea required value={enquiryData.message} onChange={(e) => setEnquiryData({ ...enquiryData, message: e.target.value })} className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-emerald-500 transition-all font-bold h-40" />
                   </div>
                   {enquiryError && <div className="bg-rose-50 border border-rose-100 text-rose-600 px-6 py-4 rounded-2xl text-sm font-bold">{enquiryError}</div>}
-                  {enquiryStatus === "sent" && <div className="bg-emerald-50 border border-emerald-100 text-emerald-700 px-6 py-4 rounded-2xl text-sm font-bold">Thanks! Your enquiry has been sent.</div>}
+                  {enquiryStatus === "sent" && <div className="bg-emerald-50 border border-emerald-100 text-emerald-700 px-6 py-4 rounded-2xl text-sm font-bold">{isHolidayMode ? "Thanks! We've received your details and will be in touch when we return on 6th April. Check your email for a confirmation." : "Thanks! Your enquiry has been sent."}</div>}
                   <button type="submit" disabled={enquiryStatus === "sending"} className={`w-full text-white py-5 rounded-2xl font-black uppercase tracking-widest shadow-xl transition-all active:scale-95 ${enquiryStatus === "sending" ? "bg-slate-400 cursor-not-allowed" : "bg-emerald-600 shadow-emerald-600/30 hover:bg-emerald-700"}`}>
                     {enquiryStatus === "sending" ? "Sending..." : "Send Enquiry"}
                   </button>

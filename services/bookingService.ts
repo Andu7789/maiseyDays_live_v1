@@ -1,7 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import emailjs from "emailjs-com";
 import { Appointment, AvailabilitySlot, WeeklyTemplate } from "../types";
-import { EMAIL_ENDPOINT, LOCATIONS, SERVICES, SUPABASE_URL, SUPABASE_ANON_KEY, STANDARD_HOURS, EMAILJS_PUBLIC_KEY, EMAILJS_SERVICE_ID, EMAILJS_CONFIRMATION_TEMPLATE_ID } from "../constants";
+import { EMAIL_ENDPOINT, LOCATIONS, SERVICES, SUPABASE_URL, SUPABASE_ANON_KEY, STANDARD_HOURS, EMAILJS_PUBLIC_KEY, EMAILJS_SERVICE_ID, EMAILJS_CONFIRMATION_TEMPLATE_ID, EMAILJS_HOLIDAY_TEMPLATE_ID } from "../constants";
 
 // Initialize EmailJS
 emailjs.init(EMAILJS_PUBLIC_KEY);
@@ -336,6 +336,20 @@ export const confirmAppointmentBooking = async (
     throw new Error("Booking ID is required to confirm.");
   }
 
+  // Safety check: If already confirmed with SMS sent, don't send again
+  if (appointment.is_confirmed && appointment.confirmation_sent_at) {
+    console.warn(`Booking ${appointment.id} already confirmed. Skipping duplicate SMS.`);
+    // Still update the booking details but skip SMS
+    await updateAppointment(appointment.id, {
+      status: "confirmed",
+      is_confirmed: true,
+      confirmed_date: confirmation.confirmedDate,
+      confirmed_time: confirmation.confirmedTime,
+      confirmed_duration_minutes: confirmation.confirmedDurationMinutes,
+    });
+    return;
+  }
+
   const nowIso = new Date().toISOString();
   const smsPayload: Appointment = {
     ...appointment,
@@ -535,6 +549,19 @@ Maisey Days @ Dirty Dawg 🐾
   }
 };
 
+export const sendHolidayEnquiryConfirmation = async (name: string, email: string): Promise<boolean> => {
+  try {
+    const result = await emailjs.send(EMAILJS_SERVICE_ID, EMAILJS_HOLIDAY_TEMPLATE_ID, {
+      to_email: email,
+      to_name: name,
+    });
+    return result.status === 200;
+  } catch (e) {
+    console.error("Error sending holiday enquiry confirmation:", e);
+    return false;
+  }
+};
+
 export const getUnavailableDays = async (locationId: string): Promise<string[]> => {
   try {
     const { data, error } = await supabase.from("availabilities").select("date, day_of_week").eq("isAvailable", false);
@@ -727,4 +754,21 @@ export const exportAppointmentsToExcel = (appointments: Appointment[]) => {
   link.click();
   document.body.removeChild(link);
   window.URL.revokeObjectURL(url);
+};
+
+export const getReminderSettings = async () => {
+  const { data, error } = await supabase.from("reminder_settings").select("*").eq("id", 1).single();
+  if (error) throw new Error(error.message);
+  return data;
+};
+
+export const updateReminderSettings = async (settings: any) => {
+  const { error } = await supabase
+    .from("reminder_settings")
+    .update({
+      ...settings,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", 1);
+  if (error) throw new Error(error.message);
 };

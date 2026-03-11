@@ -7,6 +7,11 @@ export const EMAIL_ENDPOINT = "https://formspree.io/f/xnjvowlz";
 export const EMAILJS_PUBLIC_KEY = "FimgDIgYCermEEAUS";
 export const EMAILJS_SERVICE_ID = "service_n31emcr";
 export const EMAILJS_CONFIRMATION_TEMPLATE_ID = "template_huea638";
+export const EMAILJS_HOLIDAY_TEMPLATE_ID = "template_1k8va7s";
+
+// HOLIDAY MODE - booking form is hidden and replaced with enquiry form
+export const HOLIDAY_START = "2026-03-14";
+export const HOLIDAY_END = "2026-04-06";
 
 // DATABASE CONFIGURATION (Supabase)
 export const SUPABASE_URL = "https://rmooksnngqyzqraeicvr.supabase.co";
