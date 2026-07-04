@@ -8,7 +8,10 @@ interface IntakeFormProps {
   token: string;
 }
 
-const emptyDog = (): Dog => ({
+// has_medication is UI-only (drives the Yes/No toggle); the server stores medication_details
+type FormDog = Dog & { has_medication?: boolean | null };
+
+const emptyDog = (): FormDog => ({
   name: "",
   breed: "",
   dob: "",
@@ -20,6 +23,7 @@ const emptyDog = (): Dog => ({
   needs_prescribed_shampoo: null,
   medication_details: "",
   needs_muzzle: null,
+  has_medication: null,
 });
 
 const inputClass = "w-full px-4 py-3 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500 font-medium bg-white";
@@ -53,7 +57,7 @@ const IntakeForm: React.FC<IntakeFormProps> = ({ token }) => {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [alreadyCompleted, setAlreadyCompleted] = useState(false);
   const [customer, setCustomer] = useState<Partial<Customer>>({});
-  const [dogs, setDogs] = useState<Dog[]>([emptyDog()]);
+  const [dogs, setDogs] = useState<FormDog[]>([emptyDog()]);
   const [agreed, setAgreed] = useState(false);
   const [signature, setSignature] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -65,7 +69,7 @@ const IntakeForm: React.FC<IntakeFormProps> = ({ token }) => {
       .then(({ customer: prefill, dogs: existingDogs, alreadyCompleted: completed }) => {
         setCustomer(prefill);
         if (existingDogs.length > 0) {
-          setDogs(existingDogs.map((dog) => ({ ...emptyDog(), ...dog })));
+          setDogs(existingDogs.map((dog) => ({ ...emptyDog(), ...dog, has_medication: (dog.medication_details || "").trim() ? true : null })));
         }
         setAlreadyCompleted(completed);
       })
@@ -74,7 +78,7 @@ const IntakeForm: React.FC<IntakeFormProps> = ({ token }) => {
   }, [token]);
 
   const setField = (field: keyof Customer, value: unknown) => setCustomer((prev) => ({ ...prev, [field]: value }));
-  const setDogField = (index: number, field: keyof Dog, value: unknown) =>
+  const setDogField = (index: number, field: keyof FormDog, value: unknown) =>
     setDogs((prev) => prev.map((dog, i) => (i === index ? { ...dog, [field]: value } : dog)));
 
   const handleSubmit = async () => {
@@ -207,6 +211,20 @@ const IntakeForm: React.FC<IntakeFormProps> = ({ token }) => {
             <YesNo label="Neutered / spayed?" value={dog.neutered} onChange={(v) => setDogField(index, "neutered", v)} />
             <YesNo label="Vaccinated?" value={dog.vaccinated} onChange={(v) => setDogField(index, "vaccinated", v)} />
             <YesNo label="Do they require their own prescribed medical shampoo?" value={dog.needs_prescribed_shampoo} onChange={(v) => setDogField(index, "needs_prescribed_shampoo", v)} />
+            <YesNo
+              label="Do they have any medication?"
+              value={dog.has_medication}
+              onChange={(v) => {
+                setDogField(index, "has_medication", v);
+                if (!v) setDogField(index, "medication_details", "");
+              }}
+            />
+            {dog.has_medication === true && (
+              <div className="py-3">
+                <label className={labelClass}>Please put the name of the medication and what it's needed for</label>
+                <input value={dog.medication_details || ""} onChange={(e) => setDogField(index, "medication_details", e.target.value)} className={inputClass} placeholder="e.g. Apoquel — for itchy skin" />
+              </div>
+            )}
             <YesNo label="Do we need to muzzle?" value={dog.needs_muzzle} onChange={(v) => setDogField(index, "needs_muzzle", v)} />
           </div>
           <div className="grid grid-cols-1 gap-4 mt-4">
@@ -217,10 +235,6 @@ const IntakeForm: React.FC<IntakeFormProps> = ({ token }) => {
             <div>
               <label className={labelClass}>Known health / skin conditions</label>
               <textarea rows={2} value={dog.health_conditions || ""} onChange={(e) => setDogField(index, "health_conditions", e.target.value)} className={inputClass} />
-            </div>
-            <div>
-              <label className={labelClass}>Medication (name and what it's needed for, or leave blank if none)</label>
-              <input value={dog.medication_details || ""} onChange={(e) => setDogField(index, "medication_details", e.target.value)} className={inputClass} />
             </div>
           </div>
           {dogs.length > 1 && (
