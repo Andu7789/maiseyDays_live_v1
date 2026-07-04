@@ -109,7 +109,7 @@ const AdminDashboard: React.FC = () => {
     deposit_paid: false,
     deposit_amount: 20,
     deposit_notes: "",
-    send_sms: true,
+    confirm_channel: "whatsapp" as "none" | "whatsapp" | "sms",
   });
 
   // Pagination and sorting state
@@ -475,7 +475,7 @@ const AdminDashboard: React.FC = () => {
       deposit_paid: false,
       deposit_amount: 20,
       deposit_notes: "",
-      send_sms: true,
+      confirm_channel: "whatsapp" as "none" | "whatsapp" | "sms",
     });
     setShowAddModal(true);
   };
@@ -647,7 +647,7 @@ const AdminDashboard: React.FC = () => {
       deposit_paid: false,
       deposit_amount: 20,
       deposit_notes: "",
-      send_sms: true,
+      confirm_channel: "whatsapp" as "none" | "whatsapp" | "sms",
     });
     setShowAddModal(true);
   };
@@ -709,22 +709,28 @@ const AdminDashboard: React.FC = () => {
 
       const createdBooking = Array.isArray(result) ? result[0] : null;
 
-      if (addForm.send_sms && createdBooking?.id) {
+      if (addForm.confirm_channel !== "none" && createdBooking?.id) {
         const nowIso = new Date().toISOString();
+        const confirmedAppointment: Appointment = {
+          ...createdBooking,
+          confirmed_date: addForm.date,
+          confirmed_time: addForm.confirmed_time,
+          confirmed_duration_minutes: addForm.confirmed_duration_minutes,
+        };
         try {
-          await sendCustomerConfirmationSms({
-            ...createdBooking,
-            confirmed_date: addForm.date,
-            confirmed_time: addForm.confirmed_time,
-            confirmed_duration_minutes: addForm.confirmed_duration_minutes,
-          });
+          if (addForm.confirm_channel === "sms") {
+            await sendCustomerConfirmationSms(confirmedAppointment);
+          } else {
+            // Free channel: open WhatsApp with the confirmation ready to send
+            window.open(buildWhatsAppLink(addForm.phone, buildConfirmationMessage(confirmedAppointment)), "_blank");
+          }
           await updateAppointment(createdBooking.id, {
             is_confirmed: true,
             confirmed_at: nowIso,
             confirmation_sent_at: nowIso,
           });
-        } catch (smsErr: any) {
-          alert(`Booking created but SMS failed to send: ${smsErr.message}`);
+        } catch (sendErr: any) {
+          alert(`Booking created but the confirmation failed to send: ${sendErr.message}`);
         }
       }
 
@@ -745,9 +751,9 @@ const AdminDashboard: React.FC = () => {
         deposit_paid: false,
         deposit_amount: 20,
         deposit_notes: "",
-        send_sms: true,
+        confirm_channel: "whatsapp" as "none" | "whatsapp" | "sms",
       });
-      alert(addForm.send_sms ? "Booking added and SMS confirmation sent." : "Booking added.");
+      alert(addForm.confirm_channel === "sms" ? "Booking added and SMS confirmation sent." : addForm.confirm_channel === "whatsapp" ? "Booking added — WhatsApp message opened, just press send." : "Booking added.");
     } catch (error: any) {
       alert(error.message || "Could not add booking.");
     } finally {
@@ -2198,7 +2204,7 @@ const AdminDashboard: React.FC = () => {
                       deposit_paid: false,
                       deposit_amount: 20,
                       deposit_notes: "",
-                      send_sms: false,
+                      confirm_channel: "none" as "none" | "whatsapp" | "sms",
                     });
                     setShowCustomerModal(false);
                     setShowAddModal(true);
@@ -2312,23 +2318,24 @@ const AdminDashboard: React.FC = () => {
             </div>
 
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mt-4">
-              <label className="flex items-center gap-3 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={addForm.send_sms}
-                  onChange={(e) => setAddForm({ ...addForm, send_sms: e.target.checked })}
-                  className="w-4 h-4 accent-blue-600"
-                />
-                <div>
-                  <span className="text-sm font-semibold text-blue-900">Send SMS confirmation to customer</span>
-                  <p className="text-xs text-blue-700 mt-0.5">Sends a confirmation text with the booking details to {addForm.phone || "customer's phone"}</p>
-                </div>
-              </label>
+              <span className="text-sm font-semibold text-blue-900">Send booking confirmation to customer?</span>
+              <p className="text-xs text-blue-700 mt-0.5 mb-2">Sends the booking details to {addForm.phone || "customer's phone"}</p>
+              <div className="flex flex-wrap gap-2">
+                <button type="button" onClick={() => setAddForm({ ...addForm, confirm_channel: "whatsapp" })} className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${addForm.confirm_channel === "whatsapp" ? "bg-green-500 text-white shadow" : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"}`}>
+                  📱 WhatsApp (free)
+                </button>
+                <button type="button" onClick={() => setAddForm({ ...addForm, confirm_channel: "sms" })} className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${addForm.confirm_channel === "sms" ? "bg-blue-500 text-white shadow" : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"}`}>
+                  💬 SMS (~4p)
+                </button>
+                <button type="button" onClick={() => setAddForm({ ...addForm, confirm_channel: "none" })} className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${addForm.confirm_channel === "none" ? "bg-slate-700 text-white shadow" : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"}`}>
+                  Don't send
+                </button>
+              </div>
             </div>
 
             <div className="flex gap-3 mt-4">
               <button disabled={isWorking} onClick={handleAddBooking} className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white px-5 py-2 rounded-lg font-bold">
-                {isWorking ? "Adding..." : addForm.send_sms ? "Add & Send SMS" : "Add Booking"}
+                {isWorking ? "Adding..." : addForm.confirm_channel === "sms" ? "Add & Send SMS" : addForm.confirm_channel === "whatsapp" ? "Add & Send WhatsApp" : "Add Booking"}
               </button>
               <button onClick={() => setShowAddModal(false)} className="bg-slate-200 hover:bg-slate-300 text-slate-700 px-5 py-2 rounded-lg font-bold">
                 Close
