@@ -2090,9 +2090,11 @@ const AdminDashboard: React.FC = () => {
                           {intakeDog.sex && <div><span className="font-bold">Sex:</span> {intakeDog.sex}</div>}
                           <div><span className="font-bold">Neutered:</span> {yesNo(intakeDog.neutered)}</div>
                           <div><span className="font-bold">Vaccinated:</span> {yesNo(intakeDog.vaccinated)}</div>
+                          <div><span className="font-bold">Own shampoo:</span> {yesNo(intakeDog.needs_prescribed_shampoo)}</div>
+                          <div><span className="font-bold">Muzzle:</span> {yesNo(intakeDog.needs_muzzle)}</div>
+                          <div className="col-span-2"><span className="font-bold">Medication:</span> {(intakeDog.medication_details || "").trim() || "None"}</div>
                           {(intakeDog.behaviour_notes || "").trim() && <div className="col-span-2 md:col-span-4"><span className="font-bold">Behaviour:</span> {intakeDog.behaviour_notes}</div>}
                           {(intakeDog.health_conditions || "").trim() && <div className="col-span-2 md:col-span-4"><span className="font-bold">Health/skin:</span> {intakeDog.health_conditions}</div>}
-                          {(intakeDog.medication_details || "").trim() && <div className="col-span-2 md:col-span-4"><span className="font-bold">Medication:</span> {intakeDog.medication_details}</div>}
                         </div>
                       )}
                       {customer.email && (
