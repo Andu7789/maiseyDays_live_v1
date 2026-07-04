@@ -181,6 +181,8 @@ export interface IntakePrefill {
   customer: Partial<Customer>;
   dogs: Dog[];
   alreadyCompleted: boolean;
+  mattingRequired: boolean;
+  mattingAlreadySigned: boolean;
 }
 
 const invokeIntakeFunction = async (payload: Record<string, unknown>) => {
@@ -204,10 +206,12 @@ export const loadIntakeForm = async (token: string): Promise<IntakePrefill> => {
     customer: (result as any).customer || {},
     dogs: (result as any).dogs || [],
     alreadyCompleted: Boolean((result as any).alreadyCompleted),
+    mattingRequired: Boolean((result as any).mattingRequired),
+    mattingAlreadySigned: Boolean((result as any).mattingAlreadySigned),
   };
 };
 
-export const submitIntakeForm = async (token: string, customer: Partial<Customer>, dogs: Dog[], signatureData: string, termsVersion: string) => {
+export const submitIntakeForm = async (token: string, customer: Partial<Customer>, dogs: Dog[], signatureData: string, termsVersion: string, mattingConsent = false) => {
   const result = await invokeIntakeFunction({
     action: "submit",
     token,
@@ -215,7 +219,16 @@ export const submitIntakeForm = async (token: string, customer: Partial<Customer
     dogs,
     signature: signatureData,
     termsVersion,
+    mattingConsent,
   });
+  if (!(result as any)?.success) {
+    throw new Error((result as any)?.error || "Could not submit the form. Please try again.");
+  }
+};
+
+/** Records matting consent only — used when the main agreement is already signed. */
+export const submitMattingConsent = async (token: string, signatureData: string) => {
+  const result = await invokeIntakeFunction({ action: "submit-matting", token, signature: signatureData });
   if (!(result as any)?.success) {
     throw new Error((result as any)?.error || "Could not submit the form. Please try again.");
   }

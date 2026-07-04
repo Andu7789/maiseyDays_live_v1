@@ -42,6 +42,10 @@ export interface Customer {
   signature_data?: string | null;
   signed_at?: string | null;
   terms_version?: string | null;
+  matting_required?: boolean;
+  matting_signed_at?: string | null;
+  matting_signed_via?: string | null;
+  matting_signature?: string | null;
   source?: string;
   created_at?: string;
   updated_at?: string;

@@ -73,7 +73,30 @@ serve(async (req: Request) => {
         customer: pick(customer, CUSTOMER_FIELDS),
         dogs: (dogs || []).map((dog: Record<string, unknown>) => pick(dog, ["id", ...DOG_FIELDS])),
         alreadyCompleted: customer.intake_status === "completed",
+        mattingRequired: Boolean(customer.matting_required),
+        mattingAlreadySigned: Boolean(customer.matting_signed_at),
       });
+    }
+
+    // Short flow: agreement already signed, only the matting release is outstanding
+    if (action === "submit-matting") {
+      const signature = String(body.signature || "");
+      if (!signature.startsWith("data:image/")) {
+        return jsonResponse({ success: false, error: "Signature is missing." });
+      }
+      if (signature.length > 500_000) {
+        return jsonResponse({ success: false, error: "Signature image is too large." });
+      }
+      const nowIso = new Date().toISOString();
+      const { error: mattingError } = await supabase
+        .from("customers")
+        .update({ matting_signature: signature, matting_signed_at: nowIso, matting_signed_via: "digital", updated_at: nowIso })
+        .eq("id", customer.id);
+      if (mattingError) {
+        console.error("Matting consent update failed:", mattingError);
+        return jsonResponse({ success: false, error: "Could not save your consent. Please try again." });
+      }
+      return jsonResponse({ success: true });
     }
 
     if (action === "submit") {
@@ -89,6 +112,7 @@ serve(async (req: Request) => {
       }
 
       const nowIso = new Date().toISOString();
+      const mattingConsent = Boolean(body.mattingConsent);
       const { error: updateError } = await supabase
         .from("customers")
         .update({
@@ -99,6 +123,7 @@ serve(async (req: Request) => {
           intake_status: "completed",
           intake_completed_at: nowIso,
           updated_at: nowIso,
+          ...(mattingConsent ? { matting_signature: signature, matting_signed_at: nowIso, matting_signed_via: "digital" } : {}),
         })
         .eq("id", customer.id);
 

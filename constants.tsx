@@ -25,6 +25,25 @@ export const INTAKE_TERMS: string[] = [
   "If you are dissatisfied with your pet's groom, please let us know within 48 hours and we will do our best to resolve it for you.",
 ];
 
+// MATTING RELEASE FORM (sent alongside the grooming agreement when needed)
+export const MATTING_INTRO = "We understand life can get heavy and sometimes things go wrong that can lead to you not being able to afford grooms or get your dog booked in. We are not judgmental. If you require help on how to care for your dog between grooming sessions, please do ask. I will be more than happy to give you advice and go through an individual schedule suited to you and your dog. We appreciate it can be expected for even a well-cared coat to have a few small knots.";
+
+export const MATTING_TERMS: string[] = [
+  "I understand that matting of my pet's fur can be detrimental to their health and well-being. Matting can cause discomfort, pain, and skin issues, including the risk of hot spots and infections. I acknowledge that my groomer has informed me there may be matting present on my pet.",
+  "All our grooming services adhere to and go beyond the Animal Welfare Act 2006, which states that it is an offence to cause animals pain or discomfort and we reserve the right to refuse to do anything we think may be detrimental to your pet's well-being. Be assured we will always put your dog's welfare first.",
+  "I hereby authorise the grooming services for my pet, with the understanding that removing matting may require the following:",
+];
+
+export const MATTING_BULLETS: string[] = [
+  "Trimming and shaving: if the matting is severe, it may be necessary to shave the affected areas for the pet's comfort and well-being.",
+  "Possible change in appearance: I understand that removing severe matting may alter my pet's appearance. While groomers will make every effort to maintain the desired look, my pet's comfort and health are the primary concern.",
+  "Risk of skin irritation: the removal of mats may expose the skin, which can be sensitive. Skin irritation, redness, or minor nicks may occur as a result of the grooming process.",
+  "Ongoing maintenance: I acknowledge that regular grooming and at-home care are essential to prevent matting in the future. Prevention is better than the cure.",
+  "Additional fees: I understand that due to the matting, my appointment may take longer than originally assumed and due to that it may come with additional charges.",
+];
+
+export const MATTING_CLOSING = "By signing this Matting Release Form, I confirm that I have read and understood the risks and consequences associated with matting and authorise the grooming salon to proceed accordingly.";
+
 // HOLIDAY MODE - booking form is hidden and replaced with enquiry form
 export const HOLIDAY_START = "2026-03-14";
 export const HOLIDAY_END = "2026-04-06";

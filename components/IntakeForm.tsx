@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Customer, Dog } from "../types";
-import { INTAKE_TERMS, INTAKE_TERMS_VERSION } from "../constants";
-import { loadIntakeForm, submitIntakeForm } from "../services/customerService";
+import { INTAKE_TERMS, INTAKE_TERMS_VERSION, MATTING_INTRO, MATTING_TERMS, MATTING_BULLETS, MATTING_CLOSING } from "../constants";
+import { loadIntakeForm, submitIntakeForm, submitMattingConsent } from "../services/customerService";
 import SignatureCanvas from "./SignatureCanvas";
 
 interface IntakeFormProps {
@@ -52,6 +52,21 @@ const SectionCard: React.FC<{ title: string; children: React.ReactNode }> = ({ t
   </div>
 );
 
+const MattingPolicy: React.FC = () => (
+  <div className="text-sm text-slate-600 leading-relaxed space-y-3">
+    <p className="italic text-slate-500">{MATTING_INTRO}</p>
+    {MATTING_TERMS.map((paragraph, i) => (
+      <p key={i}>{paragraph}</p>
+    ))}
+    <ul className="list-disc list-inside space-y-2 pl-2">
+      {MATTING_BULLETS.map((bullet, i) => (
+        <li key={i}>{bullet}</li>
+      ))}
+    </ul>
+    <p className="font-bold text-slate-700">{MATTING_CLOSING}</p>
+  </div>
+);
+
 const IntakeForm: React.FC<IntakeFormProps> = ({ token }) => {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -63,15 +78,23 @@ const IntakeForm: React.FC<IntakeFormProps> = ({ token }) => {
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
+  const [mattingRequired, setMattingRequired] = useState(false);
+  const [mattingAlreadySigned, setMattingAlreadySigned] = useState(false);
+  const [mattingAgreed, setMattingAgreed] = useState(false);
+  const [mattingOnlyMode, setMattingOnlyMode] = useState(false);
 
   useEffect(() => {
     loadIntakeForm(token)
-      .then(({ customer: prefill, dogs: existingDogs, alreadyCompleted: completed }) => {
+      .then(({ customer: prefill, dogs: existingDogs, alreadyCompleted: completed, mattingRequired: needsMatting, mattingAlreadySigned: mattingSigned }) => {
         setCustomer(prefill);
         if (existingDogs.length > 0) {
           setDogs(existingDogs.map((dog) => ({ ...emptyDog(), ...dog, has_medication: (dog.medication_details || "").trim() ? true : null })));
         }
         setAlreadyCompleted(completed);
+        setMattingRequired(needsMatting);
+        setMattingAlreadySigned(mattingSigned);
+        // Agreement already signed and only the matting release outstanding: show the short flow
+        setMattingOnlyMode(completed && needsMatting && !mattingSigned);
       })
       .catch((err) => setLoadError(err.message))
       .finally(() => setLoading(false));
@@ -81,6 +104,8 @@ const IntakeForm: React.FC<IntakeFormProps> = ({ token }) => {
   const setDogField = (index: number, field: keyof FormDog, value: unknown) =>
     setDogs((prev) => prev.map((dog, i) => (i === index ? { ...dog, [field]: value } : dog)));
 
+  const showMattingSection = mattingRequired && !mattingAlreadySigned;
+
   const handleSubmit = async () => {
     setSubmitError(null);
     const validDogs = dogs.filter((dog) => (dog.name || "").trim());
@@ -89,11 +114,28 @@ const IntakeForm: React.FC<IntakeFormProps> = ({ token }) => {
     if (!(customer.phone || "").trim()) return setSubmitError("Please enter your phone number.");
     if (validDogs.length === 0) return setSubmitError("Please add at least one dog (name is required).");
     if (!agreed) return setSubmitError("Please tick the box to confirm you agree to our terms and conditions.");
+    if (showMattingSection && !mattingAgreed) return setSubmitError("Please tick the box in the Matting Release section to confirm you have read and understood it.");
     if (!signature) return setSubmitError("Please sign in the signature box.");
 
     setSubmitting(true);
     try {
-      await submitIntakeForm(token, customer, validDogs, signature, INTAKE_TERMS_VERSION);
+      await submitIntakeForm(token, customer, validDogs, signature, INTAKE_TERMS_VERSION, showMattingSection && mattingAgreed);
+      setDone(true);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    } catch (err: any) {
+      setSubmitError(err.message || "Something went wrong. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleMattingSubmit = async () => {
+    setSubmitError(null);
+    if (!mattingAgreed) return setSubmitError("Please tick the box to confirm you have read and understood the matting release.");
+    if (!signature) return setSubmitError("Please sign in the signature box.");
+    setSubmitting(true);
+    try {
+      await submitMattingConsent(token, signature);
       setDone(true);
       window.scrollTo({ top: 0, behavior: "smooth" });
     } catch (err: any) {
@@ -128,8 +170,35 @@ const IntakeForm: React.FC<IntakeFormProps> = ({ token }) => {
         <div className="w-24 h-24 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-8 text-5xl">✅</div>
         <h1 className="text-4xl font-black mb-4 tracking-tight uppercase">All Done!</h1>
         <p className="text-slate-500 text-xl leading-relaxed">
-          Thank you{customer.ownername ? `, ${String(customer.ownername).split(" ")[0]}` : ""}! Your grooming agreement has been received. We look forward to seeing {dogs[0]?.name || "your dog"} soon! 🐾
+          Thank you{customer.ownername ? `, ${String(customer.ownername).split(" ")[0]}` : ""}! {mattingOnlyMode ? "Your matting release consent has been received." : "Your grooming agreement has been received."} We look forward to seeing {dogs[0]?.name || "your dog"} soon! 🐾
         </p>
+      </div>
+    );
+  }
+
+  if (mattingOnlyMode) {
+    return (
+      <div className="max-w-3xl mx-auto px-4 py-12 space-y-8 animate-fade-in">
+        <div className="text-center">
+          <h1 className="text-4xl font-black tracking-tight text-slate-800 uppercase">Matting Release Consent</h1>
+          <p className="text-slate-500 mt-2 font-medium">Maisey Days @ Dirty Dawg · One quick read and a signature</p>
+        </div>
+
+        <SectionCard title="Matting release information and consent">
+          <MattingPolicy />
+        </SectionCard>
+
+        <SectionCard title="Sign & submit">
+          <label className="flex items-start gap-3 cursor-pointer mb-6">
+            <input type="checkbox" checked={mattingAgreed} onChange={(e) => setMattingAgreed(e.target.checked)} className="w-5 h-5 mt-0.5 accent-emerald-600" />
+            <span className="text-sm font-bold text-slate-700">I confirm that I have read and understood the risks and consequences associated with matting and authorise the grooming salon to proceed accordingly.</span>
+          </label>
+          <SignatureCanvas onChange={setSignature} />
+          {submitError && <div className="mt-4 bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-xl text-sm font-bold">{submitError}</div>}
+          <button type="button" disabled={submitting} onClick={handleMattingSubmit} className="mt-6 w-full bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white py-5 rounded-2xl font-black text-lg uppercase tracking-widest transition-all transform active:scale-95 shadow-xl shadow-emerald-900/20">
+            {submitting ? "Sending..." : "Submit Consent"}
+          </button>
+        </SectionCard>
       </div>
     );
   }
@@ -269,6 +338,17 @@ const IntakeForm: React.FC<IntakeFormProps> = ({ token }) => {
           ))}
         </ol>
       </SectionCard>
+
+      {/* MATTING RELEASE (only when the groomer has flagged it as needed) */}
+      {showMattingSection && (
+        <SectionCard title="Matting release information and consent">
+          <MattingPolicy />
+          <label className="flex items-start gap-3 cursor-pointer mt-5 p-4 bg-amber-50 border border-amber-200 rounded-2xl">
+            <input type="checkbox" checked={mattingAgreed} onChange={(e) => setMattingAgreed(e.target.checked)} className="w-5 h-5 mt-0.5 accent-emerald-600" />
+            <span className="text-sm font-bold text-slate-700">I confirm that I have read and understood the risks and consequences associated with matting and authorise the grooming salon to proceed accordingly.</span>
+          </label>
+        </SectionCard>
+      )}
 
       {/* EMERGENCY CARE */}
       <SectionCard title="Emergency care authorisation">

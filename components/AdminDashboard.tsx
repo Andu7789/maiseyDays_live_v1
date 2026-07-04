@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { buildConfirmationMessage, checkAuthStatus, confirmAppointmentBooking, createManualAppointment, deleteAppointment, exportAppointmentsToExcel, findBookingClash, getAppointments, getCurrentUser, getEffectiveSchedule, getReminderSettings, getUnavailableDays, getUnavailableWeekdays, removeUnavailableDay, removeUnavailableWeekday, saveUnavailableDay, saveUnavailableWeekday, sendCustomerConfirmationSms, signInAdmin, signOutAdmin, updateAppointment, updateReminderSettings, getHolidaySettings, updateHolidaySettings, updateAdvertSettings, getDogNotes, getAllDogNotes, upsertDogNote } from "../services/bookingService";
 import { buildIntakeLink, buildIntakeMessage, buildWhatsAppLink, createCustomer, deleteCustomer, deleteDog, ensureIntakeToken, getCustomers, markIntakeSent, saveDog, sendIntakeEmail, sendIntakeSms, updateCustomer } from "../services/customerService";
 import { Appointment, Customer, Dog, IntakeStatus, Service } from "../types";
-import { INTAKE_TERMS, LOCATIONS, SERVICES, SLOT_TIMES } from "../constants";
+import { INTAKE_TERMS, LOCATIONS, MATTING_BULLETS, MATTING_CLOSING, MATTING_TERMS, SERVICES, SLOT_TIMES } from "../constants";
 
 const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const ALL_LOCATIONS = "__all__";
@@ -99,6 +99,9 @@ const AdminDashboard: React.FC = () => {
     photo_consent: null as boolean | null,
     paper_signed: false,
     paper_date: new Date().toISOString().split("T")[0],
+    matting_required: false,
+    matting_paper_signed: false,
+    matting_paper_date: new Date().toISOString().split("T")[0],
   });
   const [agreementDogs, setAgreementDogs] = useState<Dog[]>([]);
   const [agreementDogsToDelete, setAgreementDogsToDelete] = useState<string[]>([]);
@@ -400,6 +403,9 @@ const AdminDashboard: React.FC = () => {
       photo_consent: customer.photo_consent ?? null,
       paper_signed: customer.intake_status === "completed" && !customer.signature_data,
       paper_date: customer.signed_at ? customer.signed_at.split("T")[0] : new Date().toISOString().split("T")[0],
+      matting_required: Boolean(customer.matting_required),
+      matting_paper_signed: Boolean(customer.matting_signed_at && customer.matting_signed_via === "paper"),
+      matting_paper_date: customer.matting_signed_at ? customer.matting_signed_at.split("T")[0] : new Date().toISOString().split("T")[0],
     });
     setAgreementDogs((customer.dogs || []).map((dog) => ({ ...dog })));
     setAgreementDogsToDelete([]);
@@ -423,6 +429,13 @@ const AdminDashboard: React.FC = () => {
         treats_ok: agreementForm.treats_ok,
         photo_consent: agreementForm.photo_consent,
       };
+
+      updates.matting_required = agreementForm.matting_required;
+      // Matting consent signed on paper — never overwrites a digital matting signature
+      if (agreementForm.matting_required && agreementForm.matting_paper_signed && !customer.matting_signature) {
+        updates.matting_signed_at = `${agreementForm.matting_paper_date}T00:00:00Z`;
+        updates.matting_signed_via = "paper";
+      }
 
       // "Signed on paper" marks the agreement complete without a digital signature
       if (agreementForm.paper_signed && !customer.signature_data) {
@@ -511,8 +524,18 @@ const AdminDashboard: React.FC = () => {
         <tr><td>Vet address</td><td>${customer.emergency_vet_address || "—"}</td></tr>
       </table>
       <h2>Signed</h2>
-      ${customer.signature_data ? `<img class="signature" src="${customer.signature_data}" alt="Signature" />` : "<p>Not signed.</p>"}
+      ${customer.signature_data ? `<img class="signature" src="${customer.signature_data}" alt="Signature" />` : "<p>Signature held on the paper copy.</p>"}
       <p><strong>Date:</strong> ${signedDate}</p>
+      ${
+        customer.matting_signed_at
+          ? `<h2>Matting Release Information and Consent</h2>
+             ${MATTING_TERMS.map((paragraph) => `<p>${paragraph}</p>`).join("")}
+             <ul>${MATTING_BULLETS.map((bullet) => `<li>${bullet}</li>`).join("")}</ul>
+             <p><strong>${MATTING_CLOSING}</strong></p>
+             ${customer.matting_signature ? `<img class="signature" src="${customer.matting_signature}" alt="Matting consent signature" />` : "<p>Signature held on the paper copy.</p>"}
+             <p><strong>Signed:</strong> ${customer.matting_signed_via === "paper" ? "on paper" : "digitally"} on ${new Date(customer.matting_signed_at).toLocaleDateString("en-GB")}</p>`
+          : ""
+      }
       </body></html>`;
 
     const printWindow = window.open("", "_blank");
@@ -1971,6 +1994,9 @@ const AdminDashboard: React.FC = () => {
                       <div className="flex flex-wrap items-center gap-3 mb-2">
                         <h3 className="text-lg font-black text-slate-800">{customer.ownername}</h3>
                         {statusChip(customer.intake_status)}
+                        {customer.matting_required && !customer.matting_signed_at && (
+                          <span className="px-3 py-1 bg-orange-100 text-orange-700 text-xs font-bold rounded-full whitespace-nowrap">Matting form needed</span>
+                        )}
                         <span className="px-3 py-1 bg-emerald-100 text-emerald-700 text-xs font-bold rounded-full">
                           {bookings.length} booking{bookings.length !== 1 ? 's' : ''}
                         </span>
@@ -2125,6 +2151,33 @@ const AdminDashboard: React.FC = () => {
                   )}
                 </div>
 
+                {/* Matting release */}
+                <div className="mt-3 pt-3 border-t border-slate-200 flex flex-wrap items-center justify-between gap-2">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(customer.matting_required)}
+                      onChange={async (e) => {
+                        try {
+                          await updateCustomer(customer.id, { matting_required: e.target.checked });
+                          await refreshCustomers();
+                        } catch (err: any) {
+                          alert(`Could not update: ${err.message}`);
+                        }
+                      }}
+                      className="w-4 h-4 accent-orange-500"
+                    />
+                    <span className="text-sm font-bold text-slate-700">Matting release form needed</span>
+                  </label>
+                  {customer.matting_required && (
+                    customer.matting_signed_at ? (
+                      <span className="px-3 py-1 bg-emerald-100 text-emerald-700 text-xs font-bold rounded-full">✓ Matting consent signed {customer.matting_signed_via === "paper" ? "on paper" : ""} {new Date(customer.matting_signed_at).toLocaleDateString("en-GB")}</span>
+                    ) : (
+                      <span className="px-3 py-1 bg-orange-100 text-orange-700 text-xs font-bold rounded-full">⏳ Outstanding — included in their form link</span>
+                    )
+                  )}
+                </div>
+
                 {showAgreementDetails && customer.intake_status === "completed" && (
                   <div className="mt-4 pt-4 border-t border-slate-200 text-sm">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-1 text-slate-600 mb-4">
@@ -2140,6 +2193,12 @@ const AdminDashboard: React.FC = () => {
                       <div>
                         <span className="font-bold text-slate-600">Signature:</span>
                         <img src={customer.signature_data} alt="Customer signature" className="mt-1 h-20 border border-slate-200 rounded-lg bg-white" />
+                      </div>
+                    )}
+                    {customer.matting_signed_at && (
+                      <div className="mt-3 pt-3 border-t border-slate-200">
+                        <span className="font-bold text-slate-600">Matting release consent:</span> signed {customer.matting_signed_via === "paper" ? "on paper" : "digitally"} on {new Date(customer.matting_signed_at).toLocaleDateString("en-GB")}
+                        {customer.matting_signature && <img src={customer.matting_signature} alt="Matting consent signature" className="mt-1 h-20 border border-slate-200 rounded-lg bg-white" />}
                       </div>
                     )}
                   </div>
@@ -2411,6 +2470,31 @@ const AdminDashboard: React.FC = () => {
                 <button type="button" onClick={() => setAgreementDogs((prev) => [...prev, { name: "" }])} className="w-full py-2 border-2 border-dashed border-emerald-300 text-emerald-600 rounded-xl text-sm font-black hover:bg-emerald-50">
                   + Add dog
                 </button>
+              </div>
+
+              <div className="p-4 bg-orange-50 border border-orange-200 rounded-xl mb-4">
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <input type="checkbox" checked={agreementForm.matting_required} onChange={(e) => setAgreementForm({ ...agreementForm, matting_required: e.target.checked })} className="w-5 h-5 accent-orange-500" />
+                  <span className="text-sm font-bold text-orange-900">Matting release form needed for this customer</span>
+                </label>
+                {agreementForm.matting_required && (
+                  customer.matting_signature ? (
+                    <p className="mt-2 text-xs text-orange-800 font-bold">✓ Matting consent already signed digitally — kept as it is.</p>
+                  ) : (
+                    <>
+                      <label className="flex items-center gap-3 cursor-pointer mt-3">
+                        <input type="checkbox" checked={agreementForm.matting_paper_signed} onChange={(e) => setAgreementForm({ ...agreementForm, matting_paper_signed: e.target.checked })} className="w-5 h-5 accent-orange-500" />
+                        <span className="text-sm font-bold text-orange-900">Matting consent signed on paper (copy kept on file)</span>
+                      </label>
+                      {agreementForm.matting_paper_signed && (
+                        <div className="mt-3 flex items-center gap-2">
+                          <span className="text-xs font-bold text-orange-800">Date signed:</span>
+                          <input type="date" value={agreementForm.matting_paper_date} onChange={(e) => setAgreementForm({ ...agreementForm, matting_paper_date: e.target.value })} className="px-3 py-1.5 border border-orange-200 rounded-lg text-sm" />
+                        </div>
+                      )}
+                    </>
+                  )
+                )}
               </div>
 
               <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl mb-4">
