@@ -1,7 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import emailjs from "emailjs-com";
 import { Appointment, AvailabilitySlot, WeeklyTemplate } from "../types";
-import { EMAIL_ENDPOINT, LOCATIONS, SERVICES, SUPABASE_URL, SUPABASE_ANON_KEY, STANDARD_HOURS, EMAILJS_PUBLIC_KEY, EMAILJS_SERVICE_ID, EMAILJS_CONFIRMATION_TEMPLATE_ID, EMAILJS_HOLIDAY_TEMPLATE_ID } from "../constants";
+import { EMAIL_ENDPOINT, LOCATIONS, SERVICES, SUPABASE_URL, SUPABASE_ANON_KEY, STANDARD_HOURS, SLOT_TIMES, SLOT_DURATION_MINUTES, BOOKABLE_WEEKDAYS, EMAILJS_PUBLIC_KEY, EMAILJS_SERVICE_ID, EMAILJS_CONFIRMATION_TEMPLATE_ID, EMAILJS_HOLIDAY_TEMPLATE_ID } from "../constants";
 
 // Initialize EmailJS
 emailjs.init(EMAILJS_PUBLIC_KEY);
@@ -14,7 +14,7 @@ if (SUPABASE_ANON_KEY && !SUPABASE_ANON_KEY.startsWith("eyJ")) {
 // Initialize Supabase Client
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-const invokeEdgeFunction = async (functionName: string, payload: Record<string, unknown>) => {
+export const invokeEdgeFunction = async (functionName: string, payload: Record<string, unknown>) => {
   try {
     const response = await fetch(`${SUPABASE_URL}/functions/v1/${functionName}`, {
       method: "POST",
@@ -257,14 +257,18 @@ const formatHumanDate = (dateStr: string) => {
 const getLocationName = (locationId: string) => LOCATIONS.find((loc) => loc.id === locationId)?.name || locationId;
 const getServiceName = (serviceId: string) => SERVICES.find((service) => service.id === serviceId)?.name || serviceId;
 
+export const buildConfirmationMessage = (appointment: Appointment) => {
+  const confirmedDate = appointment.confirmed_date || appointment.date;
+  const confirmedTime = appointment.confirmed_time || "TBC";
+  return `Hi ${appointment.ownername}, ${appointment.dogname} is booked for a ${getServiceName(appointment.serviceid)} at Maisey Days (${getLocationName(appointment.locationid)}) on ${formatHumanDate(confirmedDate)} at ${confirmedTime}. Please reply YES to confirm or call us if you need changes. Thank you 🐾`;
+};
+
 export const sendCustomerConfirmationSms = async (appointment: Appointment) => {
   if (!appointment.phone) {
     throw new Error("Customer phone number is missing.");
   }
 
-  const confirmedDate = appointment.confirmed_date || appointment.date;
-  const confirmedTime = appointment.confirmed_time || "TBC";
-  const message = `Hi ${appointment.ownername}, ${appointment.dogname} is booked for a ${getServiceName(appointment.serviceid)} at Maisey Days (${getLocationName(appointment.locationid)}) on ${formatHumanDate(confirmedDate)} at ${confirmedTime}. Please reply YES to confirm or call us if you need changes. Thank you 🐾`;
+  const message = buildConfirmationMessage(appointment);
 
   const result = await invokeEdgeFunction("send-customer-confirmation-sms", {
     to: appointment.phone,
@@ -280,50 +284,6 @@ export const sendCustomerConfirmationSms = async (appointment: Appointment) => {
   return true;
 };
 
-export const syncBookingToCalendar = async (appointmentId: string) => {
-  const result = await invokeEdgeFunction("sync-booking-to-calendar", {
-    appointmentId,
-  });
-
-  const success = Boolean((result as any)?.success ?? false);
-  if (!success) {
-    const syncError = (result as any)?.error || "Calendar sync failed.";
-    throw new Error(`Calendar sync failed: ${syncError}`);
-  }
-
-  return result;
-};
-
-export const syncCalendarChangesFromDiary = async () => {
-  const result = await invokeEdgeFunction("calendar-webhook-handler", {});
-  const success = Boolean((result as any)?.success ?? false);
-  if (!success) {
-    const syncError = (result as any)?.error || "Diary inbound sync failed.";
-    throw new Error(`Diary sync failed: ${syncError}`);
-  }
-  return {
-    synced: Number((result as any)?.synced || 0),
-    updated: Number((result as any)?.updated || 0),
-    errors: Number((result as any)?.errors || 0),
-    scanned: Number((result as any)?.scanned || 0),
-    totalLinked: Number((result as any)?.totalLinked || 0),
-  };
-};
-
-export const ensureCalendarWatchChannel = async (force = false) => {
-  const result = await invokeEdgeFunction("ensure-calendar-watch-channel", { force });
-  const success = Boolean((result as any)?.success ?? false);
-  if (!success) {
-    const renewError = (result as any)?.error || "Could not ensure calendar watch channel.";
-    throw new Error(`Watch setup failed: ${renewError}`);
-  }
-  return {
-    renewed: Boolean((result as any)?.renewed ?? false),
-    expiration: (result as any)?.expiration || null,
-    channelId: (result as any)?.channelId || null,
-  };
-};
-
 export const confirmAppointmentBooking = async (
   appointment: Appointment,
   confirmation: {
@@ -331,6 +291,7 @@ export const confirmAppointmentBooking = async (
     confirmedTime: string;
     confirmedDurationMinutes: number;
   },
+  channel: "sms" | "whatsapp" = "sms",
 ) => {
   if (!appointment.id) {
     throw new Error("Booking ID is required to confirm.");
@@ -358,9 +319,12 @@ export const confirmAppointmentBooking = async (
     confirmed_duration_minutes: confirmation.confirmedDurationMinutes,
   };
 
-  const smsSent = await sendCustomerConfirmationSms(smsPayload);
-  if (!smsSent) {
-    throw new Error("SMS confirmation failed to send.");
+  // WhatsApp messages are opened/sent by the admin in the browser, so only SMS goes via Vonage
+  if (channel === "sms") {
+    const smsSent = await sendCustomerConfirmationSms(smsPayload);
+    if (!smsSent) {
+      throw new Error("SMS confirmation failed to send.");
+    }
   }
 
   await updateAppointment(appointment.id, {
@@ -372,15 +336,6 @@ export const confirmAppointmentBooking = async (
     confirmed_at: nowIso,
     confirmation_sent_at: nowIso,
   });
-
-  try {
-    await syncBookingToCalendar(appointment.id);
-  } catch (syncErr: any) {
-    await updateAppointment(appointment.id, {
-      calendar_sync_status: "error",
-      calendar_last_error: syncErr?.message || "Calendar sync failed",
-    });
-  }
 };
 
 export const getAvailabilityOverrides = async (): Promise<AvailabilitySlot[]> => {
@@ -694,6 +649,120 @@ export const removeUnavailableWeekday = async (dayOfWeek: number) => {
   }
 };
 
+const timeToMinutes = (time: string) => {
+  const [hours, minutes] = time.split(":").map(Number);
+  return (hours || 0) * 60 + (minutes || 0);
+};
+
+// Older pending bookings requested a rough preference instead of an exact slot
+const LEGACY_PREFERENCE_SLOTS: Record<string, string[]> = {
+  morning: ["08:00", "10:00"],
+  afternoon: ["12:00", "14:00"],
+  evening: ["16:00", "18:00"],
+};
+
+const blockOverlappingSlots = (blocked: Set<string>, startMinutes: number, durationMinutes: number) => {
+  const endMinutes = startMinutes + durationMinutes;
+  SLOT_TIMES.forEach((slot) => {
+    const slotStart = timeToMinutes(slot);
+    if (startMinutes < slotStart + SLOT_DURATION_MINUTES && endMinutes > slotStart) {
+      blocked.add(slot);
+    }
+  });
+};
+
+/**
+ * Returns the free 2-hour slot start times for a location on a date.
+ * Both pending requests and confirmed bookings block their slot.
+ */
+export const getAvailableSlotTimes = async (locationId: string, date: string): Promise<string[]> => {
+  const dayOfWeek = new Date(`${date}T00:00:00`).getDay();
+  if (!BOOKABLE_WEEKDAYS.includes(dayOfWeek)) return [];
+
+  const dateOpen = await isDateAvailable(locationId, date);
+  if (!dateOpen) return [];
+
+  try {
+    const { data, error } = await supabase
+      .from("appointments")
+      .select("date, time, requested_time_preference, status, booking_status, confirmed_date, confirmed_time, confirmed_duration_minutes, locationid")
+      .or(`date.eq.${date},confirmed_date.eq.${date}`);
+    if (error) throw error;
+
+    const blocked = new Set<string>();
+    for (const row of data || []) {
+      if (normalizeLocationId(row.locationid) !== locationId) continue;
+      const schedule = getEffectiveSchedule(row as Appointment);
+      if (!schedule || schedule.date !== date) continue;
+      blockOverlappingSlots(blocked, schedule.startMinutes, schedule.durationMinutes);
+    }
+
+    return SLOT_TIMES.filter((slot) => !blocked.has(slot));
+  } catch (err) {
+    console.error("Slot availability check failed:", err);
+    // Fail open (matching existing availability behaviour) rather than blocking all bookings
+    return [...SLOT_TIMES];
+  }
+};
+
+/** Returns the effective diary slot for a booking: confirmed time wins, else the requested slot. */
+export const getEffectiveSchedule = (apt: Appointment): { date: string; startMinutes: number; durationMinutes: number; timeLabel: string } | null => {
+  if (apt.status === "cancelled" || apt.booking_status === "cancelled") return null;
+
+  if (apt.confirmed_date && apt.confirmed_time) {
+    const timeLabel = String(apt.confirmed_time).slice(0, 5);
+    return {
+      date: apt.confirmed_date,
+      startMinutes: timeToMinutes(timeLabel),
+      durationMinutes: Number(apt.confirmed_duration_minutes) || SLOT_DURATION_MINUTES,
+      timeLabel,
+    };
+  }
+
+  if (!apt.date) return null;
+  const requested = String(apt.time || apt.requested_time_preference || "").trim();
+  if (/^\d{1,2}:\d{2}$/.test(requested)) {
+    return { date: apt.date, startMinutes: timeToMinutes(requested), durationMinutes: SLOT_DURATION_MINUTES, timeLabel: requested };
+  }
+  const legacySlots = LEGACY_PREFERENCE_SLOTS[requested.toLowerCase()];
+  if (legacySlots?.length) {
+    return { date: apt.date, startMinutes: timeToMinutes(legacySlots[0]), durationMinutes: legacySlots.length * SLOT_DURATION_MINUTES, timeLabel: `${requested} (TBC)` };
+  }
+  // No usable time at all — place at the first slot, flagged as TBC
+  return { date: apt.date, startMinutes: timeToMinutes(SLOT_TIMES[0]), durationMinutes: SLOT_DURATION_MINUTES, timeLabel: "time TBC" };
+};
+
+/**
+ * Finds an existing booking that overlaps the given date/time/duration at a location.
+ * Used to warn the admin before creating a double booking. Returns null when clear.
+ */
+export const findBookingClash = async (locationId: string, date: string, time: string, durationMinutes: number, excludeAppointmentId?: string): Promise<Appointment | null> => {
+  try {
+    const { data, error } = await supabase
+      .from("appointments")
+      .select("*")
+      .or(`date.eq.${date},confirmed_date.eq.${date}`);
+    if (error) throw error;
+
+    const start = timeToMinutes(time);
+    const end = start + durationMinutes;
+
+    for (const row of data || []) {
+      if (excludeAppointmentId && row.id === excludeAppointmentId) continue;
+      if (normalizeLocationId(row.locationid) !== locationId) continue;
+      const schedule = getEffectiveSchedule(row as Appointment);
+      if (!schedule || schedule.date !== date) continue;
+      if (start < schedule.startMinutes + schedule.durationMinutes && end > schedule.startMinutes) {
+        return row as Appointment;
+      }
+    }
+    return null;
+  } catch (err) {
+    console.error("Clash check failed:", err);
+    return null;
+  }
+};
+
 export const isDateAvailable = async (locationId: string, date: string): Promise<boolean> => {
   try {
     // Check if specific date is unavailable
@@ -717,23 +786,6 @@ export const isDateAvailable = async (locationId: string, date: string): Promise
 export const saveUnavailableDays = async (locationId: string, days: number[]) => {
   // This function is no longer used
   return;
-};
-
-export const getLastAutoSyncTime = async (): Promise<Date | null> => {
-  try {
-    const { data, error } = await supabase
-      .from("calendar_webhook_logs")
-      .select("created_at")
-      .eq("message", "Webhook received")
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .single();
-
-    if (error || !data) return null;
-    return new Date(data.created_at);
-  } catch (err) {
-    return null;
-  }
 };
 
 export const exportAppointmentsToExcel = (appointments: Appointment[]) => {
@@ -770,5 +822,69 @@ export const updateReminderSettings = async (settings: any) => {
       updated_at: new Date().toISOString(),
     })
     .eq("id", 1);
+  if (error) throw new Error(error.message);
+};
+
+export const getHolidaySettings = async (): Promise<{
+  holiday_start: string | null;
+  holiday_end: string | null;
+  advert_start: string | null;
+  advert_end: string | null;
+  advert_text: string | null;
+  advert_color: string | null;
+}> => {
+  const { data, error } = await supabase
+    .from("holiday_settings")
+    .select("holiday_start, holiday_end, advert_start, advert_end, advert_text, advert_color")
+    .eq("id", 1)
+    .single();
+  if (error) throw new Error(error.message);
+  return data;
+};
+
+export const updateHolidaySettings = async (holidayStart: string | null, holidayEnd: string | null) => {
+  const { error } = await supabase
+    .from("holiday_settings")
+    .update({ holiday_start: holidayStart || null, holiday_end: holidayEnd || null, updated_at: new Date().toISOString() })
+    .eq("id", 1);
+  if (error) throw new Error(error.message);
+};
+
+export const updateAdvertSettings = async (advertStart: string | null, advertEnd: string | null, advertText: string | null, advertColor: string | null) => {
+  const { error } = await supabase
+    .from("holiday_settings")
+    .update({ advert_start: advertStart || null, advert_end: advertEnd || null, advert_text: advertText || null, advert_color: advertColor || null, updated_at: new Date().toISOString() })
+    .eq("id", 1);
+  if (error) throw new Error(error.message);
+};
+
+export const getAllDogNotes = async (): Promise<Record<string, Record<string, string>>> => {
+  const { data, error } = await supabase
+    .from("dog_notes")
+    .select("owner_email, dog_name, notes")
+    .neq("notes", "");
+  if (error) throw new Error(error.message);
+  const result: Record<string, Record<string, string>> = {};
+  for (const row of data ?? []) {
+    if (!result[row.owner_email]) result[row.owner_email] = {};
+    result[row.owner_email][row.dog_name] = row.notes;
+  }
+  return result;
+};
+
+export const getDogNotes = async (ownerEmail: string): Promise<Record<string, string>> => {
+  const { data, error } = await supabase
+    .from("dog_notes")
+    .select("dog_name, notes")
+    .eq("owner_email", ownerEmail);
+  if (error) throw new Error(error.message);
+  return Object.fromEntries((data ?? []).map((row) => [row.dog_name, row.notes]));
+};
+
+export const upsertDogNote = async (ownerEmail: string, dogName: string, notes: string) => {
+  const { error } = await supabase.from("dog_notes").upsert(
+    { owner_email: ownerEmail, dog_name: dogName, notes, updated_at: new Date().toISOString() },
+    { onConflict: "owner_email,dog_name" }
+  );
   if (error) throw new Error(error.message);
 };

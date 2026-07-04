@@ -9,6 +9,22 @@ export const EMAILJS_SERVICE_ID = "service_n31emcr";
 export const EMAILJS_CONFIRMATION_TEMPLATE_ID = "template_huea638";
 export const EMAILJS_HOLIDAY_TEMPLATE_ID = "template_1k8va7s";
 
+// GROOMING AGREEMENT (customer intake form)
+export const INTAKE_TERMS_VERSION = "2026-07";
+export const INTAKE_TERMS: string[] = [
+  "Please tell us if your dog is aggressive with people/other pets, we may need to use a muzzle if we deem necessary.",
+  "In accordance with the Animal Welfare Act, we will not spend more than 15 minutes de-matting. A matted coat may result in us having to clip the coat short all over - our priority here is comfort as matting can be painful for the dog and dangerous to remove. There is an extra charge for matted dogs due to the extra time it takes and excess wear and tear to equipment.",
+  "For some dogs, grooming procedures can be stressful and can expose hidden medical problems or aggravate a current one during or after the groom. We will obtain immediate veterinary treatment for your dog should it be deemed necessary, and it is agreed that all expenses for veterinary care will be covered by the owner upon signing this contract/agreement.",
+  "We reserve the right to refuse/stop services at any time before or during the grooming process, this could be due (but not limited) to an aggressive/stressed dog, health concerns or finding fleas.",
+  "If we find fleas on your dog, you will be contacted and we will advise you on the options we can offer you. We may need you to collect your dog immediately. Alternatively, with your consent, we may be able to use a temporary flea shampoo as a short-term measure. A flea-cleaning fee will also be required to sanitise the salon and equipment before the next client. If you turn up with your dog knowing they have fleas prior to the start of the groom, then you will be sent away but still charged 50% of the full groom price plus the £5 extra flea charge as we will need to clean down everything and disinfect the salon. As it will be short notice, we won't be able to fill your appointment slot.",
+  "We will attempt to remove ticks ourselves. We believe it is something that may need to have your vet's advice on after. If we find any ticks, we will attempt to remove them if safe to do so. We will only remove up to 3 on one dog. However, if there are more ticks we will cease the groom and call you to come collect your dog. We will always advise a vet visit if this is the case.",
+  "Late collection may result in a fee of £10/hour as we do not have facilities to keep your dog longer than the appointment.",
+  "A late charge will be required if you are more than 30 minutes late to your dedicated appointment as we will have to reschedule.",
+  "A £20 deposit is required at the time of booking. This deposit will be deducted from the total cost of the groom. If you cancel with less than 24 hours' notice or fail to attend your appointment, a cancellation fee of 50% of the grooming price per dog will apply. In these cases, the deposit will be retained and counted towards the cancellation fee.",
+  "Ears are only plucked upon request by certain groomers only.",
+  "If you are dissatisfied with your pet's groom, please let us know within 48 hours and we will do our best to resolve it for you.",
+];
+
 // HOLIDAY MODE - booking form is hidden and replaced with enquiry form
 export const HOLIDAY_START = "2026-03-14";
 export const HOLIDAY_END = "2026-04-06";
@@ -93,3 +109,8 @@ export const LOCATIONS: Location[] = [
 ];
 
 export const STANDARD_HOURS = ["Morning", "Afternoon", "Evening"];
+
+// BOOKING SLOTS - 2 hour appointments, Monday to Friday, first slot 8am, last slot 6pm
+export const SLOT_TIMES = ["08:00", "10:00", "12:00", "14:00", "16:00", "18:00"];
+export const SLOT_DURATION_MINUTES = 120;
+export const BOOKABLE_WEEKDAYS = [1, 2, 3, 4, 5]; // Monday–Friday (0 = Sunday)

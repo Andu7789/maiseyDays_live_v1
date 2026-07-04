@@ -3,12 +3,15 @@ import { Page, Appointment } from "./types";
 import Header from "./components/Header";
 import Footer from "./components/Footer";
 import AdminDashboard from "./components/AdminDashboard";
+import IntakeForm from "./components/IntakeForm";
 import { CalendarPicker } from "./components/CalendarPicker";
-import { SERVICES, LOCATIONS, STANDARD_HOURS, EMAIL_ENDPOINT, HOLIDAY_START, HOLIDAY_END } from "./constants";
-import { isSlotAvailable, saveAppointment, sendBookingEmail, sendConfirmationEmail, isDateAvailable, getUnavailableDays, getUnavailableWeekdays, sendHolidayEnquiryConfirmation } from "./services/bookingService";
+import { SERVICES, LOCATIONS, SLOT_TIMES, BOOKABLE_WEEKDAYS, EMAIL_ENDPOINT } from "./constants";
+import { getAvailableSlotTimes, saveAppointment, sendBookingEmail, sendConfirmationEmail, isDateAvailable, getUnavailableDays, getUnavailableWeekdays, sendHolidayEnquiryConfirmation, getHolidaySettings } from "./services/bookingService";
+
 
 const App: React.FC = () => {
   const [currentPage, setCurrentPage] = useState<Page>("home");
+  const [intakeToken, setIntakeToken] = useState<string | null>(null);
   const [bookingStep, setBookingStep] = useState(1);
   const [showSuccess, setShowSuccess] = useState(false);
   const [bookingError, setBookingError] = useState<string | null>(null);
@@ -37,12 +40,24 @@ const App: React.FC = () => {
   });
   const [enquiryStatus, setEnquiryStatus] = useState<"idle" | "sending" | "sent" | "error">("idle");
   const [enquiryError, setEnquiryError] = useState<string | null>(null);
+  const [holidayStart, setHolidayStart] = useState<string | null>(null);
+  const [holidayEnd, setHolidayEnd] = useState<string | null>(null);
+  const [advertStart, setAdvertStart] = useState<string | null>(null);
+  const [advertEnd, setAdvertEnd] = useState<string | null>(null);
+  const [advertText, setAdvertText] = useState<string | null>(null);
+  const [advertColor, setAdvertColor] = useState<string>("#16a34a");
 
   const selectedService = SERVICES.find((service) => service.id === formData.serviceid);
   const isHomeGroom = Boolean(selectedService && (selectedService.id.toLowerCase().includes("home") || selectedService.name.toLowerCase().includes("home") || selectedService.id.toLowerCase().includes("mobile") || selectedService.name.toLowerCase().includes("mobile")));
 
   const today = new Date().toISOString().split("T")[0];
-  const isHolidayMode = today >= HOLIDAY_START && today <= HOLIDAY_END;
+  const isHolidayMode = Boolean(holidayStart && holidayEnd && today >= holidayStart && today <= holidayEnd);
+  const isAdvertMode = Boolean(advertText && advertStart && advertEnd && today >= advertStart && today <= advertEnd);
+
+  const formatHolidayDate = (dateStr: string) => {
+    const d = new Date(dateStr + "T00:00:00");
+    return d.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
+  };
 
   const testimonials = [
     { name: "", dog: "Rolo", text: "I would highly recommend Maisey Days Dog Grooming. Both of our dogs go to Rachel and they come home looking and smelling great but also they are happy. She takes her time with them doesn’t rush at all and  we know they are happy with her !!", rating: 5, photo: "/IMG_8141 (1).jpg" },
@@ -56,6 +71,34 @@ const App: React.FC = () => {
   ];
 
   const galleryItems = [{ src: "/gallery/1.jpg", featured: true }, { src: "/gallery/2.jpg" }, { src: "/gallery/3.jpg" }, { src: "/gallery/4.jpg" }, { src: "/gallery/5.jpg" }, { src: "/gallery/6.jpg" }, { src: "/gallery/7.jpg" }, { src: "/gallery/8.jpg" }, { src: "/gallery/9.jpg" }, { src: "/gallery/10.jpg" }, { src: "/gallery/11.jpg" }, { src: "/gallery/12.jpg" }, { src: "/gallery/13.jpg" }, { src: "/gallery/14.jpg" }, { src: "/gallery/15.jpg" }, { src: "/gallery/16.jpg" }, { src: "/gallery/17.jpg" }, { src: "/gallery/18.jpg" }, { src: "/gallery/19.jpg" }, { src: "/gallery/20.jpg" }, { src: "/gallery/21.jpg" }, { src: "/gallery/22.jpg" }, { src: "/gallery/23.jpg" }, { src: "/gallery/24.jpg" }, { src: "/gallery/25.jpg" }, { src: "/gallery/26.jpg" }, { src: "/gallery/27.jpg" }, { src: "/gallery/29.jpg" }, { src: "/gallery/30.jpg" }, { src: "/gallery/31.jpg" }, { src: "/gallery/32.jpg" }, { src: "/gallery/33.jpg" }];
+
+  // Customer intake form deep link (#intake=TOKEN) — sent to customers via WhatsApp/SMS/email
+  useEffect(() => {
+    const applyIntakeHash = () => {
+      const match = window.location.hash.match(/^#intake=([A-Za-z0-9-]+)/);
+      if (match) {
+        setIntakeToken(match[1]);
+        setCurrentPage("intake");
+      }
+    };
+    applyIntakeHash();
+    window.addEventListener("hashchange", applyIntakeHash);
+    return () => window.removeEventListener("hashchange", applyIntakeHash);
+  }, []);
+
+  // Load holiday + advert settings from Supabase on mount
+  useEffect(() => {
+    getHolidaySettings()
+      .then(({ holiday_start, holiday_end, advert_start, advert_end, advert_text, advert_color }) => {
+        setHolidayStart(holiday_start);
+        setHolidayEnd(holiday_end);
+        setAdvertStart(advert_start);
+        setAdvertEnd(advert_end);
+        setAdvertText(advert_text);
+        if (advert_color) setAdvertColor(advert_color);
+      })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     const carousel = document.getElementById("testimonials-carousel");
@@ -89,14 +132,17 @@ const App: React.FC = () => {
   const refreshAvailability = useCallback(async () => {
     if (!formData.locationid || !formData.date) return;
 
-    const results: Record<string, boolean> = {};
-    await Promise.all(
-      STANDARD_HOURS.map(async (time) => {
-        results[time] = await isSlotAvailable(formData.locationid!, formData.date!, time);
-      }),
-    );
-    setAvailableSlots(results);
+    const freeSlots = await getAvailableSlotTimes(formData.locationid, formData.date);
+    setAvailableSlots(Object.fromEntries(SLOT_TIMES.map((time) => [time, freeSlots.includes(time)])));
   }, [formData.locationid, formData.date]);
+
+  // Load live slot availability whenever the customer is on the date/time step
+  useEffect(() => {
+    if (bookingStep === 2) {
+      setAvailableSlots({});
+      refreshAvailability();
+    }
+  }, [bookingStep, refreshAvailability]);
 
   // Load unavailable dates when booking step changes
   useEffect(() => {
@@ -108,9 +154,9 @@ const App: React.FC = () => {
           const today = new Date();
           const maxDate = new Date(today.getTime() + 16 * 7 * 24 * 60 * 60 * 1000);
 
-          // Add all occurrences of unavailable weekdays within the booking window
+          // Add unavailable weekdays and non-bookable days (weekends) within the booking window
           for (let d = new Date(today); d <= maxDate; d.setDate(d.getDate() + 1)) {
-            if (weekdays.includes(d.getDay())) {
+            if (weekdays.includes(d.getDay()) || !BOOKABLE_WEEKDAYS.includes(d.getDay())) {
               allUnavailable.push(d.toISOString().split("T")[0]);
             }
           }
@@ -155,6 +201,16 @@ const App: React.FC = () => {
     };
 
     try {
+      // Final availability check in case someone grabbed the slot while this form was open
+      const stillFree = await getAvailableSlotTimes(appointment.locationid, appointment.date);
+      if (!stillFree.includes(appointment.time)) {
+        setBookingError("Sorry, that time slot has just been taken. Please choose another time.");
+        setFormData({ ...formData, time: "" });
+        setBookingStep(2);
+        setIsSubmitting(false);
+        return;
+      }
+
       await saveAppointment(appointment);
       // Send emails in parallel instead of sequential to speed up confirmation
       const [emailOk] = await Promise.all([sendBookingEmail(appointment, uploadedPhoto), sendConfirmationEmail(appointment)]);
@@ -242,10 +298,30 @@ Message: ${enquiryData.message}
           <div className="space-y-20 pb-20 animate-fade-in">
             {isHolidayMode && (
               <div className="bg-amber-400 text-amber-900 text-center py-8 px-6 font-bold text-lg">
-                🌴 Maisey Days at Dirty Dawg is away on holiday and back on 6th April. Please leave your details and we'll be in touch when we return!{" "}
+                🌴 Maisey Days at Dirty Dawg is away on holiday{holidayEnd ? ` and back on ${formatHolidayDate(holidayEnd)}` : ""}. Please leave your details and we'll be in touch when we return!{" "}
                 <button onClick={() => setCurrentPage("booking")} className="underline font-black hover:text-amber-700 transition-colors">
                   Get in touch
                 </button>
+              </div>
+            )}
+            {!isHolidayMode && (advertText || true) && (
+              <div className="flex justify-center px-4">
+                {(() => {
+                  const bg = advertColor || "#EAB308";
+                  const text = advertText || "⭐ Keep the date free for the most pawesome dog show of the year at Winterton Hound Ground, on Saturday 8th August 10am - 5pm. ⭐";
+                  const shadow = `0 0 30px 6px ${bg}80, 0 4px 24px rgba(0,0,0,0.25)`;
+                  return (
+                    <div
+                      className="relative overflow-hidden text-center py-7 px-8 rounded-2xl w-full border-4"
+                      style={{ backgroundColor: bg, boxShadow: shadow, borderColor: `${bg}cc` }}
+                    >
+                      <div className="absolute inset-0 opacity-10" style={{ backgroundImage: "repeating-linear-gradient(45deg, #fff 0, #fff 1px, transparent 0, transparent 50%)", backgroundSize: "10px 10px" }} />
+                      <div className="relative flex items-center justify-center">
+                        <p className="font-black text-sm md:text-base tracking-widest text-black drop-shadow-lg">{text}</p>
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
             )}
             {/* Hero Section */}
@@ -262,8 +338,8 @@ Message: ${enquiryData.message}
                     </p>
                     <p className="mt-3 text-xl md:text-2xl text-slate-100">Grooming with care and trust in Winterton on Sea, Caister or in the comfort of your own home.</p>
                     <div className="mt-6 flex flex-col sm:flex-row gap-4">
-                      <button className="bg-emerald-600 hover:bg-emerald-700 text-white px-8 py-4 rounded-3xl font-black text-lg transition-all transform hover:scale-105 shadow-xl shadow-emerald-900/40">BOOK NOW</button>
-                      <button className="bg-emerald-600 hover:bg-emerald-700 text-white px-8 py-4 rounded-3xl font-black text-lg transition-all transform hover:scale-105 shadow-xl shadow-emerald-900/40">SERVICES</button>
+                      <button onClick={() => setCurrentPage("booking")} className="bg-emerald-600 hover:bg-emerald-700 text-white px-8 py-4 rounded-3xl font-black text-lg transition-all transform hover:scale-105 shadow-xl shadow-emerald-900/40">BOOK NOW</button>
+                      <button onClick={() => setCurrentPage("services")} className="bg-emerald-600 hover:bg-emerald-700 text-white px-8 py-4 rounded-3xl font-black text-lg transition-all transform hover:scale-105 shadow-xl shadow-emerald-900/40">SERVICES</button>
                     </div>
                   </div>
                   <div className="hidden md:block"></div>
@@ -547,13 +623,17 @@ Message: ${enquiryData.message}
                 <div className="bg-amber-50 border-2 border-amber-300 rounded-[3rem] shadow-2xl p-10 flex flex-col justify-center items-center text-center">
                   <div className="text-7xl mb-6">🌴</div>
                   <p className="text-xs font-black text-amber-600 uppercase tracking-widest mb-3">We're on holiday!</p>
-                  <h1 className="text-4xl font-black mt-1 mb-4 tracking-tighter text-slate-800">Back on 6th April</h1>
+                  <h1 className="text-4xl font-black mt-1 mb-4 tracking-tighter text-slate-800">
+                    {holidayEnd ? `Back on ${formatHolidayDate(holidayEnd)}` : "Back soon"}
+                  </h1>
                   <p className="text-slate-600 text-lg leading-relaxed">
                     We're currently away and unable to take new bookings right now. Fill in the form and we'll be in touch as soon as we return!
                   </p>
-                  <div className="mt-8 bg-amber-100 rounded-2xl px-6 py-4 text-amber-800 font-bold text-sm">
-                    Away: 14th March – 6th April 2026
-                  </div>
+                  {holidayStart && holidayEnd && (
+                    <div className="mt-8 bg-amber-100 rounded-2xl px-6 py-4 text-amber-800 font-bold text-sm">
+                      Away: {formatHolidayDate(holidayStart)} – {formatHolidayDate(holidayEnd)}
+                    </div>
+                  )}
                 </div>
               ) : (
               <div className="bg-white rounded-[3rem] shadow-2xl border border-slate-100 p-10 relative">
@@ -617,17 +697,22 @@ Message: ${enquiryData.message}
                       <p className="text-xs text-slate-400 mt-3">Available for the next 16 weeks (greyed out dates are unavailable)</p>
                     </div>
                     <div>
-                      <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-3">Select Available Time</label>
+                      <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-3">Pick a Time Slot</label>
                       <div className="grid grid-cols-3 gap-4">
-                        {STANDARD_HOURS.map((time) => {
+                        {SLOT_TIMES.map((time) => {
                           const isAvailable = availableSlots[time] !== false;
                           return (
-                            <button key={time} disabled={!isAvailable} onClick={() => setFormData({ ...formData, time })} className={`py-4 rounded-2xl font-black text-sm transition-all border-2 ${!isAvailable ? "bg-slate-50 text-slate-200 border-slate-50 cursor-not-allowed" : formData.time === time ? "bg-teal-600 text-white border-teal-600 shadow-lg shadow-teal-600/30" : "bg-white text-slate-700 border-slate-100 hover:border-teal-400"}`}>
+                            <button key={time} disabled={!isAvailable || !formData.date} onClick={() => setFormData({ ...formData, time })} className={`py-4 rounded-2xl font-black text-sm transition-all border-2 ${!isAvailable || !formData.date ? "bg-slate-50 text-slate-200 border-slate-50 cursor-not-allowed" : formData.time === time ? "bg-teal-600 text-white border-teal-600 shadow-lg shadow-teal-600/30" : "bg-white text-slate-700 border-slate-100 hover:border-teal-400"}`}>
                               {time}
+                              <span className="block text-[10px] font-bold opacity-60 mt-0.5">2 hours</span>
                             </button>
                           );
                         })}
                       </div>
+                      {formData.date && Object.keys(availableSlots).length > 0 && Object.values(availableSlots).every((free) => !free) && (
+                        <p className="text-xs text-rose-500 font-bold mt-3">This day is fully booked — please pick another date.</p>
+                      )}
+                      {!formData.date && <p className="text-xs text-slate-400 mt-3">Pick a date to see which slots are free.</p>}
                     </div>
                     <div className="flex gap-4 pt-4">
                       <button onClick={() => setBookingStep(1)} className="w-1/3 py-5 border-2 border-slate-100 rounded-2xl font-bold text-slate-400">
@@ -788,6 +873,8 @@ Message: ${enquiryData.message}
           </div>
         );
 
+      case "intake":
+        return intakeToken ? <IntakeForm token={intakeToken} /> : null;
       case "admin":
         return <AdminDashboard />;
       default:

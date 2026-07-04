@@ -1,4 +1,52 @@
-export type Page = "home" | "services" | "about" | "locations" | "gallery" | "booking" | "admin" | "privacy";
+export type Page = "home" | "services" | "about" | "locations" | "gallery" | "booking" | "admin" | "privacy" | "intake";
+
+export type IntakeStatus = "not_sent" | "sent" | "completed";
+
+export interface Dog {
+  id?: string;
+  customer_id?: string;
+  name: string;
+  breed?: string | null;
+  dob?: string | null;
+  sex?: "male" | "female" | null;
+  neutered?: boolean | null;
+  vaccinated?: boolean | null;
+  behaviour_notes?: string | null;
+  health_conditions?: string | null;
+  needs_prescribed_shampoo?: boolean | null;
+  medication_details?: string | null;
+  needs_muzzle?: boolean | null;
+}
+
+export interface Customer {
+  id: string;
+  ownername: string;
+  email?: string | null;
+  phone?: string | null;
+  address?: string | null;
+  hear_about_us?: string | null;
+  sms_ok?: boolean | null;
+  alt_contact_name?: string | null;
+  alt_contact_phone?: string | null;
+  vet_name?: string | null;
+  emergency_vet_name?: string | null;
+  emergency_vet_phone?: string | null;
+  emergency_vet_address?: string | null;
+  treats_ok?: boolean | null;
+  photo_consent?: boolean | null;
+  intake_token?: string | null;
+  intake_status: IntakeStatus;
+  intake_sent_at?: string | null;
+  intake_sent_via?: string | null;
+  intake_completed_at?: string | null;
+  signature_data?: string | null;
+  signed_at?: string | null;
+  terms_version?: string | null;
+  source?: string;
+  created_at?: string;
+  updated_at?: string;
+  dogs?: Dog[];
+}
 
 export interface Service {
   id: string;
@@ -57,6 +105,7 @@ export interface Appointment {
   deposit_amount?: number;
   deposit_paid_at?: string | null;
   deposit_notes?: string;
+  customer_id?: string | null;
 }
 
 export interface AvailabilitySlot {

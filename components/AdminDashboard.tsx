@@ -1,11 +1,20 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { checkAuthStatus, confirmAppointmentBooking, createManualAppointment, deleteAppointment, exportAppointmentsToExcel, getAppointments, getCurrentUser, getLastAutoSyncTime, getReminderSettings, getUnavailableDays, getUnavailableWeekdays, removeUnavailableDay, removeUnavailableWeekday, saveUnavailableDay, saveUnavailableWeekday, sendCustomerConfirmationSms, signInAdmin, signOutAdmin, syncBookingToCalendar, syncCalendarChangesFromDiary, updateAppointment, updateReminderSettings } from "../services/bookingService";
-import { Appointment, Service } from "../types";
-import { LOCATIONS, SERVICES } from "../constants";
+import { buildConfirmationMessage, checkAuthStatus, confirmAppointmentBooking, createManualAppointment, deleteAppointment, exportAppointmentsToExcel, findBookingClash, getAppointments, getCurrentUser, getEffectiveSchedule, getReminderSettings, getUnavailableDays, getUnavailableWeekdays, removeUnavailableDay, removeUnavailableWeekday, saveUnavailableDay, saveUnavailableWeekday, sendCustomerConfirmationSms, signInAdmin, signOutAdmin, updateAppointment, updateReminderSettings, getHolidaySettings, updateHolidaySettings, updateAdvertSettings, getDogNotes, getAllDogNotes, upsertDogNote } from "../services/bookingService";
+import { buildIntakeLink, buildIntakeMessage, buildWhatsAppLink, createCustomer, deleteCustomer, ensureIntakeToken, getCustomers, markIntakeSent, sendIntakeEmail, sendIntakeSms, updateCustomer } from "../services/customerService";
+import { Appointment, Customer, IntakeStatus, Service } from "../types";
+import { INTAKE_TERMS, LOCATIONS, SERVICES, SLOT_TIMES } from "../constants";
 
 const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-const DIARY_URL = "https://calendar.google.com/calendar/u/0/r/week";
 const ALL_LOCATIONS = "__all__";
+
+const getMonday = (source: Date) => {
+  const copy = new Date(source);
+  copy.setDate(copy.getDate() + (copy.getDay() === 0 ? -6 : 1 - copy.getDay()));
+  copy.setHours(0, 0, 0, 0);
+  return copy;
+};
+
+const toDateString = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
 const AdminDashboard: React.FC = () => {
   const [isAuthorized, setIsAuthorized] = useState(false);
@@ -13,7 +22,7 @@ const AdminDashboard: React.FC = () => {
   const [password, setPassword] = useState("");
   const [authError, setAuthError] = useState("");
   const [appointments, setAppointments] = useState<Appointment[]>([]);
-  const [view, setView] = useState<"bookings" | "unavailable" | "services" | "settings" | "customers">("bookings");
+  const [view, setView] = useState<"bookings" | "diary" | "unavailable" | "services" | "settings" | "customers">("bookings");
   const [selectedLocation, setSelectedLocation] = useState(LOCATIONS[0].id);
   const [isLoading, setIsLoading] = useState(true);
   const [dbStatus, setDbStatus] = useState<"connecting" | "connected" | "error">("connecting");
@@ -27,8 +36,10 @@ const AdminDashboard: React.FC = () => {
   const [showAddModal, setShowAddModal] = useState(false);
   const [activeBooking, setActiveBooking] = useState<Appointment | null>(null);
   const [isWorking, setIsWorking] = useState(false);
-  const [lastAutoSync, setLastAutoSync] = useState<Date | null>(null);
   const [showDepositModal, setShowDepositModal] = useState(false);
+  const [pendingConfirmChannel, setPendingConfirmChannel] = useState<"sms" | "whatsapp">("sms");
+  const [diaryWeekStart, setDiaryWeekStart] = useState<Date>(() => getMonday(new Date()));
+  const [diarySearch, setDiarySearch] = useState("");
 
   const [reminderSettings, setReminderSettings] = useState({
     enabled_28day: true,
@@ -39,9 +50,31 @@ const AdminDashboard: React.FC = () => {
     split_by_location: true,
   });
 
+  const [holidayForm, setHolidayForm] = useState({ holiday_start: "", holiday_end: "" });
+  const [holidaySaving, setHolidaySaving] = useState(false);
+  const [holidayStatus, setHolidayStatus] = useState<"idle" | "saved" | "error">("idle");
+
+  const [advertForm, setAdvertForm] = useState({ advert_start: "", advert_end: "", advert_text: "", advert_color: "#EAB308" });
+  const [advertSaving, setAdvertSaving] = useState(false);
+  const [advertStatus, setAdvertStatus] = useState<"idle" | "saved" | "error">("idle");
+  const [advertError, setAdvertError] = useState<string>("");
+
   const [customerSearch, setCustomerSearch] = useState("");
   const [selectedCustomer, setSelectedCustomer] = useState<string | null>(null);
   const [showCustomerModal, setShowCustomerModal] = useState(false);
+  const [customersList, setCustomersList] = useState<Customer[]>([]);
+  const [intakeFilter, setIntakeFilter] = useState<"all" | IntakeStatus>("all");
+  const [showAddCustomerModal, setShowAddCustomerModal] = useState(false);
+  const [addCustomerForm, setAddCustomerForm] = useState({ ownername: "", email: "", phone: "" });
+  const [sendingIntake, setSendingIntake] = useState<string | null>(null);
+  const [showAgreementDetails, setShowAgreementDetails] = useState(false);
+  const [editingCustomerInfo, setEditingCustomerInfo] = useState(false);
+  const [customerInfoForm, setCustomerInfoForm] = useState({ ownername: "", email: "", phone: "", address: "" });
+  const [allDogNotes, setAllDogNotes] = useState<Record<string, Record<string, string>>>({});
+  const [dogNotes, setDogNotes] = useState<Record<string, string>>({});
+  const [dogNotesDraft, setDogNotesDraft] = useState<Record<string, string>>({});
+  const [dogNotesSaving, setDogNotesSaving] = useState<Record<string, boolean>>({});
+  const [dogNotesSaved, setDogNotesSaved] = useState<Record<string, boolean>>({});
 
   const [editForm, setEditForm] = useState({
     ownername: "",
@@ -53,7 +86,7 @@ const AdminDashboard: React.FC = () => {
     requested_time_preference: "",
     confirmed_date: "",
     confirmed_time: "",
-    confirmed_duration_minutes: 90,
+    confirmed_duration_minutes: 120,
     notes: "",
     deposit_paid: false,
     deposit_amount: 20,
@@ -71,7 +104,7 @@ const AdminDashboard: React.FC = () => {
     locationid: LOCATIONS[0].id,
     date: new Date().toISOString().split("T")[0],
     confirmed_time: "",
-    confirmed_duration_minutes: 90,
+    confirmed_duration_minutes: 120,
     notes: "",
     deposit_paid: false,
     deposit_amount: 20,
@@ -83,10 +116,20 @@ const AdminDashboard: React.FC = () => {
   const [pageSize, setPageSize] = useState(10);
   const [currentPage, setCurrentPage] = useState(1);
   const [statusSort, setStatusSort] = useState<'asc' | 'desc' | null>(null);
+  const [bookingsSearch, setBookingsSearch] = useState("");
 
   // Filter, sort, and paginate appointments
   const filteredAppointments = useMemo(() => {
+    const search = bookingsSearch.trim().toLowerCase();
     let filtered = appointments.filter((a) => selectedLocation === ALL_LOCATIONS || a.locationid === selectedLocation);
+    if (search) {
+      filtered = filtered.filter(
+        (a) =>
+          (a.dogname || "").toLowerCase().includes(search) ||
+          (a.ownername || "").toLowerCase().includes(search) ||
+          (a.phone || "").replace(/\s+/g, "").includes(search.replace(/\s+/g, "")),
+      );
+    }
     // Sort by status if selected
     if (statusSort) {
       filtered = filtered.sort((a, b) => {
@@ -108,10 +151,15 @@ const AdminDashboard: React.FC = () => {
       });
     }
     return filtered;
-  }, [appointments, selectedLocation, statusSort]);
+  }, [appointments, selectedLocation, statusSort, bookingsSearch]);
 
   const totalPages = Math.ceil(filteredAppointments.length / pageSize);
   const paginatedAppointments = filteredAppointments.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+
+  // Jump back to page 1 whenever the search changes so results are visible
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [bookingsSearch]);
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -135,19 +183,32 @@ const AdminDashboard: React.FC = () => {
   const loadData = async () => {
     setIsLoading(true);
     try {
-      const [apps, unavail, unavailWeekdays, lastSync, remSettings] = await Promise.all([
+      const [apps, unavail, unavailWeekdays, remSettings, holSettings, custs] = await Promise.all([
         getAppointments(),
         getUnavailableDays(selectedLocation),
         getUnavailableWeekdays(),
-        getLastAutoSyncTime(),
-        getReminderSettings().catch(() => null)
+        getReminderSettings().catch(() => null),
+        getHolidaySettings().catch(() => null),
+        getCustomers().catch(() => [] as Customer[]),
       ]);
       setAppointments(apps);
+      setCustomersList(custs);
       setUnavailableDays(unavail);
       setUnavailableWeekdays(unavailWeekdays);
-      setLastAutoSync(lastSync);
       if (remSettings) {
         setReminderSettings(remSettings);
+      }
+      if (holSettings) {
+        setHolidayForm({
+          holiday_start: holSettings.holiday_start ?? "",
+          holiday_end: holSettings.holiday_end ?? "",
+        });
+        setAdvertForm({
+          advert_start: holSettings.advert_start ?? "",
+          advert_end: holSettings.advert_end ?? "",
+          advert_text: holSettings.advert_text ?? "",
+          advert_color: holSettings.advert_color ?? "#EAB308",
+        });
       }
       setDbStatus("connected");
     } catch (err) {
@@ -184,6 +245,190 @@ const AdminDashboard: React.FC = () => {
     }
   };
 
+  // ===== Customer records & intake form =====
+
+  const refreshCustomers = async () => {
+    try {
+      setCustomersList(await getCustomers());
+    } catch (err) {
+      console.error("Failed to load customers:", err);
+    }
+  };
+
+  const bookingsForCustomer = (customer: Customer) => appointments.filter((a) => a.customer_id === customer.id || (customer.email && a.email && a.email.toLowerCase() === customer.email.toLowerCase()));
+
+  const servicePriceFor = (serviceid: string) => (serviceid === "full-groom" ? 35 : serviceid === "bath-brush" ? 25 : serviceid === "puppy-intro" ? 15 : serviceid === "nail-clipping" ? 12 : serviceid === "home-grooming" ? 45 : 0);
+
+  const handleAddCustomer = async () => {
+    if (!addCustomerForm.ownername.trim()) {
+      alert("Please enter the customer's name.");
+      return;
+    }
+    if (!addCustomerForm.email.trim() && !addCustomerForm.phone.trim()) {
+      alert("Please enter an email or phone number so we can send them the intake form.");
+      return;
+    }
+    setIsWorking(true);
+    try {
+      await createCustomer(addCustomerForm);
+      await refreshCustomers();
+      setShowAddCustomerModal(false);
+      setAddCustomerForm({ ownername: "", email: "", phone: "" });
+    } catch (err: any) {
+      alert(`Could not add customer: ${err.message}`);
+    } finally {
+      setIsWorking(false);
+    }
+  };
+
+  const handleSendIntake = async (customer: Customer, channel: "whatsapp" | "sms" | "email") => {
+    setSendingIntake(channel);
+    try {
+      const token = await ensureIntakeToken(customer);
+      const link = buildIntakeLink(token);
+      const message = buildIntakeMessage(customer, link);
+
+      if (channel === "whatsapp") {
+        if (!customer.phone) throw new Error("No phone number on record.");
+        window.open(buildWhatsAppLink(customer.phone, message), "_blank");
+      } else if (channel === "sms") {
+        if (!customer.phone) throw new Error("No phone number on record.");
+        await sendIntakeSms(customer, message);
+      } else {
+        if (!customer.email) throw new Error("No email address on record.");
+        await sendIntakeEmail(customer, link);
+      }
+
+      await markIntakeSent(customer.id, channel);
+      await refreshCustomers();
+      if (channel !== "whatsapp") {
+        alert(`Intake form link sent by ${channel === "sms" ? "SMS" : "email"}.`);
+      }
+    } catch (err: any) {
+      alert(`Could not send form: ${err.message}`);
+    } finally {
+      setSendingIntake(null);
+    }
+  };
+
+  const handleCopyIntakeLink = async (customer: Customer) => {
+    setSendingIntake("copy");
+    try {
+      const token = await ensureIntakeToken(customer);
+      await navigator.clipboard.writeText(buildIntakeLink(token));
+      await refreshCustomers();
+      alert("Link copied to clipboard.");
+    } catch (err: any) {
+      alert(`Could not copy link: ${err.message}`);
+    } finally {
+      setSendingIntake(null);
+    }
+  };
+
+  const handleDeleteCustomer = async (customer: Customer) => {
+    if (!window.confirm(`Delete ${customer.ownername}'s customer record? Their booking history will be kept, but the agreement and dog details will be removed. This cannot be undone.`)) return;
+    try {
+      await deleteCustomer(customer.id);
+      setShowCustomerModal(false);
+      await refreshCustomers();
+    } catch (err: any) {
+      alert(`Could not delete customer: ${err.message}`);
+    }
+  };
+
+  const handleSaveCustomerInfo = async (customer: Customer) => {
+    setIsWorking(true);
+    try {
+      await updateCustomer(customer.id, {
+        ownername: customerInfoForm.ownername.trim(),
+        email: customerInfoForm.email.trim() || null,
+        phone: customerInfoForm.phone.trim() || null,
+        address: customerInfoForm.address.trim() || null,
+      });
+      await refreshCustomers();
+      setEditingCustomerInfo(false);
+    } catch (err: any) {
+      alert(`Could not save changes: ${err.message}`);
+    } finally {
+      setIsWorking(false);
+    }
+  };
+
+  const formatBool = (value: boolean | null | undefined) => (value === true ? "Yes" : value === false ? "No" : "—");
+
+  const printAgreement = (customer: Customer) => {
+    const dogsHtml = (customer.dogs || [])
+      .map(
+        (dog) => `
+        <h3>🐕 ${dog.name}${dog.breed ? ` (${dog.breed})` : ""}</h3>
+        <table>
+          <tr><td>Age</td><td>${dog.dob || "—"}</td></tr>
+          <tr><td>Sex</td><td>${dog.sex || "—"}</td></tr>
+          <tr><td>Neutered/Spayed</td><td>${formatBool(dog.neutered)}</td></tr>
+          <tr><td>Vaccinated</td><td>${formatBool(dog.vaccinated)}</td></tr>
+          <tr><td>Behaviour notes / triggers</td><td>${dog.behaviour_notes || "—"}</td></tr>
+          <tr><td>Health / skin conditions</td><td>${dog.health_conditions || "—"}</td></tr>
+          <tr><td>Prescribed medical shampoo</td><td>${formatBool(dog.needs_prescribed_shampoo)}</td></tr>
+          <tr><td>Medication</td><td>${dog.medication_details || "None"}</td></tr>
+          <tr><td>Muzzle needed</td><td>${formatBool(dog.needs_muzzle)}</td></tr>
+        </table>`,
+      )
+      .join("");
+
+    const termsHtml = INTAKE_TERMS.map((term, i) => `<li>${term}</li>`).join("");
+    const signedDate = customer.signed_at ? new Date(customer.signed_at).toLocaleDateString("en-GB") : "—";
+
+    const html = `<!DOCTYPE html><html><head><title>Grooming Agreement - ${customer.ownername}</title>
+      <style>
+        body { font-family: Arial, Helvetica, sans-serif; color: #1e293b; max-width: 720px; margin: 24px auto; padding: 0 16px; font-size: 13px; }
+        h1 { text-align: center; } h2 { border-bottom: 2px solid #059669; padding-bottom: 4px; margin-top: 28px; }
+        table { width: 100%; border-collapse: collapse; margin: 8px 0; }
+        td { border: 1px solid #cbd5e1; padding: 6px 10px; vertical-align: top; }
+        td:first-child { font-weight: bold; width: 40%; background: #f8fafc; }
+        ol { padding-left: 18px; } li { margin-bottom: 6px; }
+        img.signature { max-height: 90px; border: 1px solid #cbd5e1; border-radius: 8px; }
+      </style></head><body>
+      <h1>Maisey Days @ Dirty Dawg<br><small>Dog Grooming Agreement</small></h1>
+      <h2>Owner</h2>
+      <table>
+        <tr><td>Name</td><td>${customer.ownername}</td></tr>
+        <tr><td>Address</td><td>${customer.address || "—"}</td></tr>
+        <tr><td>Phone</td><td>${customer.phone || "—"}</td></tr>
+        <tr><td>Email</td><td>${customer.email || "—"}</td></tr>
+        <tr><td>Heard about us via</td><td>${customer.hear_about_us || "—"}</td></tr>
+        <tr><td>Happy to receive texts</td><td>${formatBool(customer.sms_ok)}</td></tr>
+        <tr><td>Alternative contact</td><td>${customer.alt_contact_name || "—"} ${customer.alt_contact_phone ? `(${customer.alt_contact_phone})` : ""}</td></tr>
+        <tr><td>Vets used</td><td>${customer.vet_name || "—"}</td></tr>
+        <tr><td>Treats allowed</td><td>${formatBool(customer.treats_ok)}</td></tr>
+        <tr><td>Photo/social media consent</td><td>${formatBool(customer.photo_consent)}</td></tr>
+      </table>
+      <h2>Dogs</h2>
+      ${dogsHtml || "<p>No dogs recorded.</p>"}
+      <h2>Terms and Conditions (version ${customer.terms_version || "—"})</h2>
+      <ol>${termsHtml}</ol>
+      <h2>Emergency Care Authorisation</h2>
+      <p>In the event of illness or injury during grooming, I authorise emergency veterinary care for my pet. Please use my preferred vet, but in case of urgency, any qualified veterinarian may be contacted.</p>
+      <table>
+        <tr><td>Preferred emergency vet</td><td>${customer.emergency_vet_name || "—"}</td></tr>
+        <tr><td>Vet phone</td><td>${customer.emergency_vet_phone || "—"}</td></tr>
+        <tr><td>Vet address</td><td>${customer.emergency_vet_address || "—"}</td></tr>
+      </table>
+      <h2>Signed</h2>
+      ${customer.signature_data ? `<img class="signature" src="${customer.signature_data}" alt="Signature" />` : "<p>Not signed.</p>"}
+      <p><strong>Date:</strong> ${signedDate}</p>
+      </body></html>`;
+
+    const printWindow = window.open("", "_blank");
+    if (!printWindow) {
+      alert("Pop-up blocked. Please allow pop-ups to print the agreement.");
+      return;
+    }
+    printWindow.document.write(html);
+    printWindow.document.close();
+    printWindow.focus();
+    setTimeout(() => printWindow.print(), 300);
+  };
+
   const openUpdateModal = (booking: Appointment) => {
     setActiveBooking(booking);
     setEditForm({
@@ -195,8 +440,10 @@ const AdminDashboard: React.FC = () => {
       serviceid: booking.serviceid || SERVICES[0].id,
       requested_time_preference: booking.requested_time_preference || booking.time || "",
       confirmed_date: booking.confirmed_date || booking.date || "",
-      confirmed_time: booking.confirmed_time || "",
-      confirmed_duration_minutes: booking.confirmed_duration_minutes || 90,
+      // Pre-fill from the requested slot so confirming is one click when the slot works.
+      // Times from the database can include seconds ("10:00:00") so trim to HH:MM.
+      confirmed_time: booking.confirmed_time ? String(booking.confirmed_time).slice(0, 5) : (/^\d{1,2}:\d{2}$/.test((booking.requested_time_preference || booking.time || "").trim()) ? (booking.requested_time_preference || booking.time || "").trim().slice(0, 5) : ""),
+      confirmed_duration_minutes: booking.confirmed_duration_minutes || 120,
       notes: booking.notes || "",
       deposit_paid: booking.deposit_paid || false,
       deposit_amount: booking.deposit_amount || 20,
@@ -223,7 +470,7 @@ const AdminDashboard: React.FC = () => {
       locationid: selectedLocation === ALL_LOCATIONS ? LOCATIONS[0].id : selectedLocation,
       date: new Date().toISOString().split("T")[0],
       confirmed_time: "",
-      confirmed_duration_minutes: 90,
+      confirmed_duration_minutes: 120,
       notes: "",
       deposit_paid: false,
       deposit_amount: 20,
@@ -235,6 +482,13 @@ const AdminDashboard: React.FC = () => {
 
   const saveBookingDetails = async () => {
     if (!activeBooking?.id) return;
+    if (editForm.confirmed_date && editForm.confirmed_time) {
+      const clash = await findBookingClash(activeBooking.locationid, editForm.confirmed_date, editForm.confirmed_time, Number(editForm.confirmed_duration_minutes) || 120, activeBooking.id);
+      if (clash) {
+        const clashTime = getEffectiveSchedule(clash)?.timeLabel || "";
+        if (!window.confirm(`⚠️ DOUBLE BOOKING WARNING\n\n${clash.dogname} (${clash.ownername}) is already booked at ${clashTime} on this day.\n\nSave anyway?`)) return;
+      }
+    }
     setIsWorking(true);
     try {
       await updateAppointment(activeBooking.id, {
@@ -254,13 +508,6 @@ const AdminDashboard: React.FC = () => {
         deposit_paid_at: editForm.deposit_paid ? new Date().toISOString() : null,
         deposit_notes: editForm.deposit_notes,
       });
-      if (editForm.confirmed_date && editForm.confirmed_time) {
-        try {
-          await syncBookingToCalendar(activeBooking.id);
-        } catch (syncError: any) {
-          alert(syncError.message || "Booking saved, but calendar sync failed.");
-        }
-      }
       await loadData();
       alert("Booking updated.");
     } catch (error: any) {
@@ -270,12 +517,17 @@ const AdminDashboard: React.FC = () => {
     }
   };
 
-  const confirmBooking = async () => {
+  const confirmBooking = async (channel: "sms" | "whatsapp") => {
     if (!activeBooking?.id) return;
     if (!editForm.confirmed_date || !editForm.confirmed_time || !editForm.confirmed_duration_minutes) {
       alert("Please set confirmed date, time and duration first.");
       return;
     }
+    if (!editForm.phone) {
+      alert(`A phone number is needed to confirm via ${channel === "whatsapp" ? "WhatsApp" : "SMS"}.`);
+      return;
+    }
+    setPendingConfirmChannel(channel);
 
     // Check if deposit is paid - if not, show deposit confirmation modal
     if (!editForm.deposit_paid) {
@@ -284,36 +536,52 @@ const AdminDashboard: React.FC = () => {
     }
 
     // Proceed with confirmation
-    await proceedWithConfirmation();
+    await proceedWithConfirmation(channel);
   };
 
-  const proceedWithConfirmation = async () => {
+  const proceedWithConfirmation = async (channel: "sms" | "whatsapp" = pendingConfirmChannel) => {
     if (!activeBooking?.id) return;
 
-    const shouldConfirm = window.confirm("Do you want to confirm this booking?");
+    const clash = await findBookingClash(activeBooking.locationid, editForm.confirmed_date, editForm.confirmed_time, Number(editForm.confirmed_duration_minutes) || 120, activeBooking.id);
+    if (clash) {
+      const clashTime = getEffectiveSchedule(clash)?.timeLabel || "";
+      if (!window.confirm(`⚠️ DOUBLE BOOKING WARNING\n\n${clash.dogname} (${clash.ownername}) is already booked at ${clashTime} on this day.\n\nConfirm this booking anyway?`)) return;
+    }
+
+    const shouldConfirm = window.confirm(`Confirm this booking and send the ${channel === "whatsapp" ? "WhatsApp message" : "SMS"}?`);
     if (!shouldConfirm) return;
 
     setIsWorking(true);
     try {
+      const confirmedAppointment: Appointment = {
+        ...activeBooking,
+        ownername: editForm.ownername,
+        dogname: editForm.dogname,
+        serviceid: editForm.serviceid,
+        phone: editForm.phone,
+        locationid: activeBooking.locationid,
+        confirmed_date: editForm.confirmed_date,
+        confirmed_time: editForm.confirmed_time,
+      };
+
+      if (channel === "whatsapp") {
+        // Free channel: open WhatsApp with the confirmation message ready to send
+        window.open(buildWhatsAppLink(editForm.phone, buildConfirmationMessage(confirmedAppointment)), "_blank");
+      }
+
       await confirmAppointmentBooking(
-        {
-          ...activeBooking,
-          ownername: editForm.ownername,
-          dogname: editForm.dogname,
-          serviceid: editForm.serviceid,
-          phone: editForm.phone,
-          locationid: activeBooking.locationid,
-        },
+        confirmedAppointment,
         {
           confirmedDate: editForm.confirmed_date,
           confirmedTime: editForm.confirmed_time,
           confirmedDurationMinutes: Number(editForm.confirmed_duration_minutes),
         },
+        channel,
       );
 
       await loadData();
       closeUpdateModal();
-      alert("Booking confirmed and SMS sent.");
+      alert(channel === "whatsapp" ? "Booking confirmed — WhatsApp message opened, just press send." : "Booking confirmed and SMS sent.");
     } catch (error: any) {
       alert(error.message || "Failed to confirm booking.");
     } finally {
@@ -374,7 +642,7 @@ const AdminDashboard: React.FC = () => {
       locationid: booking.locationid || LOCATIONS[0].id,
       date: new Date().toISOString().split("T")[0],
       confirmed_time: "",
-      confirmed_duration_minutes: booking.confirmed_duration_minutes || 90,
+      confirmed_duration_minutes: booking.confirmed_duration_minutes || 120,
       notes: `Rebooking from ${booking.confirmed_date || booking.date}`,
       deposit_paid: false,
       deposit_amount: 20,
@@ -406,6 +674,12 @@ const AdminDashboard: React.FC = () => {
     if (!addForm.confirmed_time) {
       alert("Please set the appointment time.");
       return;
+    }
+
+    const clash = await findBookingClash(addForm.locationid, addForm.date, addForm.confirmed_time, Number(addForm.confirmed_duration_minutes) || 120);
+    if (clash) {
+      const clashTime = getEffectiveSchedule(clash)?.timeLabel || "";
+      if (!window.confirm(`⚠️ DOUBLE BOOKING WARNING\n\n${clash.dogname} (${clash.ownername}) is already booked at ${clashTime} on this day.\n\nAdd this booking anyway?`)) return;
     }
 
     setIsWorking(true);
@@ -449,14 +723,6 @@ const AdminDashboard: React.FC = () => {
             confirmed_at: nowIso,
             confirmation_sent_at: nowIso,
           });
-          try {
-            await syncBookingToCalendar(createdBooking.id);
-          } catch (syncErr: any) {
-            await updateAppointment(createdBooking.id, {
-              calendar_sync_status: "error",
-              calendar_last_error: syncErr?.message || "Calendar sync failed",
-            });
-          }
         } catch (smsErr: any) {
           alert(`Booking created but SMS failed to send: ${smsErr.message}`);
         }
@@ -474,7 +740,7 @@ const AdminDashboard: React.FC = () => {
         locationid: selectedLocation === ALL_LOCATIONS ? LOCATIONS[0].id : selectedLocation,
         date: new Date().toISOString().split("T")[0],
         confirmed_time: "",
-        confirmed_duration_minutes: 90,
+        confirmed_duration_minutes: 120,
         notes: "",
         deposit_paid: false,
         deposit_amount: 20,
@@ -484,19 +750,6 @@ const AdminDashboard: React.FC = () => {
       alert(addForm.send_sms ? "Booking added and SMS confirmation sent." : "Booking added.");
     } catch (error: any) {
       alert(error.message || "Could not add booking.");
-    } finally {
-      setIsWorking(false);
-    }
-  };
-
-  const handleSyncDiaryChanges = async () => {
-    setIsWorking(true);
-    try {
-      const result = await syncCalendarChangesFromDiary();
-      await loadData(); // This will also refresh lastAutoSync
-      alert(`Diary sync complete. Linked: ${result.totalLinked}, Scanned: ${result.scanned}, Synced: ${result.synced}, Updated: ${result.updated}, Errors: ${result.errors}`);
-    } catch (error: any) {
-      alert(error.message || "Could not sync diary changes.");
     } finally {
       setIsWorking(false);
     }
@@ -539,7 +792,10 @@ const AdminDashboard: React.FC = () => {
           <button onClick={() => setView("bookings")} className={`px-4 py-2 rounded-lg font-bold transition-all ${view === "bookings" ? "bg-white shadow-sm text-emerald-600" : "text-slate-600"}`}>
             Bookings
           </button>
-          <button onClick={() => setView("customers")} className={`px-4 py-2 rounded-lg font-bold transition-all ${view === "customers" ? "bg-white shadow-sm text-emerald-600" : "text-slate-600"}`}>
+          <button onClick={() => setView("diary")} className={`px-4 py-2 rounded-lg font-bold transition-all ${view === "diary" ? "bg-white shadow-sm text-emerald-600" : "text-slate-600"}`}>
+            Diary
+          </button>
+          <button onClick={() => { setView("customers"); refreshCustomers(); getAllDogNotes().then(setAllDogNotes).catch(() => {}); }} className={`px-4 py-2 rounded-lg font-bold transition-all ${view === "customers" ? "bg-white shadow-sm text-emerald-600" : "text-slate-600"}`}>
             Customers
           </button>
           <button onClick={() => setView("unavailable")} className={`px-4 py-2 rounded-lg font-bold transition-all ${view === "unavailable" ? "bg-white shadow-sm text-emerald-600" : "text-slate-600"}`}>
@@ -570,26 +826,8 @@ const AdminDashboard: React.FC = () => {
           <div className="p-4 border-b flex flex-wrap justify-between items-center gap-3">
             <div>
               <h2 className="font-bold text-slate-600">Bookings</h2>
-              <p className="text-xs text-emerald-600 mt-1 flex items-center gap-1">
-                <span className="inline-block w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></span>
-                {lastAutoSync ? `Last sync: ${(() => {
-                  const now = new Date();
-                  const diffMs = now.getTime() - lastAutoSync.getTime();
-                  const diffMins = Math.floor(diffMs / 60000);
-                  if (diffMins < 1) return "just now";
-                  if (diffMins === 1) return "1 min ago";
-                  if (diffMins < 60) return `${diffMins} mins ago`;
-                  const diffHours = Math.floor(diffMins / 60);
-                  if (diffHours === 1) return "1 hour ago";
-                  if (diffHours < 24) return `${diffHours} hours ago`;
-                  return lastAutoSync.toLocaleString();
-                })()}` : "Auto-sync active (every 10 minutes)"}
-              </p>
             </div>
             <div className="flex gap-2">
-              <button onClick={handleSyncDiaryChanges} disabled={isWorking} className="bg-slate-700 hover:bg-slate-800 disabled:opacity-60 text-white px-6 py-2 rounded-lg font-bold text-sm transition-all">
-                ↻ Sync Diary Changes
-              </button>
               <button onClick={openAddModal} className="bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-2 rounded-lg font-bold text-sm transition-all">
                 + Add New
               </button>
@@ -597,6 +835,22 @@ const AdminDashboard: React.FC = () => {
                 ⬇️ Export to CSV
               </button>
             </div>
+          </div>
+
+          {/* Search */}
+          <div className="px-4 py-3 border-b">
+            <input
+              value={bookingsSearch}
+              onChange={(e) => setBookingsSearch(e.target.value)}
+              placeholder="🔍 Search dog name, owner name or phone number..."
+              className="w-full px-5 py-3 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-teal-500 font-medium"
+            />
+            {bookingsSearch.trim() && (
+              <p className="text-xs text-slate-500 font-bold mt-2">
+                {filteredAppointments.length} booking{filteredAppointments.length !== 1 ? "s" : ""} found
+                <button onClick={() => setBookingsSearch("")} className="ml-3 text-teal-600 hover:text-teal-800 underline">Clear</button>
+              </p>
+            )}
           </div>
 
           {/* Pagination and sorting controls */}
@@ -634,7 +888,6 @@ const AdminDashboard: React.FC = () => {
                     <th className="p-4 font-bold text-slate-600">Duration</th>
                     <th className="p-4 font-bold text-slate-600">Status</th>
                     <th className="p-4 font-bold text-slate-600">Deposit</th>
-                    <th className="p-4 font-bold text-slate-600">Diary Sync</th>
                     <th className="p-4 font-bold text-slate-600">Actions</th>
                   </tr>
                 </thead>
@@ -694,11 +947,6 @@ const AdminDashboard: React.FC = () => {
                         <td className="p-4">
                           <span className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${app.deposit_paid ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`} title={app.deposit_notes || ""}>
                             {app.deposit_paid ? "✓ Paid" : "Pending"}
-                          </span>
-                        </td>
-                        <td className="p-4">
-                          <span className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${app.calendar_sync_status === "synced" ? "bg-emerald-100 text-emerald-700" : app.calendar_sync_status === "error" ? "bg-rose-100 text-rose-700" : "bg-slate-100 text-slate-600"}`} title={app.calendar_last_error || ""}>
-                            {app.calendar_sync_status === "synced" ? "Synced" : app.calendar_sync_status === "error" ? "Error" : "Not Synced"}
                           </span>
                         </td>
                         <td className="p-4">
@@ -913,9 +1161,6 @@ const AdminDashboard: React.FC = () => {
           <div className="bg-white rounded-2xl p-6 w-full max-w-3xl max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-xl font-black text-slate-800">Update Booking</h3>
-              <a href={DIARY_URL} target="_blank" rel="noreferrer" className="text-sm font-bold text-teal-700 hover:text-teal-900 underline">
-                Open Diary
-              </a>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -932,14 +1177,26 @@ const AdminDashboard: React.FC = () => {
                 ))}
               </select>
               <select value={editForm.requested_time_preference} onChange={(e) => setEditForm({ ...editForm, requested_time_preference: e.target.value })} className="px-4 py-3 border rounded-lg">
-                <option value="">Requested preference</option>
-                <option value="Morning">Morning</option>
-                <option value="Afternoon">Afternoon</option>
-                <option value="Evening">Evening</option>
+                <option value="">Requested slot</option>
+                {SLOT_TIMES.map((slot) => (
+                  <option key={slot} value={slot}>
+                    {slot} (2 hrs)
+                  </option>
+                ))}
+                <option value="Morning">Morning (legacy)</option>
+                <option value="Afternoon">Afternoon (legacy)</option>
+                <option value="Evening">Evening (legacy)</option>
               </select>
               <input type="date" value={editForm.confirmed_date} onChange={(e) => setEditForm({ ...editForm, confirmed_date: e.target.value })} className="px-4 py-3 border rounded-lg" />
-              <input type="time" value={editForm.confirmed_time} onChange={(e) => setEditForm({ ...editForm, confirmed_time: e.target.value })} className="px-4 py-3 border rounded-lg" />
-              <input type="number" min={15} step={15} value={editForm.confirmed_duration_minutes} onChange={(e) => setEditForm({ ...editForm, confirmed_duration_minutes: Number(e.target.value) })} placeholder="Duration (mins)" className="px-4 py-3 border rounded-lg" />
+              <select value={editForm.confirmed_time} onChange={(e) => setEditForm({ ...editForm, confirmed_time: e.target.value, confirmed_duration_minutes: 120 })} className="px-4 py-3 border rounded-lg">
+                <option value="">Confirmed time slot</option>
+                {SLOT_TIMES.map((slot) => (
+                  <option key={slot} value={slot}>
+                    {slot} (2 hrs)
+                  </option>
+                ))}
+                {editForm.confirmed_time && !SLOT_TIMES.includes(editForm.confirmed_time) && <option value={editForm.confirmed_time}>{editForm.confirmed_time} (custom)</option>}
+              </select>
               <textarea value={editForm.notes} onChange={(e) => setEditForm({ ...editForm, notes: e.target.value })} placeholder="Notes" className="md:col-span-2 px-4 py-3 border rounded-lg min-h-24" />
             </div>
 
@@ -972,8 +1229,11 @@ const AdminDashboard: React.FC = () => {
               <button disabled={isWorking} onClick={saveBookingDetails} className="bg-slate-700 hover:bg-slate-800 disabled:opacity-60 text-white px-5 py-2 rounded-lg font-bold">
                 Save Details
               </button>
-              <button disabled={isWorking} onClick={confirmBooking} className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white px-5 py-2 rounded-lg font-bold">
-                Confirm Booking
+              <button disabled={isWorking} onClick={() => confirmBooking("whatsapp")} title="Free — opens WhatsApp with the confirmation ready to send" className="bg-green-500 hover:bg-green-600 disabled:opacity-60 text-white px-5 py-2 rounded-lg font-bold">
+                📱 Confirm + WhatsApp
+              </button>
+              <button disabled={isWorking} onClick={() => confirmBooking("sms")} title="Sends a text automatically (~4p)" className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white px-5 py-2 rounded-lg font-bold">
+                💬 Confirm + SMS
               </button>
               <button onClick={closeUpdateModal} className="bg-slate-200 hover:bg-slate-300 text-slate-700 px-5 py-2 rounded-lg font-bold">
                 Close
@@ -1099,6 +1359,197 @@ const AdminDashboard: React.FC = () => {
               </div>
             </div>
 
+            {/* Holiday Mode */}
+            <div className="p-6 bg-amber-50 border-2 border-amber-300 rounded-2xl">
+              <h3 className="text-xl font-bold text-slate-800 mb-1">Holiday Mode</h3>
+              <p className="text-slate-500 text-sm mb-4">
+                While holiday mode is active the booking form is hidden and visitors see an "away" message instead.
+                Leave both dates blank to turn it off.
+              </p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-2">Start Date</label>
+                  <input
+                    type="date"
+                    value={holidayForm.holiday_start}
+                    onChange={(e) => setHolidayForm({ ...holidayForm, holiday_start: e.target.value })}
+                    className="w-full px-4 py-2 border rounded-lg"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-2">End Date</label>
+                  <input
+                    type="date"
+                    value={holidayForm.holiday_end}
+                    onChange={(e) => setHolidayForm({ ...holidayForm, holiday_end: e.target.value })}
+                    className="w-full px-4 py-2 border rounded-lg"
+                  />
+                </div>
+              </div>
+              {holidayForm.holiday_start && holidayForm.holiday_end && (
+                <div className="mb-4 flex items-center gap-2 text-sm font-bold text-amber-700 bg-amber-100 rounded-xl px-4 py-3">
+                  <span>🌴</span>
+                  <span>
+                    Holiday mode active: {holidayForm.holiday_start} to {holidayForm.holiday_end}
+                  </span>
+                </div>
+              )}
+              <div className="flex items-center gap-4">
+                <button
+                  disabled={holidaySaving}
+                  onClick={async () => {
+                    setHolidaySaving(true);
+                    setHolidayStatus("idle");
+                    try {
+                      await updateHolidaySettings(
+                        holidayForm.holiday_start || null,
+                        holidayForm.holiday_end || null
+                      );
+                      setHolidayStatus("saved");
+                    } catch {
+                      setHolidayStatus("error");
+                    } finally {
+                      setHolidaySaving(false);
+                    }
+                  }}
+                  className="bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-white px-6 py-3 rounded-lg font-bold"
+                >
+                  {holidaySaving ? "Saving…" : "Save Holiday Dates"}
+                </button>
+                <button
+                  disabled={holidaySaving}
+                  onClick={async () => {
+                    setHolidayForm({ holiday_start: "", holiday_end: "" });
+                    setHolidaySaving(true);
+                    setHolidayStatus("idle");
+                    try {
+                      await updateHolidaySettings(null, null);
+                      setHolidayStatus("saved");
+                    } catch {
+                      setHolidayStatus("error");
+                    } finally {
+                      setHolidaySaving(false);
+                    }
+                  }}
+                  className="text-slate-500 hover:text-slate-700 px-4 py-3 rounded-lg font-bold underline text-sm disabled:opacity-50"
+                >
+                  Clear (turn off)
+                </button>
+                {holidayStatus === "saved" && <span className="text-emerald-600 text-sm font-bold">Saved!</span>}
+                {holidayStatus === "error" && <span className="text-rose-600 text-sm font-bold">Failed to save.</span>}
+              </div>
+            </div>
+
+            {/* Advert Banner */}
+            <div className="p-6 bg-emerald-50 border-2 border-emerald-300 rounded-2xl">
+              <h3 className="text-xl font-bold text-slate-800 mb-1">Advert Banner</h3>
+              <p className="text-slate-500 text-sm mb-4">
+                Shows a green banner at the top of the home page between the dates set. Leave blank to turn off.
+                Won't show during holiday mode.
+              </p>
+              <div className="mb-4">
+                <label className="block text-sm font-bold text-slate-700 mb-2">Banner Text</label>
+                <input
+                  type="text"
+                  placeholder="e.g. 10% off all grooms this month — book now!"
+                  value={advertForm.advert_text}
+                  onChange={(e) => setAdvertForm({ ...advertForm, advert_text: e.target.value })}
+                  className="w-full px-4 py-2 border rounded-lg"
+                />
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-2">Start Date</label>
+                  <input
+                    type="date"
+                    value={advertForm.advert_start}
+                    onChange={(e) => setAdvertForm({ ...advertForm, advert_start: e.target.value })}
+                    className="w-full px-4 py-2 border rounded-lg"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-2">End Date</label>
+                  <input
+                    type="date"
+                    value={advertForm.advert_end}
+                    onChange={(e) => setAdvertForm({ ...advertForm, advert_end: e.target.value })}
+                    className="w-full px-4 py-2 border rounded-lg"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-2">Banner Colour</label>
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="color"
+                      value={advertForm.advert_color}
+                      onChange={(e) => setAdvertForm({ ...advertForm, advert_color: e.target.value })}
+                      className="w-12 h-10 rounded cursor-pointer border border-slate-200 p-0.5"
+                    />
+                    <span className="text-sm font-mono text-slate-600">{advertForm.advert_color}</span>
+                  </div>
+                </div>
+              </div>
+              {advertForm.advert_text && (
+                <div
+                  className="mb-4 relative overflow-hidden rounded-xl text-white text-center py-5 px-6"
+                  style={{ backgroundColor: advertForm.advert_color }}
+                >
+                  <div className="absolute inset-0 opacity-10" style={{ backgroundImage: "repeating-linear-gradient(45deg, #fff 0, #fff 1px, transparent 0, transparent 50%)", backgroundSize: "10px 10px" }} />
+                  <div className="relative flex items-center justify-center">
+                    <p className="font-black text-lg tracking-tight">{advertForm.advert_text}</p>
+                  </div>
+                </div>
+              )}
+              <div className="flex items-center gap-4">
+                <button
+                  disabled={advertSaving}
+                  onClick={async () => {
+                    setAdvertSaving(true);
+                    setAdvertStatus("idle");
+                    setAdvertError("");
+                    try {
+                      await updateAdvertSettings(
+                        advertForm.advert_start || null,
+                        advertForm.advert_end || null,
+                        advertForm.advert_text || null,
+                        advertForm.advert_color || null
+                      );
+                      setAdvertStatus("saved");
+                    } catch (e: any) {
+                      setAdvertStatus("error");
+                      setAdvertError(e?.message || "Unknown error");
+                    } finally {
+                      setAdvertSaving(false);
+                    }
+                  }}
+                  className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white px-6 py-3 rounded-lg font-bold"
+                >
+                  {advertSaving ? "Saving…" : "Save Advert"}
+                </button>
+                <button
+                  disabled={advertSaving}
+                  onClick={async () => {
+                    setAdvertForm({ advert_start: "", advert_end: "", advert_text: "", advert_color: "#EAB308" });
+                    setAdvertSaving(true);
+                    setAdvertStatus("idle");
+                    try {
+                      await updateAdvertSettings(null, null, null, null);
+                      setAdvertStatus("saved");
+                    } catch {
+                      setAdvertStatus("error");
+                    } finally {
+                      setAdvertSaving(false);
+                    }
+                  }}
+                  className="text-slate-500 hover:text-slate-700 px-4 py-3 rounded-lg font-bold underline text-sm disabled:opacity-50"
+                >
+                  Clear (turn off)
+                </button>
+                {advertStatus === "saved" && <span className="text-emerald-600 text-sm font-bold">Saved!</span>}
+                {advertStatus === "error" && <span className="text-rose-600 text-sm font-bold">Failed to save: {advertError}</span>}
+              </div>
+            </div>
+
             {/* Save Button */}
             <div className="flex gap-4">
               <button
@@ -1119,74 +1570,225 @@ const AdminDashboard: React.FC = () => {
         </div>
       )}
 
+      {view === "diary" && (() => {
+        const weekDates: string[] = [];
+        for (let i = 0; i < 5; i++) {
+          const d = new Date(diaryWeekStart);
+          d.setDate(d.getDate() + i);
+          weekDates.push(toDateString(d));
+        }
+        const todayStr = toDateString(new Date());
+
+        const search = diarySearch.trim().toLowerCase();
+        const matchesSearch = (apt: Appointment) =>
+          !search ||
+          (apt.dogname || "").toLowerCase().includes(search) ||
+          (apt.ownername || "").toLowerCase().includes(search) ||
+          (apt.phone || "").replace(/\s+/g, "").includes(search.replace(/\s+/g, ""));
+
+        const scheduled = appointments
+          .filter((apt) => selectedLocation === ALL_LOCATIONS || apt.locationid === selectedLocation)
+          .filter(matchesSearch)
+          .map((apt) => ({ apt, schedule: getEffectiveSchedule(apt) }))
+          .filter((entry) => entry.schedule && weekDates.includes(entry.schedule.date)) as { apt: Appointment; schedule: NonNullable<ReturnType<typeof getEffectiveSchedule>> }[];
+
+        // Search results across ALL weeks, so any booking can be found and jumped to
+        const searchResults = !search
+          ? []
+          : (appointments
+              .filter(matchesSearch)
+              .map((apt) => ({ apt, schedule: getEffectiveSchedule(apt) }))
+              .filter((entry) => entry.schedule) as { apt: Appointment; schedule: NonNullable<ReturnType<typeof getEffectiveSchedule>> }[])
+              .sort((a, b) => b.schedule.date.localeCompare(a.schedule.date))
+              .slice(0, 12);
+
+        const slotStartMinutes = (slot: string) => Number(slot.slice(0, 2)) * 60 + Number(slot.slice(3, 5));
+        const bookingsFor = (date: string, slot: string) => {
+          const start = slotStartMinutes(slot);
+          return scheduled.filter(({ schedule }) => schedule.date === date && schedule.startMinutes >= start && schedule.startMinutes < start + 120);
+        };
+        const isClosedDay = (date: string) => unavailableDays.includes(date) || unavailableWeekdays.includes(new Date(`${date}T00:00:00`).getDay());
+
+        const chipStyle = (apt: Appointment) => {
+          const status = apt.booking_status || apt.status || "pending";
+          if (status === "completed") return "bg-blue-50 border-blue-200 text-blue-800";
+          if (status === "confirmed") return "bg-emerald-50 border-emerald-300 text-emerald-800";
+          if (status === "cancelled") return "bg-slate-100 border-slate-200 text-slate-400 line-through";
+          if (status === "due_for_rebook") return "bg-purple-50 border-purple-200 text-purple-800";
+          return "bg-amber-50 border-amber-300 text-amber-800";
+        };
+
+        const weekLabel = `${new Date(`${weekDates[0]}T00:00:00`).toLocaleDateString("en-GB", { day: "numeric", month: "short" })} – ${new Date(`${weekDates[4]}T00:00:00`).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}`;
+        const shiftWeek = (weeks: number) =>
+          setDiaryWeekStart((prev) => {
+            const next = new Date(prev);
+            next.setDate(next.getDate() + weeks * 7);
+            return next;
+          });
+
+        return (
+          <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-6">
+            <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
+              <h2 className="text-2xl font-black text-slate-800">Diary</h2>
+              <div className="flex items-center gap-2">
+                <button onClick={() => shiftWeek(-1)} className="px-4 py-2 bg-slate-100 hover:bg-slate-200 rounded-xl font-black text-slate-600">
+                  ‹
+                </button>
+                <span className="font-bold text-slate-700 min-w-[190px] text-center">{weekLabel}</span>
+                <button onClick={() => shiftWeek(1)} className="px-4 py-2 bg-slate-100 hover:bg-slate-200 rounded-xl font-black text-slate-600">
+                  ›
+                </button>
+                <button onClick={() => setDiaryWeekStart(getMonday(new Date()))} className="ml-2 px-4 py-2 bg-teal-50 hover:bg-teal-100 text-teal-700 rounded-xl font-bold text-sm">
+                  Today
+                </button>
+              </div>
+            </div>
+
+            <div className="mb-4">
+              <input
+                value={diarySearch}
+                onChange={(e) => setDiarySearch(e.target.value)}
+                placeholder="🔍 Search dog name, owner name or phone number..."
+                className="w-full px-5 py-3 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-teal-500 font-medium"
+              />
+              {diarySearch.trim() && (
+                <div className="mt-2 bg-slate-50 border border-slate-200 rounded-2xl divide-y divide-slate-200 overflow-hidden">
+                  {searchResults.length === 0 && <div className="p-4 text-sm text-slate-400 font-bold">No bookings found</div>}
+                  {searchResults.map(({ apt, schedule }) => (
+                    <button
+                      key={apt.id}
+                      onClick={() => {
+                        setDiaryWeekStart(getMonday(new Date(`${schedule.date}T00:00:00`)));
+                        openUpdateModal(apt);
+                      }}
+                      className="w-full flex flex-wrap items-center justify-between gap-2 p-3 text-left hover:bg-white transition-colors"
+                    >
+                      <span className="font-bold text-sm text-slate-800">
+                        🐕 {apt.dogname} <span className="text-slate-500 font-medium">— {apt.ownername}{apt.phone ? ` · ${apt.phone}` : ""}</span>
+                      </span>
+                      <span className="text-xs font-bold text-slate-600">
+                        {new Date(`${schedule.date}T00:00:00`).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", year: "numeric" })} · {schedule.timeLabel}
+                        <span className={`ml-2 px-2 py-0.5 rounded-full ${chipStyle(apt)}`}>{apt.booking_status || apt.status || "pending"}</span>
+                      </span>
+                    </button>
+                  ))}
+                  <div className="p-2 text-[11px] text-slate-400 text-center">Click a result to jump to its week and open it</div>
+                </div>
+              )}
+            </div>
+
+            <div className="flex flex-wrap gap-3 mb-4 text-xs font-bold">
+              <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-amber-200 border border-amber-300"></span> Pending request (holds slot)</span>
+              <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-emerald-200 border border-emerald-300"></span> Confirmed</span>
+              <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-blue-200 border border-blue-300"></span> Completed</span>
+              <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-slate-200 border border-slate-300"></span> Closed day</span>
+            </div>
+
+            <div className="overflow-x-auto">
+              <div className="min-w-[860px]">
+                {/* Day headers */}
+                <div className="grid grid-cols-[64px_repeat(5,1fr)] gap-2 mb-2">
+                  <div></div>
+                  {weekDates.map((date) => {
+                    const d = new Date(`${date}T00:00:00`);
+                    const closed = isClosedDay(date);
+                    return (
+                      <div key={date} className={`text-center py-2 rounded-xl ${date === todayStr ? "bg-teal-600 text-white" : closed ? "bg-slate-100 text-slate-400" : "bg-slate-50 text-slate-700"}`}>
+                        <div className="text-xs font-black uppercase">{DAYS[d.getDay()]}</div>
+                        <div className="text-sm font-bold">{d.toLocaleDateString("en-GB", { day: "numeric", month: "short" })}</div>
+                        {closed && <div className="text-[10px] font-black uppercase">Closed</div>}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Slot rows */}
+                {SLOT_TIMES.map((slot) => (
+                  <div key={slot} className="grid grid-cols-[64px_repeat(5,1fr)] gap-2 mb-2">
+                    <div className="text-xs font-black text-slate-400 pt-3 text-right pr-1">{slot}</div>
+                    {weekDates.map((date) => {
+                      const cellBookings = bookingsFor(date, slot);
+                      const closed = isClosedDay(date);
+                      return (
+                        <div key={`${date}-${slot}`} className={`min-h-[64px] rounded-xl border p-1.5 space-y-1.5 ${closed ? "bg-slate-50 border-slate-100" : cellBookings.length > 1 ? "bg-red-50 border-red-200" : "bg-white border-slate-100"}`}>
+                          {cellBookings.map(({ apt, schedule }) => (
+                            <button key={apt.id} onClick={() => openUpdateModal(apt)} className={`w-full text-left px-2 py-1.5 rounded-lg border text-xs font-bold hover:shadow transition-all ${chipStyle(apt)}`}>
+                              <span className="block truncate">🐕 {apt.dogname}</span>
+                              <span className="block truncate font-medium opacity-75">
+                                {schedule.timeLabel !== slot ? `${schedule.timeLabel} · ` : ""}
+                                {SERVICES.find((s) => s.id === apt.serviceid)?.name?.split(" ")[0] || apt.serviceid}
+                                {selectedLocation === ALL_LOCATIONS ? ` · ${LOCATIONS.find((l) => l.id === apt.locationid)?.name?.split(" ")[0] || ""}` : ""}
+                              </span>
+                            </button>
+                          ))}
+                          {cellBookings.length > 1 && <div className="text-[10px] font-black text-red-500 text-center uppercase">Double booked</div>}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ))}
+              </div>
+            </div>
+            <p className="text-xs text-slate-400 mt-4">Click any booking to open it. Use the location buttons above to switch salons.</p>
+          </div>
+        );
+      })()}
+
       {view === "customers" && (() => {
-        // Group appointments by customer (email + owner name)
-        const customerMap = new Map<string, {
-          ownername: string;
-          email: string;
-          phone: string;
-          dogs: Set<string>;
-          bookings: Appointment[];
-          totalSpent: number;
-          lastVisit: string | null;
-          nextVisit: string | null;
-        }>();
+        const enriched = customersList.map((customer) => {
+          const bookings = bookingsForCustomer(customer);
+          const dogNameSet = new Set<string>((customer.dogs || []).map((d) => d.name));
+          bookings.forEach((apt) => apt.dogname && dogNameSet.add(apt.dogname));
 
-        appointments.forEach(apt => {
-          const key = `${apt.email}-${apt.ownername}`;
-          if (!customerMap.has(key)) {
-            customerMap.set(key, {
-              ownername: apt.ownername,
-              email: apt.email,
-              phone: apt.phone || "",
-              dogs: new Set(),
-              bookings: [],
-              totalSpent: 0,
-              lastVisit: null,
-              nextVisit: null,
-            });
-          }
-          const customer = customerMap.get(key)!;
-          customer.dogs.add(apt.dogname);
-          customer.bookings.push(apt);
-
-          // Calculate spend
-          const servicePrice = apt.serviceid === 'full-groom' ? 35 :
-                              apt.serviceid === 'bath-brush' ? 25 :
-                              apt.serviceid === 'puppy-intro' ? 15 :
-                              apt.serviceid === 'nail-clipping' ? 12 :
-                              apt.serviceid === 'home-grooming' ? 45 : 0;
-          customer.totalSpent += servicePrice;
-
-          // Track last and next visits
-          if (apt.booking_status === "completed" && apt.completed_at) {
-            if (!customer.lastVisit || apt.completed_at > customer.lastVisit) {
-              customer.lastVisit = apt.completed_at;
-            }
-          }
-          if (apt.booking_status === "confirmed" && apt.confirmed_date) {
-            if (!customer.nextVisit || apt.confirmed_date < customer.nextVisit) {
-              customer.nextVisit = apt.confirmed_date;
-            }
-          }
+          let totalSpent = 0;
+          let lastVisit: string | null = null;
+          let nextVisit: string | null = null;
+          bookings.forEach((apt) => {
+            totalSpent += servicePriceFor(apt.serviceid);
+            if (apt.booking_status === "completed" && apt.completed_at && (!lastVisit || apt.completed_at > lastVisit)) lastVisit = apt.completed_at;
+            if (apt.booking_status === "confirmed" && apt.confirmed_date && (!nextVisit || apt.confirmed_date < nextVisit)) nextVisit = apt.confirmed_date;
+          });
+          return { customer, bookings, dogNames: Array.from(dogNameSet), totalSpent, lastVisit, nextVisit };
         });
 
-        const customers = Array.from(customerMap.values());
+        const search = customerSearch.toLowerCase();
+        const filteredCustomers = enriched.filter(({ customer, dogNames }) => {
+          if (intakeFilter !== "all" && customer.intake_status !== intakeFilter) return false;
+          if (!search) return true;
+          return (
+            customer.ownername.toLowerCase().includes(search) ||
+            (customer.email || "").toLowerCase().includes(search) ||
+            (customer.phone || "").includes(customerSearch) ||
+            dogNames.some((dog) => dog.toLowerCase().includes(search))
+          );
+        });
 
-        // Filter by search
-        const filteredCustomers = customers.filter(c =>
-          c.ownername.toLowerCase().includes(customerSearch.toLowerCase()) ||
-          c.email.toLowerCase().includes(customerSearch.toLowerCase()) ||
-          c.phone.includes(customerSearch) ||
-          Array.from(c.dogs).some(dog => dog.toLowerCase().includes(customerSearch.toLowerCase()))
-        );
+        const countByStatus = (status: IntakeStatus) => customersList.filter((c) => c.intake_status === status).length;
+        const statusChip = (status: IntakeStatus) =>
+          status === "completed" ? (
+            <span className="px-3 py-1 bg-emerald-100 text-emerald-700 text-xs font-bold rounded-full whitespace-nowrap">✓ Signed</span>
+          ) : status === "sent" ? (
+            <span className="px-3 py-1 bg-amber-100 text-amber-700 text-xs font-bold rounded-full whitespace-nowrap">⏳ Awaiting form</span>
+          ) : (
+            <span className="px-3 py-1 bg-red-100 text-red-600 text-xs font-bold rounded-full whitespace-nowrap">Form not sent</span>
+          );
 
         return (
           <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-8">
-            <h2 className="text-2xl font-black mb-6 text-slate-800">Customer Database</h2>
+            <div className="flex flex-wrap justify-between items-center gap-4 mb-6">
+              <h2 className="text-2xl font-black text-slate-800">Customer Database</h2>
+              <div className="flex gap-2">
+                <button onClick={() => refreshCustomers()} title="Reload customers to see newly completed forms" className="bg-slate-100 hover:bg-slate-200 text-slate-600 px-4 py-3 rounded-xl font-bold">
+                  ↻ Refresh
+                </button>
+                <button onClick={() => setShowAddCustomerModal(true)} className="bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-3 rounded-xl font-bold">
+                  + Add Customer
+                </button>
+              </div>
+            </div>
 
             {/* Search Bar */}
-            <div className="mb-6">
+            <div className="mb-4">
               <input
                 type="text"
                 value={customerSearch}
@@ -1196,10 +1798,24 @@ const AdminDashboard: React.FC = () => {
               />
             </div>
 
+            {/* Intake status filter */}
+            <div className="flex flex-wrap gap-2 mb-6">
+              {([
+                ["all", `All (${customersList.length})`],
+                ["not_sent", `Form not sent (${countByStatus("not_sent")})`],
+                ["sent", `Awaiting form (${countByStatus("sent")})`],
+                ["completed", `Signed (${countByStatus("completed")})`],
+              ] as const).map(([value, label]) => (
+                <button key={value} onClick={() => setIntakeFilter(value)} className={`px-4 py-2 rounded-xl text-sm font-bold transition-all ${intakeFilter === value ? "bg-slate-800 text-white shadow" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}>
+                  {label}
+                </button>
+              ))}
+            </div>
+
             {/* Stats Summary */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
               <div className="bg-emerald-50 p-4 rounded-xl border border-emerald-200">
-                <div className="text-2xl font-black text-emerald-700">{customers.length}</div>
+                <div className="text-2xl font-black text-emerald-700">{customersList.length}</div>
                 <div className="text-xs font-bold text-emerald-600 uppercase">Total Customers</div>
               </div>
               <div className="bg-blue-50 p-4 rounded-xl border border-blue-200">
@@ -1208,15 +1824,13 @@ const AdminDashboard: React.FC = () => {
               </div>
               <div className="bg-amber-50 p-4 rounded-xl border border-amber-200">
                 <div className="text-2xl font-black text-amber-700">
-                  £{customers.reduce((sum, c) => sum + c.totalSpent, 0)}
+                  £{enriched.reduce((sum, c) => sum + c.totalSpent, 0)}
                 </div>
                 <div className="text-xs font-bold text-amber-600 uppercase">Total Revenue</div>
               </div>
               <div className="bg-purple-50 p-4 rounded-xl border border-purple-200">
-                <div className="text-2xl font-black text-purple-700">
-                  £{Math.round(customers.reduce((sum, c) => sum + c.totalSpent, 0) / Math.max(customers.length, 1))}
-                </div>
-                <div className="text-xs font-bold text-purple-600 uppercase">Avg Per Customer</div>
+                <div className="text-2xl font-black text-purple-700">{countByStatus("completed")}</div>
+                <div className="text-xs font-bold text-purple-600 uppercase">Signed Agreements</div>
               </div>
             </div>
 
@@ -1224,41 +1838,64 @@ const AdminDashboard: React.FC = () => {
             <div className="space-y-3">
               {filteredCustomers.length === 0 && (
                 <div className="text-center py-12 text-slate-400">
-                  {customerSearch ? "No customers found matching your search" : "No customers yet"}
+                  {customerSearch || intakeFilter !== "all" ? "No customers found matching your search" : "No customers yet — add one or wait for a web booking to come in"}
                 </div>
               )}
 
-              {filteredCustomers.map((customer, idx) => (
+              {filteredCustomers.map(({ customer, bookings, dogNames, totalSpent, lastVisit, nextVisit }) => (
                 <div
-                  key={idx}
+                  key={customer.id}
                   className="p-6 bg-slate-50 hover:bg-slate-100 rounded-2xl border border-slate-200 transition-colors cursor-pointer"
                   onClick={() => {
-                    setSelectedCustomer(`${customer.email}-${customer.ownername}`);
+                    setSelectedCustomer(customer.id);
                     setShowCustomerModal(true);
+                    setShowAgreementDetails(false);
+                    setEditingCustomerInfo(false);
+                    setDogNotes({});
+                    setDogNotesDraft({});
+                    setDogNotesSaving({});
+                    setDogNotesSaved({});
+                    if (customer.email) {
+                      getDogNotes(customer.email).then((notes) => {
+                        setDogNotes(notes);
+                        setDogNotesDraft(notes);
+                      }).catch(() => {});
+                    }
                   }}
                 >
-                  <div className="flex justify-between items-start">
+                  <div className="flex justify-between items-start gap-4">
                     <div className="flex-1">
-                      <div className="flex items-center gap-3 mb-2">
+                      <div className="flex flex-wrap items-center gap-3 mb-2">
                         <h3 className="text-lg font-black text-slate-800">{customer.ownername}</h3>
+                        {statusChip(customer.intake_status)}
                         <span className="px-3 py-1 bg-emerald-100 text-emerald-700 text-xs font-bold rounded-full">
-                          {customer.bookings.length} booking{customer.bookings.length !== 1 ? 's' : ''}
+                          {bookings.length} booking{bookings.length !== 1 ? 's' : ''}
                         </span>
                       </div>
                       <div className="text-sm text-slate-600 space-y-1">
-                        <div>🐕 {Array.from(customer.dogs).join(', ')}</div>
-                        <div>📧 {customer.email}</div>
+                        <div className="flex flex-wrap gap-1.5 items-center">
+                          {dogNames.map(dog => {
+                            const hasNote = !!(customer.email && allDogNotes[customer.email]?.[dog]);
+                            return (
+                              <span key={dog} className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold ${hasNote ? "bg-purple-100 text-purple-800" : "bg-slate-100 text-slate-700"}`}>
+                                🐕 {dog}
+                                {hasNote && <span title="Has groomer notes" className="text-purple-500">●</span>}
+                              </span>
+                            );
+                          })}
+                        </div>
+                        {customer.email && <div>📧 {customer.email}</div>}
                         {customer.phone && <div>📞 {customer.phone}</div>}
                       </div>
                     </div>
                     <div className="text-right">
-                      <div className="text-2xl font-black text-emerald-600">£{customer.totalSpent}</div>
+                      <div className="text-2xl font-black text-emerald-600">£{totalSpent}</div>
                       <div className="text-xs text-slate-500 mt-1">
-                        {customer.lastVisit && `Last: ${new Date(customer.lastVisit).toLocaleDateString('en-GB')}`}
+                        {lastVisit && `Last: ${new Date(lastVisit).toLocaleDateString('en-GB')}`}
                       </div>
-                      {customer.nextVisit && (
+                      {nextVisit && (
                         <div className="text-xs text-blue-600 font-bold mt-1">
-                          Next: {new Date(customer.nextVisit).toLocaleDateString('en-GB')}
+                          Next: {new Date(nextVisit).toLocaleDateString('en-GB')}
                         </div>
                       )}
                     </div>
@@ -1272,21 +1909,14 @@ const AdminDashboard: React.FC = () => {
 
       {/* Customer Detail Modal */}
       {showCustomerModal && selectedCustomer && (() => {
-        const customerData = appointments.filter(apt =>
-          `${apt.email}-${apt.ownername}` === selectedCustomer
-        );
-        if (customerData.length === 0) return null;
+        const customer = customersList.find((c) => c.id === selectedCustomer);
+        if (!customer) return null;
 
-        const customer = customerData[0];
-        const dogs = [...new Set(customerData.map(apt => apt.dogname))];
-        const totalSpent = customerData.reduce((sum, apt) => {
-          const price = apt.serviceid === 'full-groom' ? 35 :
-                       apt.serviceid === 'bath-brush' ? 25 :
-                       apt.serviceid === 'puppy-intro' ? 15 :
-                       apt.serviceid === 'nail-clipping' ? 12 :
-                       apt.serviceid === 'home-grooming' ? 45 : 0;
-          return sum + price;
-        }, 0);
+        const customerData = bookingsForCustomer(customer);
+        const dogNameSet = new Set<string>((customer.dogs || []).map((d) => d.name));
+        customerData.forEach((apt) => apt.dogname && dogNameSet.add(apt.dogname));
+        const dogs = Array.from(dogNameSet);
+        const totalSpent = customerData.reduce((sum, apt) => sum + servicePriceFor(apt.serviceid), 0);
 
         // Count service preferences
         const serviceCount = customerData.reduce((acc, apt) => {
@@ -1294,22 +1924,120 @@ const AdminDashboard: React.FC = () => {
           return acc;
         }, {} as Record<string, number>);
         const preferredService = Object.entries(serviceCount).sort((a, b) => b[1] - a[1])[0];
+        const intakeDogByName = (name: string) => (customer.dogs || []).find((d) => d.name.toLowerCase() === name.toLowerCase());
+        const busy = sendingIntake !== null;
+        const yesNo = (value: boolean | null | undefined) => (value === true ? "Yes" : value === false ? "No" : "—");
 
         return (
           <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center p-4 z-[60]">
             <div className="bg-white rounded-2xl p-8 w-full max-w-4xl max-h-[90vh] overflow-y-auto">
               <div className="flex justify-between items-start mb-6">
-                <div>
-                  <h3 className="text-2xl font-black text-slate-800">{customer.ownername}</h3>
-                  <p className="text-slate-600">{customer.email}</p>
-                  {customer.phone && <p className="text-slate-600">{customer.phone}</p>}
-                </div>
+                {editingCustomerInfo ? (
+                  <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-3 mr-4">
+                    <input value={customerInfoForm.ownername} onChange={(e) => setCustomerInfoForm({ ...customerInfoForm, ownername: e.target.value })} placeholder="Name" className="px-4 py-2 border rounded-lg font-bold" />
+                    <input value={customerInfoForm.email} onChange={(e) => setCustomerInfoForm({ ...customerInfoForm, email: e.target.value })} placeholder="Email" className="px-4 py-2 border rounded-lg" />
+                    <input value={customerInfoForm.phone} onChange={(e) => setCustomerInfoForm({ ...customerInfoForm, phone: e.target.value })} placeholder="Phone" className="px-4 py-2 border rounded-lg" />
+                    <input value={customerInfoForm.address} onChange={(e) => setCustomerInfoForm({ ...customerInfoForm, address: e.target.value })} placeholder="Address" className="px-4 py-2 border rounded-lg" />
+                    <div className="flex gap-2 md:col-span-2">
+                      <button disabled={isWorking} onClick={() => handleSaveCustomerInfo(customer)} className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white px-4 py-2 rounded-lg text-sm font-bold">
+                        {isWorking ? "Saving..." : "Save"}
+                      </button>
+                      <button onClick={() => setEditingCustomerInfo(false)} className="bg-slate-200 hover:bg-slate-300 text-slate-700 px-4 py-2 rounded-lg text-sm font-bold">
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div>
+                    <div className="flex items-center gap-3">
+                      <h3 className="text-2xl font-black text-slate-800">{customer.ownername}</h3>
+                      <button
+                        onClick={() => {
+                          setCustomerInfoForm({
+                            ownername: customer.ownername || "",
+                            email: customer.email || "",
+                            phone: customer.phone || "",
+                            address: customer.address || "",
+                          });
+                          setEditingCustomerInfo(true);
+                        }}
+                        className="text-xs font-bold text-slate-400 hover:text-slate-600 underline"
+                      >
+                        Edit details
+                      </button>
+                    </div>
+                    {customer.email && <p className="text-slate-600">{customer.email}</p>}
+                    {customer.phone && <p className="text-slate-600">{customer.phone}</p>}
+                    {customer.address && <p className="text-slate-500 text-sm">{customer.address}</p>}
+                  </div>
+                )}
                 <button
                   onClick={() => setShowCustomerModal(false)}
                   className="text-slate-400 hover:text-slate-600 text-2xl font-bold"
                 >
                   ×
                 </button>
+              </div>
+
+              {/* Grooming Agreement */}
+              <div className="mb-8 p-5 bg-slate-50 border border-slate-200 rounded-2xl">
+                <div className="flex flex-wrap items-center justify-between gap-3 mb-2">
+                  <h4 className="text-sm font-bold text-slate-700">📋 Grooming Agreement</h4>
+                  {customer.intake_status === "completed" ? (
+                    <span className="px-3 py-1 bg-emerald-100 text-emerald-700 text-xs font-bold rounded-full">✓ Signed{customer.intake_completed_at ? ` on ${new Date(customer.intake_completed_at).toLocaleDateString("en-GB")}` : ""}</span>
+                  ) : customer.intake_status === "sent" ? (
+                    <span className="px-3 py-1 bg-amber-100 text-amber-700 text-xs font-bold rounded-full">⏳ Sent{customer.intake_sent_via ? ` via ${customer.intake_sent_via}` : ""}{customer.intake_sent_at ? ` on ${new Date(customer.intake_sent_at).toLocaleDateString("en-GB")}` : ""} — awaiting completion</span>
+                  ) : (
+                    <span className="px-3 py-1 bg-red-100 text-red-600 text-xs font-bold rounded-full">Form not sent</span>
+                  )}
+                </div>
+                <p className="text-xs text-slate-500 mb-3">
+                  {customer.intake_status === "completed" ? "The customer has completed and signed the agreement." : "Send the customer their personal link to fill in the grooming agreement and sign it on their phone."}
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <button disabled={busy || !customer.phone} title={!customer.phone ? "No phone number on record" : "Opens WhatsApp with the message ready to send (free)"} onClick={() => handleSendIntake(customer, "whatsapp")} className="bg-green-500 hover:bg-green-600 disabled:opacity-40 text-white px-4 py-2 rounded-lg text-sm font-bold">
+                    {sendingIntake === "whatsapp" ? "Opening..." : "📱 WhatsApp"}
+                  </button>
+                  <button disabled={busy || !customer.phone} title={!customer.phone ? "No phone number on record" : "Sends a text message (~4p)"} onClick={() => handleSendIntake(customer, "sms")} className="bg-blue-500 hover:bg-blue-600 disabled:opacity-40 text-white px-4 py-2 rounded-lg text-sm font-bold">
+                    {sendingIntake === "sms" ? "Sending..." : "💬 SMS"}
+                  </button>
+                  <button disabled={busy || !customer.email} title={!customer.email ? "No email on record" : "Sends an email (free)"} onClick={() => handleSendIntake(customer, "email")} className="bg-slate-600 hover:bg-slate-700 disabled:opacity-40 text-white px-4 py-2 rounded-lg text-sm font-bold">
+                    {sendingIntake === "email" ? "Sending..." : "📧 Email"}
+                  </button>
+                  <button disabled={busy} title="Copy the link so you can paste it anywhere" onClick={() => handleCopyIntakeLink(customer)} className="bg-slate-200 hover:bg-slate-300 disabled:opacity-40 text-slate-700 px-4 py-2 rounded-lg text-sm font-bold">
+                    {sendingIntake === "copy" ? "Copying..." : "🔗 Copy Link"}
+                  </button>
+                  {customer.intake_status === "completed" && (
+                    <>
+                      <button onClick={() => setShowAgreementDetails(!showAgreementDetails)} className="bg-purple-100 hover:bg-purple-200 text-purple-700 px-4 py-2 rounded-lg text-sm font-bold">
+                        {showAgreementDetails ? "Hide Agreement" : "👀 View Agreement"}
+                      </button>
+                      <button onClick={() => printAgreement(customer)} className="bg-purple-100 hover:bg-purple-200 text-purple-700 px-4 py-2 rounded-lg text-sm font-bold">
+                        🖨️ Print
+                      </button>
+                    </>
+                  )}
+                </div>
+
+                {showAgreementDetails && customer.intake_status === "completed" && (
+                  <div className="mt-4 pt-4 border-t border-slate-200 text-sm">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-1 text-slate-600 mb-4">
+                      <div><span className="font-bold">Heard about us:</span> {customer.hear_about_us || "—"}</div>
+                      <div><span className="font-bold">Happy to receive texts:</span> {yesNo(customer.sms_ok)}</div>
+                      <div><span className="font-bold">Alt contact:</span> {customer.alt_contact_name || "—"} {customer.alt_contact_phone && `(${customer.alt_contact_phone})`}</div>
+                      <div><span className="font-bold">Vets used:</span> {customer.vet_name || "—"}</div>
+                      <div><span className="font-bold">Treats allowed:</span> {yesNo(customer.treats_ok)}</div>
+                      <div><span className="font-bold">Photo/social consent:</span> {yesNo(customer.photo_consent)}</div>
+                      <div className="md:col-span-2"><span className="font-bold">Emergency vet:</span> {customer.emergency_vet_name || "—"} {customer.emergency_vet_phone && `· ${customer.emergency_vet_phone}`} {customer.emergency_vet_address && `· ${customer.emergency_vet_address}`}</div>
+                    </div>
+                    {customer.signature_data && (
+                      <div>
+                        <span className="font-bold text-slate-600">Signature:</span>
+                        <img src={customer.signature_data} alt="Customer signature" className="mt-1 h-20 border border-slate-200 rounded-lg bg-white" />
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Stats Grid */}
@@ -1327,20 +2055,85 @@ const AdminDashboard: React.FC = () => {
                   <div className="text-xs font-bold text-purple-600">Dog{dogs.length !== 1 ? 's' : ''}</div>
                 </div>
                 <div className="bg-amber-50 p-4 rounded-xl text-center">
-                  <div className="text-sm font-black text-amber-700">{SERVICES.find(s => s.id === preferredService[0])?.name || '-'}</div>
+                  <div className="text-sm font-black text-amber-700">{(preferredService && SERVICES.find(s => s.id === preferredService[0])?.name) || '-'}</div>
                   <div className="text-xs font-bold text-amber-600">Preferred Service</div>
                 </div>
               </div>
 
-              {/* Dogs */}
+              {/* Dogs & Notes */}
               <div className="mb-6">
                 <h4 className="text-sm font-bold text-slate-700 mb-3">Dogs</h4>
-                <div className="flex flex-wrap gap-2">
-                  {dogs.map(dog => (
-                    <span key={dog} className="px-4 py-2 bg-slate-100 text-slate-700 rounded-lg font-medium">
-                      🐕 {dog}
-                    </span>
-                  ))}
+                <div className="space-y-3">
+                  {dogs.map(dog => {
+                    const intakeDog = intakeDogByName(dog);
+                    return (
+                    <div key={dog} className="p-4 bg-slate-50 border border-slate-200 rounded-xl">
+                      <div className="flex items-center gap-2 mb-2 flex-wrap">
+                        <span className="font-bold text-slate-800">🐕 {dog}</span>
+                        {intakeDog?.breed && <span className="text-sm text-slate-500">({intakeDog.breed})</span>}
+                        {intakeDog?.needs_muzzle === true && <span className="px-2 py-0.5 bg-red-100 text-red-600 text-xs font-bold rounded-full">⚠️ muzzle</span>}
+                        {intakeDog?.needs_prescribed_shampoo === true && <span className="px-2 py-0.5 bg-blue-100 text-blue-700 text-xs font-bold rounded-full">own shampoo</span>}
+                        {(intakeDog?.medication_details || "").trim() && <span className="px-2 py-0.5 bg-orange-100 text-orange-700 text-xs font-bold rounded-full">on medication</span>}
+                        {dogNotes[dog] && (
+                          <span className="px-2 py-0.5 bg-amber-100 text-amber-700 text-xs font-bold rounded-full">has notes</span>
+                        )}
+                      </div>
+                      {intakeDog && (
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-x-4 gap-y-1 text-xs text-slate-600 mb-3">
+                          {intakeDog.dob && <div><span className="font-bold">Age:</span> {intakeDog.dob}</div>}
+                          {intakeDog.sex && <div><span className="font-bold">Sex:</span> {intakeDog.sex}</div>}
+                          <div><span className="font-bold">Neutered:</span> {yesNo(intakeDog.neutered)}</div>
+                          <div><span className="font-bold">Vaccinated:</span> {yesNo(intakeDog.vaccinated)}</div>
+                          {(intakeDog.behaviour_notes || "").trim() && <div className="col-span-2 md:col-span-4"><span className="font-bold">Behaviour:</span> {intakeDog.behaviour_notes}</div>}
+                          {(intakeDog.health_conditions || "").trim() && <div className="col-span-2 md:col-span-4"><span className="font-bold">Health/skin:</span> {intakeDog.health_conditions}</div>}
+                          {(intakeDog.medication_details || "").trim() && <div className="col-span-2 md:col-span-4"><span className="font-bold">Medication:</span> {intakeDog.medication_details}</div>}
+                        </div>
+                      )}
+                      {customer.email && (
+                      <>
+                      <textarea
+                        rows={3}
+                        placeholder="Groomer notes — temperament, allergies, coat type, anything to remember..."
+                        value={dogNotesDraft[dog] ?? ""}
+                        onChange={(e) => setDogNotesDraft(prev => ({ ...prev, [dog]: e.target.value }))}
+                        className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-emerald-400 resize-none bg-white"
+                      />
+                      <div className="flex items-center gap-3 mt-2">
+                        <button
+                          disabled={dogNotesSaving[dog]}
+                          onClick={async () => {
+                            const ownerEmail = customer.email!;
+                            setDogNotesSaving(prev => ({ ...prev, [dog]: true }));
+                            setDogNotesSaved(prev => ({ ...prev, [dog]: false }));
+                            try {
+                              await upsertDogNote(ownerEmail, dog, dogNotesDraft[dog] ?? "");
+                              const newNote = dogNotesDraft[dog] ?? "";
+                              setDogNotes(prev => ({ ...prev, [dog]: newNote }));
+                              setAllDogNotes(prev => ({
+                                ...prev,
+                                [ownerEmail]: { ...(prev[ownerEmail] ?? {}), [dog]: newNote },
+                              }));
+                              setDogNotesSaved(prev => ({ ...prev, [dog]: true }));
+                              setTimeout(() => setDogNotesSaved(prev => ({ ...prev, [dog]: false })), 2000);
+                            } catch {
+                              alert("Failed to save notes.");
+                            } finally {
+                              setDogNotesSaving(prev => ({ ...prev, [dog]: false }));
+                            }
+                          }}
+                          className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-bold rounded-lg"
+                        >
+                          {dogNotesSaving[dog] ? "Saving…" : "Save Notes"}
+                        </button>
+                        {dogNotesSaved[dog] && (
+                          <span className="text-emerald-600 text-xs font-bold">Saved!</span>
+                        )}
+                      </div>
+                      </>
+                      )}
+                    </div>
+                    );
+                  })}
                 </div>
               </div>
 
@@ -1363,6 +2156,9 @@ const AdminDashboard: React.FC = () => {
                           <div className="text-xs text-slate-500 mt-1">
                             {apt.confirmed_date || apt.date} {apt.confirmed_time && `at ${apt.confirmed_time}`}
                           </div>
+                          {dogNotes[apt.dogname] && (
+                            <div className="text-xs text-purple-700 bg-purple-50 rounded px-2 py-1 mt-1">🐾 {dogNotes[apt.dogname]}</div>
+                          )}
                           {apt.notes && (
                             <div className="text-xs text-amber-700 mt-1">📝 {apt.notes}</div>
                           )}
@@ -1389,15 +2185,15 @@ const AdminDashboard: React.FC = () => {
                   onClick={() => {
                     setAddForm({
                       ownername: customer.ownername,
-                      email: customer.email,
+                      email: customer.email || "",
                       phone: customer.phone || "",
                       dogname: dogs[0] || "",
-                      dogbreed: "",
-                      serviceid: preferredService[0] || SERVICES[0].id,
+                      dogbreed: intakeDogByName(dogs[0] || "")?.breed || "",
+                      serviceid: preferredService?.[0] || SERVICES[0].id,
                       locationid: LOCATIONS[0].id,
                       date: new Date().toISOString().split("T")[0],
                       confirmed_time: "",
-                      confirmed_duration_minutes: 90,
+                      confirmed_duration_minutes: 120,
                       notes: "",
                       deposit_paid: false,
                       deposit_amount: 20,
@@ -1417,20 +2213,46 @@ const AdminDashboard: React.FC = () => {
                 >
                   Close
                 </button>
+                <button
+                  onClick={() => handleDeleteCustomer(customer)}
+                  className="ml-auto text-red-400 hover:text-red-600 px-4 py-3 text-sm font-bold"
+                >
+                  Delete customer
+                </button>
               </div>
             </div>
           </div>
         );
       })()}
 
+      {/* Add Customer Modal */}
+      {showAddCustomerModal && (
+        <div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-lg">
+            <h3 className="text-xl font-black text-slate-800 mb-1">Add New Customer</h3>
+            <p className="text-sm text-slate-500 mb-4">Create the record now, then send them the intake form to fill in the rest.</p>
+            <div className="space-y-3">
+              <input value={addCustomerForm.ownername} onChange={(e) => setAddCustomerForm({ ...addCustomerForm, ownername: e.target.value })} placeholder="Owner name *" className="w-full px-4 py-3 border rounded-lg" />
+              <input type="tel" value={addCustomerForm.phone} onChange={(e) => setAddCustomerForm({ ...addCustomerForm, phone: e.target.value })} placeholder="Phone (needed for WhatsApp/SMS)" className="w-full px-4 py-3 border rounded-lg" />
+              <input type="email" value={addCustomerForm.email} onChange={(e) => setAddCustomerForm({ ...addCustomerForm, email: e.target.value })} placeholder="Email" className="w-full px-4 py-3 border rounded-lg" />
+            </div>
+            <div className="flex gap-3 mt-5">
+              <button disabled={isWorking} onClick={handleAddCustomer} className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white px-5 py-2 rounded-lg font-bold">
+                {isWorking ? "Adding..." : "Add Customer"}
+              </button>
+              <button onClick={() => setShowAddCustomerModal(false)} className="bg-slate-200 hover:bg-slate-300 text-slate-700 px-5 py-2 rounded-lg font-bold">
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showAddModal && (
         <div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl p-6 w-full max-w-3xl max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-xl font-black text-slate-800">Add New Booking</h3>
-              <a href={DIARY_URL} target="_blank" rel="noreferrer" className="text-sm font-bold text-teal-700 hover:text-teal-900 underline">
-                Open Diary
-              </a>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <input value={addForm.ownername} onChange={(e) => setAddForm({ ...addForm, ownername: e.target.value })} placeholder="Owner name" className="px-4 py-3 border rounded-lg" />
@@ -1453,8 +2275,14 @@ const AdminDashboard: React.FC = () => {
                 ))}
               </select>
               <input type="date" value={addForm.date} onChange={(e) => setAddForm({ ...addForm, date: e.target.value })} className="px-4 py-3 border rounded-lg" />
-              <input type="time" value={addForm.confirmed_time} onChange={(e) => setAddForm({ ...addForm, confirmed_time: e.target.value })} placeholder="Time" className="px-4 py-3 border rounded-lg" />
-              <input type="number" min={15} step={15} value={addForm.confirmed_duration_minutes} onChange={(e) => setAddForm({ ...addForm, confirmed_duration_minutes: Number(e.target.value) })} placeholder="Duration (mins)" className="px-4 py-3 border rounded-lg" />
+              <select value={addForm.confirmed_time} onChange={(e) => setAddForm({ ...addForm, confirmed_time: e.target.value, confirmed_duration_minutes: 120 })} className="px-4 py-3 border rounded-lg">
+                <option value="">Time slot</option>
+                {SLOT_TIMES.map((slot) => (
+                  <option key={slot} value={slot}>
+                    {slot} (2 hrs)
+                  </option>
+                ))}
+              </select>
               <textarea value={addForm.notes} onChange={(e) => setAddForm({ ...addForm, notes: e.target.value })} placeholder="Notes" className="md:col-span-2 px-4 py-3 border rounded-lg min-h-24" />
             </div>
 

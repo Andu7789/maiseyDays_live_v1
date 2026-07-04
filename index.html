@@ -142,6 +142,13 @@
           transform: translateY(0);
         }
       }
+      .animate-flash {
+        animation: flash 10s step-start infinite;
+      }
+      @keyframes flash {
+        0%, 100% { opacity: 1; }
+        50%       { opacity: 0; }
+      }
     </style>
     <script type="importmap">
       {
@@ -155,6 +162,13 @@
           "@vitejs/plugin-react": "https://esm.sh/@vitejs/plugin-react@^5.1.2"
         }
       }
+    </script>
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-0LNSRKES8B"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+      gtag('config', 'G-0LNSRKES8B');
     </script>
     <link rel="stylesheet" href="/index.css" />
   </head>
