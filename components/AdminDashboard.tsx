@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { buildConfirmationMessage, checkAuthStatus, confirmAppointmentBooking, createManualAppointment, deleteAppointment, exportAppointmentsToExcel, findBookingClash, getAppointments, getCurrentUser, getEffectiveSchedule, getReminderSettings, getUnavailableDays, getUnavailableWeekdays, removeUnavailableDay, removeUnavailableWeekday, saveUnavailableDay, saveUnavailableWeekday, sendCustomerConfirmationSms, signInAdmin, signOutAdmin, updateAppointment, updateReminderSettings, getHolidaySettings, updateHolidaySettings, updateAdvertSettings, getDogNotes, getAllDogNotes, upsertDogNote } from "../services/bookingService";
-import { buildIntakeLink, buildIntakeMessage, buildWhatsAppLink, createCustomer, deleteCustomer, ensureIntakeToken, getCustomers, markIntakeSent, sendIntakeEmail, sendIntakeSms, updateCustomer } from "../services/customerService";
-import { Appointment, Customer, IntakeStatus, Service } from "../types";
+import { buildIntakeLink, buildIntakeMessage, buildWhatsAppLink, createCustomer, deleteCustomer, deleteDog, ensureIntakeToken, getCustomers, markIntakeSent, saveDog, sendIntakeEmail, sendIntakeSms, updateCustomer } from "../services/customerService";
+import { Appointment, Customer, Dog, IntakeStatus, Service } from "../types";
 import { INTAKE_TERMS, LOCATIONS, SERVICES, SLOT_TIMES } from "../constants";
 
 const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
@@ -15,6 +15,21 @@ const getMonday = (source: Date) => {
 };
 
 const toDateString = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+// Compact Yes/No toggle for the agreement editor (third click state = unanswered stays as-is)
+const TriYesNo: React.FC<{ label: string; value: boolean | null | undefined; onChange: (v: boolean) => void }> = ({ label, value, onChange }) => (
+  <div className="flex items-center justify-between gap-3 py-1.5">
+    <span className="text-xs font-bold text-slate-600">{label}</span>
+    <div className="flex gap-1 shrink-0">
+      <button type="button" onClick={() => onChange(true)} className={`px-3 py-1 rounded-lg text-xs font-bold ${value === true ? "bg-emerald-600 text-white" : "bg-slate-100 text-slate-500 hover:bg-slate-200"}`}>
+        Yes
+      </button>
+      <button type="button" onClick={() => onChange(false)} className={`px-3 py-1 rounded-lg text-xs font-bold ${value === false ? "bg-slate-700 text-white" : "bg-slate-100 text-slate-500 hover:bg-slate-200"}`}>
+        No
+      </button>
+    </div>
+  </div>
+);
 
 const AdminDashboard: React.FC = () => {
   const [isAuthorized, setIsAuthorized] = useState(false);
@@ -70,6 +85,23 @@ const AdminDashboard: React.FC = () => {
   const [showAgreementDetails, setShowAgreementDetails] = useState(false);
   const [editingCustomerInfo, setEditingCustomerInfo] = useState(false);
   const [customerInfoForm, setCustomerInfoForm] = useState({ ownername: "", email: "", phone: "", address: "" });
+  const [showAgreementEditor, setShowAgreementEditor] = useState(false);
+  const [agreementForm, setAgreementForm] = useState({
+    hear_about_us: "",
+    sms_ok: null as boolean | null,
+    alt_contact_name: "",
+    alt_contact_phone: "",
+    vet_name: "",
+    emergency_vet_name: "",
+    emergency_vet_phone: "",
+    emergency_vet_address: "",
+    treats_ok: null as boolean | null,
+    photo_consent: null as boolean | null,
+    paper_signed: false,
+    paper_date: new Date().toISOString().split("T")[0],
+  });
+  const [agreementDogs, setAgreementDogs] = useState<Dog[]>([]);
+  const [agreementDogsToDelete, setAgreementDogsToDelete] = useState<string[]>([]);
   const [allDogNotes, setAllDogNotes] = useState<Record<string, Record<string, string>>>({});
   const [dogNotes, setDogNotes] = useState<Record<string, string>>({});
   const [dogNotesDraft, setDogNotesDraft] = useState<Record<string, string>>({});
@@ -349,6 +381,71 @@ const AdminDashboard: React.FC = () => {
       setEditingCustomerInfo(false);
     } catch (err: any) {
       alert(`Could not save changes: ${err.message}`);
+    } finally {
+      setIsWorking(false);
+    }
+  };
+
+  const openAgreementEditor = (customer: Customer) => {
+    setAgreementForm({
+      hear_about_us: customer.hear_about_us || "",
+      sms_ok: customer.sms_ok ?? null,
+      alt_contact_name: customer.alt_contact_name || "",
+      alt_contact_phone: customer.alt_contact_phone || "",
+      vet_name: customer.vet_name || "",
+      emergency_vet_name: customer.emergency_vet_name || "",
+      emergency_vet_phone: customer.emergency_vet_phone || "",
+      emergency_vet_address: customer.emergency_vet_address || "",
+      treats_ok: customer.treats_ok ?? null,
+      photo_consent: customer.photo_consent ?? null,
+      paper_signed: customer.intake_status === "completed" && !customer.signature_data,
+      paper_date: customer.signed_at ? customer.signed_at.split("T")[0] : new Date().toISOString().split("T")[0],
+    });
+    setAgreementDogs((customer.dogs || []).map((dog) => ({ ...dog })));
+    setAgreementDogsToDelete([]);
+    setShowAgreementEditor(true);
+  };
+
+  const setAgreementDogField = (index: number, field: keyof Dog, value: unknown) => setAgreementDogs((prev) => prev.map((dog, i) => (i === index ? { ...dog, [field]: value } : dog)));
+
+  const handleSaveAgreement = async (customer: Customer) => {
+    setIsWorking(true);
+    try {
+      const updates: Partial<Customer> = {
+        hear_about_us: agreementForm.hear_about_us.trim() || null,
+        sms_ok: agreementForm.sms_ok,
+        alt_contact_name: agreementForm.alt_contact_name.trim() || null,
+        alt_contact_phone: agreementForm.alt_contact_phone.trim() || null,
+        vet_name: agreementForm.vet_name.trim() || null,
+        emergency_vet_name: agreementForm.emergency_vet_name.trim() || null,
+        emergency_vet_phone: agreementForm.emergency_vet_phone.trim() || null,
+        emergency_vet_address: agreementForm.emergency_vet_address.trim() || null,
+        treats_ok: agreementForm.treats_ok,
+        photo_consent: agreementForm.photo_consent,
+      };
+
+      // "Signed on paper" marks the agreement complete without a digital signature
+      if (agreementForm.paper_signed && !customer.signature_data) {
+        updates.intake_status = "completed";
+        updates.signed_at = `${agreementForm.paper_date}T00:00:00Z`;
+        updates.intake_completed_at = `${agreementForm.paper_date}T00:00:00Z`;
+        const displayDate = new Date(`${agreementForm.paper_date}T00:00:00`).toLocaleDateString("en-GB");
+        updates.terms_version = `paper form signed ${displayDate} (copy on file)`;
+      }
+
+      await updateCustomer(customer.id, updates);
+
+      for (const dog of agreementDogs) {
+        if (dog.name.trim()) await saveDog(customer.id, dog);
+      }
+      for (const dogId of agreementDogsToDelete) {
+        await deleteDog(dogId);
+      }
+
+      await refreshCustomers();
+      setShowAgreementEditor(false);
+    } catch (err: any) {
+      alert(`Could not save agreement: ${err.message}`);
     } finally {
       setIsWorking(false);
     }
@@ -2013,6 +2110,9 @@ const AdminDashboard: React.FC = () => {
                   <button disabled={busy} title="Copy the link so you can paste it anywhere" onClick={() => handleCopyIntakeLink(customer)} className="bg-slate-200 hover:bg-slate-300 disabled:opacity-40 text-slate-700 px-4 py-2 rounded-lg text-sm font-bold">
                     {sendingIntake === "copy" ? "Copying..." : "🔗 Copy Link"}
                   </button>
+                  <button title="Type in answers yourself, e.g. from a paper form" onClick={() => openAgreementEditor(customer)} className="bg-amber-100 hover:bg-amber-200 text-amber-800 px-4 py-2 rounded-lg text-sm font-bold">
+                    ✏️ Edit Agreement
+                  </button>
                   {customer.intake_status === "completed" && (
                     <>
                       <button onClick={() => setShowAgreementDetails(!showAgreementDetails)} className="bg-purple-100 hover:bg-purple-200 text-purple-700 px-4 py-2 rounded-lg text-sm font-bold">
@@ -2226,6 +2326,118 @@ const AdminDashboard: React.FC = () => {
                   className="ml-auto text-red-400 hover:text-red-600 px-4 py-3 text-sm font-bold"
                 >
                   Delete customer
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Agreement Editor Modal */}
+      {showAgreementEditor && selectedCustomer && (() => {
+        const customer = customersList.find((c) => c.id === selectedCustomer);
+        if (!customer) return null;
+        const inputCls = "w-full px-3 py-2 border border-slate-200 rounded-lg text-sm";
+
+        return (
+          <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center p-4 z-[70]">
+            <div className="bg-white rounded-2xl p-6 w-full max-w-3xl max-h-[90vh] overflow-y-auto">
+              <div className="flex justify-between items-center mb-1">
+                <h3 className="text-xl font-black text-slate-800">Edit Agreement — {customer.ownername}</h3>
+                <button onClick={() => setShowAgreementEditor(false)} className="text-slate-400 hover:text-slate-600 text-2xl font-bold">×</button>
+              </div>
+              <p className="text-xs text-slate-500 mb-4">Type in answers yourself — for example from a paper form. A customer's digital signature is never changed here.</p>
+
+              <div className="p-4 bg-slate-50 rounded-xl mb-4">
+                <h4 className="text-sm font-bold text-slate-700 mb-3">About the owner</h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <input value={agreementForm.hear_about_us} onChange={(e) => setAgreementForm({ ...agreementForm, hear_about_us: e.target.value })} placeholder="Where did they hear about us?" className={inputCls} />
+                  <input value={agreementForm.vet_name} onChange={(e) => setAgreementForm({ ...agreementForm, vet_name: e.target.value })} placeholder="Which vets do they use?" className={inputCls} />
+                  <input value={agreementForm.alt_contact_name} onChange={(e) => setAgreementForm({ ...agreementForm, alt_contact_name: e.target.value })} placeholder="Alternative contact name" className={inputCls} />
+                  <input value={agreementForm.alt_contact_phone} onChange={(e) => setAgreementForm({ ...agreementForm, alt_contact_phone: e.target.value })} placeholder="Alternative contact phone" className={inputCls} />
+                </div>
+                <div className="mt-2 divide-y divide-slate-200">
+                  <TriYesNo label="Happy to receive appointment texts?" value={agreementForm.sms_ok} onChange={(v) => setAgreementForm({ ...agreementForm, sms_ok: v })} />
+                  <TriYesNo label="Allowed to give treats?" value={agreementForm.treats_ok} onChange={(v) => setAgreementForm({ ...agreementForm, treats_ok: v })} />
+                  <TriYesNo label="Photos/videos for adverts & social media?" value={agreementForm.photo_consent} onChange={(v) => setAgreementForm({ ...agreementForm, photo_consent: v })} />
+                </div>
+              </div>
+
+              <div className="p-4 bg-slate-50 rounded-xl mb-4">
+                <h4 className="text-sm font-bold text-slate-700 mb-3">Emergency care authorisation</h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <input value={agreementForm.emergency_vet_name} onChange={(e) => setAgreementForm({ ...agreementForm, emergency_vet_name: e.target.value })} placeholder="Preferred emergency vet" className={inputCls} />
+                  <input value={agreementForm.emergency_vet_phone} onChange={(e) => setAgreementForm({ ...agreementForm, emergency_vet_phone: e.target.value })} placeholder="Vet phone" className={inputCls} />
+                  <input value={agreementForm.emergency_vet_address} onChange={(e) => setAgreementForm({ ...agreementForm, emergency_vet_address: e.target.value })} placeholder="Vet address" className={`md:col-span-2 ${inputCls}`} />
+                </div>
+              </div>
+
+              <div className="p-4 bg-slate-50 rounded-xl mb-4">
+                <h4 className="text-sm font-bold text-slate-700 mb-3">Dogs</h4>
+                {agreementDogs.map((dog, index) => (
+                  <div key={dog.id || `new-${index}`} className="p-3 bg-white border border-slate-200 rounded-xl mb-3">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <input value={dog.name} onChange={(e) => setAgreementDogField(index, "name", e.target.value)} placeholder="Dog name *" className={inputCls} />
+                      <input value={dog.breed || ""} onChange={(e) => setAgreementDogField(index, "breed", e.target.value)} placeholder="Breed" className={inputCls} />
+                      <input value={dog.dob || ""} onChange={(e) => setAgreementDogField(index, "dob", e.target.value)} placeholder="Age (e.g. 3 years)" className={inputCls} />
+                      <select value={dog.sex || ""} onChange={(e) => setAgreementDogField(index, "sex", e.target.value || null)} className={inputCls}>
+                        <option value="">Male or female?</option>
+                        <option value="male">Male</option>
+                        <option value="female">Female</option>
+                      </select>
+                    </div>
+                    <div className="mt-1 divide-y divide-slate-100">
+                      <TriYesNo label="Neutered / spayed?" value={dog.neutered} onChange={(v) => setAgreementDogField(index, "neutered", v)} />
+                      <TriYesNo label="Vaccinated?" value={dog.vaccinated} onChange={(v) => setAgreementDogField(index, "vaccinated", v)} />
+                      <TriYesNo label="Own prescribed medical shampoo?" value={dog.needs_prescribed_shampoo} onChange={(v) => setAgreementDogField(index, "needs_prescribed_shampoo", v)} />
+                      <TriYesNo label="Do we need to muzzle?" value={dog.needs_muzzle} onChange={(v) => setAgreementDogField(index, "needs_muzzle", v)} />
+                    </div>
+                    <input value={dog.medication_details || ""} onChange={(e) => setAgreementDogField(index, "medication_details", e.target.value)} placeholder="Medication — name and what it's needed for (leave blank if none)" className={`mt-2 ${inputCls}`} />
+                    <textarea rows={2} value={dog.behaviour_notes || ""} onChange={(e) => setAgreementDogField(index, "behaviour_notes", e.target.value)} placeholder="Behaviour notes / triggers" className={`mt-2 ${inputCls}`} />
+                    <textarea rows={2} value={dog.health_conditions || ""} onChange={(e) => setAgreementDogField(index, "health_conditions", e.target.value)} placeholder="Known health / skin conditions" className={`mt-2 ${inputCls}`} />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (dog.id && !window.confirm(`Remove ${dog.name || "this dog"} from the record?`)) return;
+                        if (dog.id) setAgreementDogsToDelete((prev) => [...prev, dog.id!]);
+                        setAgreementDogs((prev) => prev.filter((_, i) => i !== index));
+                      }}
+                      className="mt-2 text-xs font-bold text-red-400 hover:text-red-600 underline"
+                    >
+                      Remove dog
+                    </button>
+                  </div>
+                ))}
+                <button type="button" onClick={() => setAgreementDogs((prev) => [...prev, { name: "" }])} className="w-full py-2 border-2 border-dashed border-emerald-300 text-emerald-600 rounded-xl text-sm font-black hover:bg-emerald-50">
+                  + Add dog
+                </button>
+              </div>
+
+              <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl mb-4">
+                {customer.signature_data ? (
+                  <p className="text-xs text-amber-800 font-bold">✓ This customer signed digitally on {customer.signed_at ? new Date(customer.signed_at).toLocaleDateString("en-GB") : "record"} — their signature stays as it is.</p>
+                ) : (
+                  <>
+                    <label className="flex items-center gap-3 cursor-pointer">
+                      <input type="checkbox" checked={agreementForm.paper_signed} onChange={(e) => setAgreementForm({ ...agreementForm, paper_signed: e.target.checked })} className="w-5 h-5 accent-amber-600" />
+                      <span className="text-sm font-bold text-amber-900">Agreement signed on paper (copy kept on file)</span>
+                    </label>
+                    {agreementForm.paper_signed && (
+                      <div className="mt-3 flex items-center gap-2">
+                        <span className="text-xs font-bold text-amber-800">Date signed:</span>
+                        <input type="date" value={agreementForm.paper_date} onChange={(e) => setAgreementForm({ ...agreementForm, paper_date: e.target.value })} className="px-3 py-1.5 border border-amber-200 rounded-lg text-sm" />
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+
+              <div className="flex gap-3">
+                <button disabled={isWorking} onClick={() => handleSaveAgreement(customer)} className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white px-6 py-2.5 rounded-lg font-bold">
+                  {isWorking ? "Saving..." : "Save Agreement"}
+                </button>
+                <button onClick={() => setShowAgreementEditor(false)} className="bg-slate-200 hover:bg-slate-300 text-slate-700 px-6 py-2.5 rounded-lg font-bold">
+                  Cancel
                 </button>
               </div>
             </div>

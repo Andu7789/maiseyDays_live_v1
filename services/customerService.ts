@@ -60,6 +60,36 @@ export const deleteCustomer = async (id: string) => {
   if (error) throw new Error(error.message);
 };
 
+/** Inserts a new dog or updates an existing one (matched by dog.id). */
+export const saveDog = async (customerId: string, dog: Dog) => {
+  const payload: Record<string, unknown> = {
+    name: dog.name.trim(),
+    breed: dog.breed || null,
+    dob: dog.dob || null,
+    sex: dog.sex || null,
+    neutered: dog.neutered ?? null,
+    vaccinated: dog.vaccinated ?? null,
+    behaviour_notes: dog.behaviour_notes || null,
+    health_conditions: dog.health_conditions || null,
+    needs_prescribed_shampoo: dog.needs_prescribed_shampoo ?? null,
+    medication_details: dog.medication_details || null,
+    needs_muzzle: dog.needs_muzzle ?? null,
+    updated_at: new Date().toISOString(),
+  };
+  if (dog.id) {
+    const { error } = await supabase.from("dogs").update(payload).eq("id", dog.id);
+    if (error) throw new Error(error.message);
+  } else {
+    const { error } = await supabase.from("dogs").insert([{ ...payload, customer_id: customerId }]);
+    if (error) throw new Error(error.message);
+  }
+};
+
+export const deleteDog = async (dogId: string) => {
+  const { error } = await supabase.from("dogs").delete().eq("id", dogId);
+  if (error) throw new Error(error.message);
+};
+
 // ============================================================
 // INTAKE FORM LINK + SENDING
 // ============================================================
