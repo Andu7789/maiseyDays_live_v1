@@ -108,6 +108,7 @@ const AdminDashboard: React.FC = () => {
   const [showAgreementDetails, setShowAgreementDetails] = useState(false);
   const [editingCustomerInfo, setEditingCustomerInfo] = useState(false);
   const [customerInfoForm, setCustomerInfoForm] = useState({ ownername: "", email: "", phone: "", address: "" });
+  const [rebookSelectedDogs, setRebookSelectedDogs] = useState<Set<string>>(new Set());
   const [showAgreementEditor, setShowAgreementEditor] = useState(false);
   const [agreementForm, setAgreementForm] = useState({
     hear_about_us: "",
@@ -181,15 +182,13 @@ const AdminDashboard: React.FC = () => {
   const [bookingsSearch, setBookingsSearch] = useState("");
 
   const toggleBookingSort = (column: BookingSortColumn) => {
-    setSortColumn((prevColumn) => {
-      if (prevColumn === column) {
-        setSortDirection((prevDir) => (prevDir === "asc" ? "desc" : "asc"));
-        return column;
-      }
+    if (sortColumn === column) {
+      setSortDirection(sortDirection === "asc" ? "desc" : "asc");
+    } else {
+      setSortColumn(column);
       // Sensible default direction per column: latest date / paid deposits / owner A-Z first
       setSortDirection(column === "owner" ? "asc" : "desc");
-      return column;
-    });
+    }
     setCurrentPage(1);
   };
 
@@ -2206,6 +2205,7 @@ const AdminDashboard: React.FC = () => {
                     setShowCustomerModal(true);
                     setShowAgreementDetails(false);
                     setEditingCustomerInfo(false);
+                    setRebookSelectedDogs(new Set(dogNames.slice(0, 1)));
                     setDogNotes({});
                     setDogNotesDraft({});
                     setDogNotesSaving({});
@@ -2576,24 +2576,57 @@ const AdminDashboard: React.FC = () => {
                 </div>
               </div>
 
-              <div className="flex gap-3 mt-6">
+              {dogs.length > 1 && (
+                <div className="mt-6">
+                  <p className="text-xs font-bold text-slate-500 uppercase mb-2">Which dog(s) are you rebooking?</p>
+                  <div className="flex flex-wrap gap-2">
+                    {dogs.map((dog) => {
+                      const selected = rebookSelectedDogs.has(dog);
+                      return (
+                        <button
+                          key={dog}
+                          type="button"
+                          onClick={() =>
+                            setRebookSelectedDogs((prev) => {
+                              const next = new Set(prev);
+                              if (next.has(dog)) next.delete(dog);
+                              else next.add(dog);
+                              return next;
+                            })
+                          }
+                          className={`px-3 py-1.5 rounded-full text-sm font-bold border transition-all ${selected ? "bg-emerald-600 text-white border-emerald-600" : "bg-white text-slate-600 border-slate-200 hover:border-emerald-300"}`}
+                        >
+                          🐕 {dog}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              <div className="flex gap-3 mt-4">
                 <button
                   onClick={() => {
+                    const selectedDogs = dogs.length > 1 ? dogs.filter((d) => rebookSelectedDogs.has(d)) : dogs.slice(0, 1);
+                    if (dogs.length > 1 && selectedDogs.length === 0) {
+                      alert("Please select at least one dog to rebook.");
+                      return;
+                    }
                     setAddForm({
                       ownername: customer.ownername,
                       email: customer.email || "",
                       phone: customer.phone || "",
-                      dogname: dogs[0] || "",
-                      dogbreed: intakeDogByName(dogs[0] || "")?.breed || "",
+                      dogname: selectedDogs.join(" & "),
+                      dogbreed: intakeDogByName(selectedDogs[0] || "")?.breed || "",
                       serviceid: preferredService?.[0] || SERVICES[0].id,
                       locationid: LOCATIONS[0].id,
                       date: new Date().toISOString().split("T")[0],
                       confirmed_time: "",
                       confirmed_duration_minutes: 120,
                       notes: "",
-                      number_of_dogs: 1,
+                      number_of_dogs: Math.max(1, selectedDogs.length),
                       deposit_paid: false,
-                      deposit_amount: 20,
+                      deposit_amount: Math.max(1, selectedDogs.length) * 20,
                       deposit_notes: "",
                       confirm_channel: "none" as "none" | "whatsapp" | "sms",
                     });
