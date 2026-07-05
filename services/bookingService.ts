@@ -149,6 +149,7 @@ export const getAppointments = async (): Promise<Appointment[]> => {
       calendar_last_synced_at: row.calendar_last_synced_at || null,
       calendar_last_error: row.calendar_last_error || null,
       number_of_dogs: Number(row.number_of_dogs) || 1,
+      actual_price: row.actual_price === null || row.actual_price === undefined ? null : Number(row.actual_price),
     }));
     return normalized;
   } catch (err) {
@@ -157,7 +158,7 @@ export const getAppointments = async (): Promise<Appointment[]> => {
   }
 };
 
-const ENHANCED_BOOKING_COLUMNS = ["requested_time_preference", "confirmed_date", "confirmed_time", "confirmed_duration_minutes", "is_confirmed", "confirmed_at", "confirmation_sent_at", "booking_source", "calendar_event_id", "calendar_sync_status", "calendar_last_synced_at", "calendar_last_error", "number_of_dogs"];
+const ENHANCED_BOOKING_COLUMNS = ["requested_time_preference", "confirmed_date", "confirmed_time", "confirmed_duration_minutes", "is_confirmed", "confirmed_at", "confirmation_sent_at", "booking_source", "calendar_event_id", "calendar_sync_status", "calendar_last_synced_at", "calendar_last_error", "number_of_dogs", "actual_price"];
 
 const isSchemaColumnCacheError = (error: any) => {
   const message = String(error?.message || "").toLowerCase();
@@ -257,6 +258,31 @@ const formatHumanDate = (dateStr: string) => {
 
 const getLocationName = (locationId: string) => LOCATIONS.find((loc) => loc.id === locationId)?.name || locationId;
 const getServiceName = (serviceId: string) => SERVICES.find((service) => service.id === serviceId)?.name || serviceId;
+
+// Starting/estimate prices per service (the "From £X" advertised price) — used
+// as a fallback for revenue reporting until the groomer records what was
+// actually charged (matting, multi-dog and breed surcharges all vary the real price).
+const SERVICE_BASE_PRICE: Record<string, number> = {
+  "full-groom": 35,
+  "bath-brush": 25,
+  "puppy-intro": 15,
+  "nail-clipping": 12,
+  "home-grooming": 45,
+};
+export const getServiceBasePrice = (serviceid: string) => SERVICE_BASE_PRICE[serviceid] ?? 0;
+
+/**
+ * The revenue figure to use for a booking: the actual price the groomer
+ * recorded if there is one, otherwise an estimate (base service price ×
+ * number of dogs). Also reports whether the figure is a real recorded
+ * amount or just an estimate, so reporting UI can label it honestly.
+ */
+export const getBookingRevenue = (apt: Appointment): { amount: number; isActual: boolean } => {
+  if (apt.actual_price !== null && apt.actual_price !== undefined) {
+    return { amount: apt.actual_price, isActual: true };
+  }
+  return { amount: getServiceBasePrice(apt.serviceid) * (apt.number_of_dogs || 1), isActual: false };
+};
 
 export const buildConfirmationMessage = (appointment: Appointment) => {
   const confirmedDate = appointment.confirmed_date || appointment.date;

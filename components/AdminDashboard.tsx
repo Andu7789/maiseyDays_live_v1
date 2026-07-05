@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { buildCancellationMessage, buildConfirmationMessage, checkAuthStatus, confirmAppointmentBooking, createManualAppointment, deleteAppointment, exportAppointmentsToExcel, findBookingClash, getAppointments, getAvailableSlotTimes, getCurrentUser, getEffectiveSchedule, getReminderSettings, getUnavailableDays, getUnavailableWeekdays, removeUnavailableDay, removeUnavailableWeekday, saveUnavailableDay, saveUnavailableWeekday, sendCustomerCancellationSms, sendCustomerConfirmationSms, signInAdmin, signOutAdmin, updateAppointment, updateReminderSettings, getHolidaySettings, updateHolidaySettings, updateAdvertSettings, updateWeekendBookingsEnabled, getDogNotes, getAllDogNotes, upsertDogNote } from "../services/bookingService";
+import { buildCancellationMessage, buildConfirmationMessage, checkAuthStatus, confirmAppointmentBooking, createManualAppointment, deleteAppointment, exportAppointmentsToExcel, findBookingClash, getAppointments, getAvailableSlotTimes, getBookingRevenue, getCurrentUser, getEffectiveSchedule, getReminderSettings, getServiceBasePrice, getUnavailableDays, getUnavailableWeekdays, removeUnavailableDay, removeUnavailableWeekday, saveUnavailableDay, saveUnavailableWeekday, sendCustomerCancellationSms, sendCustomerConfirmationSms, signInAdmin, signOutAdmin, updateAppointment, updateReminderSettings, getHolidaySettings, updateHolidaySettings, updateAdvertSettings, updateWeekendBookingsEnabled, getDogNotes, getAllDogNotes, upsertDogNote } from "../services/bookingService";
 import { buildIntakeLink, buildIntakeMessage, buildWhatsAppLink, createCustomer, deleteCustomer, deleteDog, ensureIntakeToken, getCustomers, getDeletedCustomers, markIntakeSent, restoreCustomer, saveDog, sendIntakeEmail, sendIntakeSms, updateCustomer } from "../services/customerService";
 import { Appointment, Customer, Dog, IntakeStatus, Service } from "../types";
 import { INTAKE_TERMS, LOCATIONS, MATTING_BULLETS, MATTING_CLOSING, MATTING_TERMS, SERVICES, SLOT_TIMES } from "../constants";
@@ -37,7 +37,7 @@ const AdminDashboard: React.FC = () => {
   const [password, setPassword] = useState("");
   const [authError, setAuthError] = useState("");
   const [appointments, setAppointments] = useState<Appointment[]>([]);
-  const [view, setView] = useState<"bookings" | "diary" | "unavailable" | "services" | "settings" | "customers">("bookings");
+  const [view, setView] = useState<"dashboard" | "bookings" | "diary" | "unavailable" | "services" | "settings" | "customers">("dashboard");
   const [selectedLocation, setSelectedLocation] = useState(LOCATIONS[0].id);
   const [isLoading, setIsLoading] = useState(true);
   const [dbStatus, setDbStatus] = useState<"connecting" | "connected" | "error">("connecting");
@@ -53,6 +53,11 @@ const AdminDashboard: React.FC = () => {
   const [activeBooking, setActiveBooking] = useState<Appointment | null>(null);
   const [isWorking, setIsWorking] = useState(false);
   const [showDepositModal, setShowDepositModal] = useState(false);
+  const [completingBooking, setCompletingBooking] = useState<Appointment | null>(null);
+  const [completePriceInput, setCompletePriceInput] = useState<string>("");
+  const [priceFixDrafts, setPriceFixDrafts] = useState<Record<string, string>>({});
+  const [priceFixSaving, setPriceFixSaving] = useState<Record<string, boolean>>({});
+  const [revenueHoverIndex, setRevenueHoverIndex] = useState<number | null>(null);
   const [pendingConfirmChannel, setPendingConfirmChannel] = useState<"sms" | "whatsapp">("sms");
   const [diaryWeekStart, setDiaryWeekStart] = useState<Date>(() => getMonday(new Date()));
   const [diarySearch, setDiarySearch] = useState("");
@@ -155,6 +160,7 @@ const AdminDashboard: React.FC = () => {
     deposit_amount: 20,
     deposit_notes: "",
     deposit_paid_at: null as string | null,
+    actual_price: "" as string | number,
   });
 
   const [addForm, setAddForm] = useState({
@@ -358,7 +364,7 @@ const AdminDashboard: React.FC = () => {
 
   const bookingsForCustomer = (customer: Customer) => appointments.filter((a) => a.customer_id === customer.id || (customer.email && a.email && a.email.toLowerCase() === customer.email.toLowerCase()));
 
-  const servicePriceFor = (serviceid: string) => (serviceid === "full-groom" ? 35 : serviceid === "bath-brush" ? 25 : serviceid === "puppy-intro" ? 15 : serviceid === "nail-clipping" ? 12 : serviceid === "home-grooming" ? 45 : 0);
+  const servicePriceFor = getServiceBasePrice;
 
   const handleAddCustomer = async () => {
     if (!addCustomerForm.ownername.trim()) {
@@ -647,6 +653,7 @@ const AdminDashboard: React.FC = () => {
       deposit_amount: booking.deposit_amount || (booking.number_of_dogs || 1) * 20,
       deposit_notes: booking.deposit_notes || "",
       deposit_paid_at: booking.deposit_paid_at || null,
+      actual_price: booking.actual_price ?? "",
     });
     setShowUpdateModal(true);
   };
@@ -707,6 +714,7 @@ const AdminDashboard: React.FC = () => {
         deposit_amount: editForm.deposit_amount,
         deposit_paid_at: editForm.deposit_paid ? new Date().toISOString() : null,
         deposit_notes: editForm.deposit_notes,
+        actual_price: editForm.actual_price === "" ? null : Number(editForm.actual_price),
       });
       await loadData();
       alert("Booking updated.");
@@ -811,20 +819,43 @@ const AdminDashboard: React.FC = () => {
     await proceedWithConfirmation();
   };
 
-  const handleMarkCompleted = async (booking: Appointment) => {
+  const handleMarkCompleted = (booking: Appointment) => {
     if (!booking.id) return;
-    const shouldComplete = window.confirm(`Mark ${booking.dogname}'s appointment as completed?`);
-    if (!shouldComplete) return;
+    setCompletingBooking(booking);
+    setCompletePriceInput(booking.actual_price != null ? String(booking.actual_price) : "");
+  };
 
+  const confirmMarkCompleted = async () => {
+    if (!completingBooking?.id) return;
+    setIsWorking(true);
     try {
-      await updateAppointment(booking.id, {
+      await updateAppointment(completingBooking.id, {
         booking_status: "completed",
         completed_at: new Date().toISOString(),
+        actual_price: completePriceInput === "" ? null : Number(completePriceInput),
       });
       await loadData();
+      setCompletingBooking(null);
       alert("Appointment marked as completed. Customer will receive a 28-day rebooking reminder.");
     } catch (error: any) {
       alert(error.message || "Could not mark as completed.");
+    } finally {
+      setIsWorking(false);
+    }
+  };
+
+  const handleQuickSetPrice = async (apt: Appointment) => {
+    if (!apt.id) return;
+    const draft = priceFixDrafts[apt.id];
+    if (draft === undefined || draft === "") return;
+    setPriceFixSaving((prev) => ({ ...prev, [apt.id!]: true }));
+    try {
+      await updateAppointment(apt.id, { actual_price: Number(draft) });
+      await loadData();
+    } catch (error: any) {
+      alert(error.message || "Could not save the price.");
+    } finally {
+      setPriceFixSaving((prev) => ({ ...prev, [apt.id!]: false }));
     }
   };
 
@@ -1143,6 +1174,9 @@ const AdminDashboard: React.FC = () => {
           </button>
         </div>
         <div className="flex bg-slate-200 p-1 rounded-xl">
+          <button onClick={() => setView("dashboard")} className={`px-4 py-2 rounded-lg font-bold transition-all ${view === "dashboard" ? "bg-white shadow-sm text-emerald-600" : "text-slate-600"}`}>
+            Dashboard
+          </button>
           <button onClick={() => setView("bookings")} className={`px-4 py-2 rounded-lg font-bold transition-all ${view === "bookings" ? "bg-white shadow-sm text-emerald-600" : "text-slate-600"}`}>
             Bookings
           </button>
@@ -1174,6 +1208,294 @@ const AdminDashboard: React.FC = () => {
           </button>
         ))}
       </div>
+
+      {view === "dashboard" && (() => {
+        const scoped = appointments.filter((a) => selectedLocation === ALL_LOCATIONS || a.locationid === selectedLocation);
+        const now = new Date();
+        const todayStr = toDateString(now);
+        const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+        const lastMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+        const lastMonthKey = `${lastMonthDate.getFullYear()}-${String(lastMonthDate.getMonth() + 1).padStart(2, "0")}`;
+
+        const isCompleted = (a: Appointment) => a.booking_status === "completed";
+        const completedThisMonth = scoped.filter((a) => isCompleted(a) && a.completed_at && a.completed_at.slice(0, 7) === monthKey);
+        const completedLastMonth = scoped.filter((a) => isCompleted(a) && a.completed_at && a.completed_at.slice(0, 7) === lastMonthKey);
+        const revenueThisMonth = completedThisMonth.reduce((sum, a) => sum + getBookingRevenue(a).amount, 0);
+        const revenueLastMonth = completedLastMonth.reduce((sum, a) => sum + getBookingRevenue(a).amount, 0);
+        const revenueDeltaPct = revenueLastMonth > 0 ? Math.round(((revenueThisMonth - revenueLastMonth) / revenueLastMonth) * 100) : null;
+
+        const weekStart = getMonday(now);
+        const weekEnd = new Date(weekStart);
+        weekEnd.setDate(weekEnd.getDate() + 6);
+        const weekStartStr = toDateString(weekStart);
+        const weekEndStr = toDateString(weekEnd);
+        const thisWeekBookings = scoped.filter((a) => {
+          if (a.status === "cancelled" || a.booking_status === "cancelled") return false;
+          const schedule = getEffectiveSchedule(a);
+          return schedule && schedule.date >= weekStartStr && schedule.date <= weekEndStr;
+        });
+
+        const allCompleted = scoped.filter(isCompleted);
+        const avgJobValue = allCompleted.length > 0 ? allCompleted.reduce((sum, a) => sum + getBookingRevenue(a).amount, 0) / allCompleted.length : 0;
+
+        const newCustomersThisMonth = customersList.filter((c) => c.created_at && c.created_at.slice(0, 7) === monthKey).length;
+
+        const upcomingConfirmed = scoped.filter((a) => a.booking_status === "confirmed");
+        const depositsOwed = upcomingConfirmed.filter((a) => !a.deposit_paid);
+        const depositsOwedTotal = depositsOwed.reduce((sum, a) => sum + (a.deposit_amount || (a.number_of_dogs || 1) * 20), 0);
+
+        const pendingRequests = scoped.filter((a) => (a.booking_status || a.status) === "pending" && a.status !== "cancelled");
+        const dueForRebook = scoped.filter((a) => a.booking_status === "due_for_rebook");
+        const missingPrice = scoped
+          .filter((a) => isCompleted(a) && (a.actual_price === null || a.actual_price === undefined))
+          .sort((a, b) => (b.completed_at || "").localeCompare(a.completed_at || ""));
+
+        const formsNotSent = customersList.filter((c) => c.intake_status === "not_sent").length;
+        const formsAwaiting = customersList.filter((c) => c.intake_status === "sent").length;
+        const mattingOutstanding = customersList.filter((c) => c.matting_required && !c.matting_signed_at).length;
+
+        const todaysSchedule = (scoped
+          .map((a) => ({ apt: a, schedule: getEffectiveSchedule(a) }))
+          .filter((x) => x.schedule && x.schedule.date === todayStr && x.apt.status !== "cancelled" && x.apt.booking_status !== "cancelled") as { apt: Appointment; schedule: NonNullable<ReturnType<typeof getEffectiveSchedule>> }[])
+          .sort((a, b) => a.schedule.startMinutes - b.schedule.startMinutes);
+
+        // Revenue trend: last 8 weeks (including current), from completed bookings' completed_at
+        const weeklyRevenue: { label: string; amount: number; weekStart: string }[] = [];
+        for (let i = 7; i >= 0; i--) {
+          const wStart = new Date(weekStart);
+          wStart.setDate(wStart.getDate() - i * 7);
+          const wEnd = new Date(wStart);
+          wEnd.setDate(wEnd.getDate() + 6);
+          const wStartStr = toDateString(wStart);
+          const wEndStr = toDateString(wEnd);
+          const amount = scoped
+            .filter((a) => isCompleted(a) && a.completed_at && a.completed_at.slice(0, 10) >= wStartStr && a.completed_at.slice(0, 10) <= wEndStr)
+            .reduce((sum, a) => sum + getBookingRevenue(a).amount, 0);
+          weeklyRevenue.push({ label: wStart.toLocaleDateString("en-GB", { day: "numeric", month: "short" }), amount, weekStart: wStartStr });
+        }
+        const maxWeekly = Math.max(1, ...weeklyRevenue.map((w) => w.amount));
+
+        const serviceStats = SERVICES.map((s) => {
+          const bookingsForService = completedThisMonth.filter((a) => a.serviceid === s.id);
+          return { service: s, count: bookingsForService.length, revenue: bookingsForService.reduce((sum, a) => sum + getBookingRevenue(a).amount, 0) };
+        })
+          .filter((s) => s.count > 0)
+          .sort((a, b) => b.revenue - a.revenue);
+
+        const locationStats = LOCATIONS.map((loc) => {
+          const locBookings = appointments.filter((a) => a.locationid === loc.id && isCompleted(a) && a.completed_at && a.completed_at.slice(0, 7) === monthKey);
+          return { location: loc, count: locBookings.length, revenue: locBookings.reduce((sum, a) => sum + getBookingRevenue(a).amount, 0) };
+        });
+
+        const fmtMoney = (n: number) => `£${Math.round(n).toLocaleString("en-GB")}`;
+
+        return (
+          <div className="space-y-6">
+            {/* KPI tiles */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+              <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
+                <div className="text-xs font-bold text-slate-400 uppercase mb-1">Revenue This Month</div>
+                <div className="text-3xl font-black text-emerald-600">{fmtMoney(revenueThisMonth)}</div>
+                {revenueDeltaPct !== null && (
+                  <div className={`text-xs font-bold mt-1 ${revenueDeltaPct >= 0 ? "text-emerald-600" : "text-rose-500"}`}>
+                    {revenueDeltaPct >= 0 ? "▲" : "▼"} {Math.abs(revenueDeltaPct)}% vs last month
+                  </div>
+                )}
+              </div>
+              <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
+                <div className="text-xs font-bold text-slate-400 uppercase mb-1">This Week's Bookings</div>
+                <div className="text-3xl font-black text-teal-600">{thisWeekBookings.length}</div>
+                <div className="text-xs text-slate-400 mt-1">
+                  {weekStart.toLocaleDateString("en-GB", { day: "numeric", month: "short" })} – {weekEnd.toLocaleDateString("en-GB", { day: "numeric", month: "short" })}
+                </div>
+              </div>
+              <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
+                <div className="text-xs font-bold text-slate-400 uppercase mb-1">Avg Job Value</div>
+                <div className="text-3xl font-black text-slate-800">{fmtMoney(avgJobValue)}</div>
+                <div className="text-xs text-slate-400 mt-1">
+                  across {allCompleted.length} completed groom{allCompleted.length !== 1 ? "s" : ""}
+                </div>
+              </div>
+              <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
+                <div className="text-xs font-bold text-slate-400 uppercase mb-1">New Customers</div>
+                <div className="text-3xl font-black text-purple-600">{newCustomersThisMonth}</div>
+                <div className="text-xs text-slate-400 mt-1">this month</div>
+              </div>
+              <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
+                <div className="text-xs font-bold text-slate-400 uppercase mb-1">Deposits Outstanding</div>
+                <div className="text-3xl font-black text-amber-600">{fmtMoney(depositsOwedTotal)}</div>
+                <div className="text-xs text-slate-400 mt-1">
+                  {depositsOwed.length} booking{depositsOwed.length !== 1 ? "s" : ""}
+                </div>
+              </div>
+            </div>
+
+            {/* Needs your attention */}
+            <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-6">
+              <h3 className="text-lg font-black text-slate-800 mb-4">🔔 Needs Your Attention</h3>
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+                <button onClick={() => setView("bookings")} className="text-left p-4 bg-orange-50 hover:bg-orange-100 border border-orange-200 rounded-xl transition-colors">
+                  <div className="text-2xl font-black text-orange-700">{pendingRequests.length}</div>
+                  <div className="text-xs font-bold text-orange-600">Awaiting confirmation</div>
+                </button>
+                <button onClick={() => setView("bookings")} className="text-left p-4 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-xl transition-colors">
+                  <div className="text-2xl font-black text-amber-700">{depositsOwed.length}</div>
+                  <div className="text-xs font-bold text-amber-600">Deposits unpaid</div>
+                </button>
+                <button onClick={() => setView("customers")} className="text-left p-4 bg-red-50 hover:bg-red-100 border border-red-200 rounded-xl transition-colors">
+                  <div className="text-2xl font-black text-red-700">{formsNotSent}</div>
+                  <div className="text-xs font-bold text-red-600">Forms not sent</div>
+                </button>
+                <button onClick={() => setView("customers")} className="text-left p-4 bg-yellow-50 hover:bg-yellow-100 border border-yellow-200 rounded-xl transition-colors">
+                  <div className="text-2xl font-black text-yellow-700">{formsAwaiting}</div>
+                  <div className="text-xs font-bold text-yellow-600">Forms awaiting</div>
+                </button>
+                <button onClick={() => setView("customers")} className="text-left p-4 bg-orange-50 hover:bg-orange-100 border border-orange-200 rounded-xl transition-colors">
+                  <div className="text-2xl font-black text-orange-700">{mattingOutstanding}</div>
+                  <div className="text-xs font-bold text-orange-600">Matting consent due</div>
+                </button>
+                <button onClick={() => setView("bookings")} className="text-left p-4 bg-purple-50 hover:bg-purple-100 border border-purple-200 rounded-xl transition-colors">
+                  <div className="text-2xl font-black text-purple-700">{dueForRebook.length}</div>
+                  <div className="text-xs font-bold text-purple-600">Due for rebook</div>
+                </button>
+              </div>
+            </div>
+
+            {/* Today's schedule + revenue trend */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-6">
+                <h3 className="text-lg font-black text-slate-800 mb-4">📅 Today's Schedule</h3>
+                {todaysSchedule.length === 0 ? (
+                  <div className="text-center py-8 text-slate-400 text-sm">No bookings today.</div>
+                ) : (
+                  <div className="space-y-2 max-h-80 overflow-y-auto">
+                    {todaysSchedule.map(({ apt, schedule }) => (
+                      <button
+                        key={apt.id}
+                        onClick={() => openUpdateModal(apt)}
+                        className={`w-full text-left flex items-center justify-between p-3 rounded-xl border transition-colors hover:shadow ${
+                          apt.booking_status === "completed" ? "bg-blue-50 border-blue-200" : apt.booking_status === "confirmed" ? "bg-emerald-50 border-emerald-200" : "bg-amber-50 border-amber-200"
+                        }`}
+                      >
+                        <div className="min-w-0">
+                          <div className="font-bold text-slate-800 text-sm truncate">
+                            🐕 {apt.dogname} <span className="font-medium text-slate-500">— {apt.ownername}</span>
+                          </div>
+                          <div className="text-xs text-slate-500 truncate">
+                            {SERVICES.find((s) => s.id === apt.serviceid)?.name || apt.serviceid}
+                            {selectedLocation === ALL_LOCATIONS ? ` · ${LOCATIONS.find((l) => l.id === apt.locationid)?.name || ""}` : ""}
+                          </div>
+                        </div>
+                        <div className="text-sm font-black text-slate-700 shrink-0 ml-2">{schedule.timeLabel}</div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-6">
+                <h3 className="text-lg font-black text-slate-800 mb-1">📈 Revenue — Last 8 Weeks</h3>
+                <p className="text-xs text-slate-400 mb-4">From completed grooms. Weeks without a recorded price use the estimated service price.</p>
+                <div className="flex items-end gap-2 h-40">
+                  {weeklyRevenue.map((w, i) => (
+                    <div
+                      key={w.weekStart}
+                      className="flex-1 flex flex-col items-center justify-end h-full relative"
+                      onMouseEnter={() => setRevenueHoverIndex(i)}
+                      onMouseLeave={() => setRevenueHoverIndex(null)}
+                    >
+                      {revenueHoverIndex === i && <div className="absolute -top-7 bg-slate-800 text-white text-xs font-bold px-2 py-1 rounded-lg whitespace-nowrap z-10">{fmtMoney(w.amount)}</div>}
+                      <div className={`w-full rounded-t-[4px] transition-all ${i === weeklyRevenue.length - 1 ? "bg-emerald-600" : "bg-emerald-300"}`} style={{ height: `${Math.max(4, (w.amount / maxWeekly) * 100)}%` }} />
+                      <div className="text-[10px] text-slate-400 font-bold mt-1.5 whitespace-nowrap">{w.label}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Top services + record missing prices */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-6">
+                <h3 className="text-lg font-black text-slate-800 mb-4">🏆 Top Services This Month</h3>
+                {serviceStats.length === 0 ? (
+                  <div className="text-center py-8 text-slate-400 text-sm">No completed grooms this month yet.</div>
+                ) : (
+                  <div className="space-y-3">
+                    {serviceStats.map((s, i) => (
+                      <div key={s.service.id} className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <span className="w-6 h-6 rounded-full bg-slate-100 text-slate-600 text-xs font-black flex items-center justify-center shrink-0">{i + 1}</span>
+                          <div>
+                            <div className="font-bold text-slate-800 text-sm">{s.service.name}</div>
+                            <div className="text-xs text-slate-400">
+                              {s.count} groom{s.count !== 1 ? "s" : ""}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="font-black text-emerald-600 shrink-0">{fmtMoney(s.revenue)}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-6">
+                <h3 className="text-lg font-black text-slate-800 mb-4">💷 Record Missing Prices</h3>
+                {missingPrice.length === 0 ? (
+                  <div className="text-center py-8 text-slate-400 text-sm">All completed grooms have a recorded price. 🎉</div>
+                ) : (
+                  <div className="space-y-3">
+                    {missingPrice.slice(0, 5).map((apt) => (
+                      <div key={apt.id} className="flex items-center justify-between gap-2 p-3 bg-slate-50 rounded-xl border border-slate-200">
+                        <div className="min-w-0">
+                          <div className="font-bold text-slate-800 text-sm truncate">🐕 {apt.dogname}</div>
+                          <div className="text-xs text-slate-400">
+                            {apt.completed_at ? new Date(apt.completed_at).toLocaleDateString("en-GB") : ""} · est. {fmtMoney(getBookingRevenue(apt).amount)}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-1 shrink-0">
+                          <span className="text-slate-500 font-bold">£</span>
+                          <input
+                            type="number"
+                            min={0}
+                            step="0.01"
+                            value={priceFixDrafts[apt.id!] ?? ""}
+                            onChange={(e) => setPriceFixDrafts((prev) => ({ ...prev, [apt.id!]: e.target.value }))}
+                            placeholder={`${getBookingRevenue(apt).amount}`}
+                            className="w-20 px-2 py-1.5 border border-slate-200 rounded-lg text-sm"
+                          />
+                          <button disabled={priceFixSaving[apt.id!]} onClick={() => handleQuickSetPrice(apt)} className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-bold px-3 py-1.5 rounded-lg">
+                            {priceFixSaving[apt.id!] ? "..." : "Save"}
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                    {missingPrice.length > 5 && <p className="text-xs text-slate-400 text-center">+{missingPrice.length - 5} more — open each booking to record its price.</p>}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Location breakdown */}
+            {selectedLocation === ALL_LOCATIONS && LOCATIONS.length > 1 && (
+              <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-6">
+                <h3 className="text-lg font-black text-slate-800 mb-4">📍 This Month by Location</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+                  {locationStats.map((l) => (
+                    <div key={l.location.id} className="p-4 bg-slate-50 border border-slate-200 rounded-xl">
+                      <div className="font-bold text-slate-800 text-sm">{l.location.name}</div>
+                      <div className="text-2xl font-black text-teal-600 mt-1">{fmtMoney(l.revenue)}</div>
+                      <div className="text-xs text-slate-400">
+                        {l.count} groom{l.count !== 1 ? "s" : ""}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {view === "bookings" && (
         <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden">
@@ -1591,6 +1913,25 @@ const AdminDashboard: React.FC = () => {
               />
             </div>
 
+            <div className="mt-4 p-4 bg-emerald-50 border border-emerald-200 rounded-lg">
+              <h4 className="text-sm font-bold text-emerald-900 mb-1">Actual Price Charged</h4>
+              <p className="text-xs text-emerald-700 mb-3">
+                Leave blank to use the estimated price (£{getServiceBasePrice(editForm.serviceid) * editForm.number_of_dogs}) in revenue reports. Fill this in once you know what was actually charged (matting, extras, etc.).
+              </p>
+              <div className="flex items-center gap-2">
+                <span className="text-emerald-700 font-bold">£</span>
+                <input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={editForm.actual_price}
+                  onChange={(e) => setEditForm({ ...editForm, actual_price: e.target.value })}
+                  placeholder={`${getServiceBasePrice(editForm.serviceid) * editForm.number_of_dogs} (estimate)`}
+                  className="px-4 py-2 border border-emerald-200 rounded-lg w-40"
+                />
+              </div>
+            </div>
+
             <div className="flex gap-3 mt-6">
               <button disabled={isWorking} onClick={saveBookingDetails} className="bg-slate-700 hover:bg-slate-800 disabled:opacity-60 text-white px-5 py-2 rounded-lg font-bold">
                 Save Details
@@ -1654,6 +1995,52 @@ const AdminDashboard: React.FC = () => {
               </button>
               <button
                 onClick={() => setShowDepositModal(false)}
+                disabled={isWorking}
+                className="w-full text-slate-500 hover:text-slate-700 px-5 py-2 text-sm font-medium"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {completingBooking && (
+        <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center p-4 z-[60]">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-2xl">
+            <div className="text-center mb-6">
+              <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <span className="text-3xl">✂️</span>
+              </div>
+              <h3 className="text-xl font-black text-slate-800 mb-2">Mark {completingBooking.dogname} as Completed</h3>
+              <p className="text-sm text-slate-600">What was actually charged for this groom? This is what counts toward your revenue reports.</p>
+            </div>
+
+            <div className="flex items-center justify-center gap-2 mb-2">
+              <span className="text-slate-700 font-bold text-lg">£</span>
+              <input
+                type="number"
+                min={0}
+                step="0.01"
+                autoFocus
+                value={completePriceInput}
+                onChange={(e) => setCompletePriceInput(e.target.value)}
+                placeholder={`${getServiceBasePrice(completingBooking.serviceid) * (completingBooking.number_of_dogs || 1)}`}
+                className="px-4 py-3 border border-slate-200 rounded-lg w-32 text-center text-lg font-bold"
+              />
+            </div>
+            <p className="text-xs text-slate-400 text-center mb-6">Leave blank to use the estimated price (£{getServiceBasePrice(completingBooking.serviceid) * (completingBooking.number_of_dogs || 1)})</p>
+
+            <div className="space-y-3">
+              <button
+                onClick={confirmMarkCompleted}
+                disabled={isWorking}
+                className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white px-5 py-3 rounded-lg font-bold transition-colors"
+              >
+                {isWorking ? "Saving..." : "✓ Mark Completed"}
+              </button>
+              <button
+                onClick={() => setCompletingBooking(null)}
                 disabled={isWorking}
                 className="w-full text-slate-500 hover:text-slate-700 px-5 py-2 text-sm font-medium"
               >
@@ -2162,7 +2549,7 @@ const AdminDashboard: React.FC = () => {
           let lastVisit: string | null = null;
           let nextVisit: string | null = null;
           bookings.forEach((apt) => {
-            totalSpent += servicePriceFor(apt.serviceid);
+            totalSpent += getBookingRevenue(apt).amount;
             if (apt.booking_status === "completed" && apt.completed_at && (!lastVisit || apt.completed_at > lastVisit)) lastVisit = apt.completed_at;
             if (apt.booking_status === "confirmed" && apt.confirmed_date && (!nextVisit || apt.confirmed_date < nextVisit)) nextVisit = apt.confirmed_date;
           });
@@ -2355,7 +2742,7 @@ const AdminDashboard: React.FC = () => {
         const dogNameSet = new Set<string>((customer.dogs || []).map((d) => d.name));
         customerData.forEach((apt) => apt.dogname && dogNameSet.add(apt.dogname));
         const dogs = Array.from(dogNameSet);
-        const totalSpent = customerData.reduce((sum, apt) => sum + servicePriceFor(apt.serviceid), 0);
+        const totalSpent = customerData.reduce((sum, apt) => sum + getBookingRevenue(apt).amount, 0);
 
         // Count service preferences
         const serviceCount = customerData.reduce((acc, apt) => {

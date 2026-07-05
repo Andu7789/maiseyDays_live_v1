@@ -112,6 +112,7 @@ export interface Appointment {
   deposit_notes?: string;
   customer_id?: string | null;
   number_of_dogs?: number;
+  actual_price?: number | null;
 }
 
 export interface AvailabilitySlot {
