@@ -264,6 +264,29 @@ export const buildConfirmationMessage = (appointment: Appointment) => {
   return `Hi ${appointment.ownername}, ${appointment.dogname} is booked for a ${getServiceName(appointment.serviceid)} at Maisey Days (${getLocationName(appointment.locationid)}) on ${formatHumanDate(confirmedDate)} at ${confirmedTime}. Please reply YES to confirm or call us if you need changes. Thank you 🐾`;
 };
 
+export const buildCancellationMessage = (appointment: Appointment) => {
+  const bookedDate = appointment.confirmed_date || appointment.date;
+  const bookedTime = appointment.confirmed_time || "";
+  return `Hi ${appointment.ownername}, unfortunately your ${getServiceName(appointment.serviceid)} appointment for ${appointment.dogname} at Maisey Days (${getLocationName(appointment.locationid)}) on ${formatHumanDate(bookedDate)}${bookedTime ? ` at ${bookedTime}` : ""} has been cancelled. Please contact us if you have any questions. Thank you 🐾`;
+};
+
+export const sendCustomerCancellationSms = async (appointment: Appointment) => {
+  if (!appointment.phone) {
+    throw new Error("Customer phone number is missing.");
+  }
+  const message = buildCancellationMessage(appointment);
+  const result = await invokeEdgeFunction("send-customer-confirmation-sms", {
+    to: appointment.phone,
+    message,
+    bookingId: appointment.id,
+  });
+  if (!Boolean((result as any)?.success ?? false)) {
+    const providerError = (result as any)?.error || "SMS provider rejected the message.";
+    throw new Error(`SMS failed: ${providerError}`);
+  }
+  return true;
+};
+
 export const sendCustomerConfirmationSms = async (appointment: Appointment) => {
   if (!appointment.phone) {
     throw new Error("Customer phone number is missing.");

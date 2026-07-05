@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { buildConfirmationMessage, checkAuthStatus, confirmAppointmentBooking, createManualAppointment, deleteAppointment, exportAppointmentsToExcel, findBookingClash, getAppointments, getAvailableSlotTimes, getCurrentUser, getEffectiveSchedule, getReminderSettings, getUnavailableDays, getUnavailableWeekdays, removeUnavailableDay, removeUnavailableWeekday, saveUnavailableDay, saveUnavailableWeekday, sendCustomerConfirmationSms, signInAdmin, signOutAdmin, updateAppointment, updateReminderSettings, getHolidaySettings, updateHolidaySettings, updateAdvertSettings, updateWeekendBookingsEnabled, getDogNotes, getAllDogNotes, upsertDogNote } from "../services/bookingService";
+import { buildCancellationMessage, buildConfirmationMessage, checkAuthStatus, confirmAppointmentBooking, createManualAppointment, deleteAppointment, exportAppointmentsToExcel, findBookingClash, getAppointments, getAvailableSlotTimes, getCurrentUser, getEffectiveSchedule, getReminderSettings, getUnavailableDays, getUnavailableWeekdays, removeUnavailableDay, removeUnavailableWeekday, saveUnavailableDay, saveUnavailableWeekday, sendCustomerCancellationSms, sendCustomerConfirmationSms, signInAdmin, signOutAdmin, updateAppointment, updateReminderSettings, getHolidaySettings, updateHolidaySettings, updateAdvertSettings, updateWeekendBookingsEnabled, getDogNotes, getAllDogNotes, upsertDogNote } from "../services/bookingService";
 import { buildIntakeLink, buildIntakeMessage, buildWhatsAppLink, createCustomer, deleteCustomer, deleteDog, ensureIntakeToken, getCustomers, getDeletedCustomers, markIntakeSent, restoreCustomer, saveDog, sendIntakeEmail, sendIntakeSms, updateCustomer } from "../services/customerService";
 import { Appointment, Customer, Dog, IntakeStatus, Service } from "../types";
 import { INTAKE_TERMS, LOCATIONS, MATTING_BULLETS, MATTING_CLOSING, MATTING_TERMS, SERVICES, SLOT_TIMES } from "../constants";
@@ -866,6 +866,37 @@ const AdminDashboard: React.FC = () => {
     }
   };
 
+  /**
+   * Cancels a booking (keeps the record, frees the slot for other customers)
+   * and optionally notifies the customer via WhatsApp or SMS.
+   */
+  const handleCancelBooking = async (booking: Appointment, channel: "whatsapp" | "sms" | "none") => {
+    if (!booking.id) return;
+    const notifyText = channel === "whatsapp" ? " and open WhatsApp with a cancellation message ready to send" : channel === "sms" ? " and text the customer to let them know" : "";
+    if (!window.confirm(`Cancel the booking for ${booking.dogname}${notifyText}?`)) return;
+
+    setIsWorking(true);
+    try {
+      if (channel === "whatsapp") {
+        if (!booking.phone) {
+          alert("No phone number on record — cancelling without notifying.");
+        } else {
+          window.open(buildWhatsAppLink(booking.phone, buildCancellationMessage(booking)), "_blank");
+        }
+      } else if (channel === "sms") {
+        await sendCustomerCancellationSms(booking);
+      }
+
+      await updateAppointment(booking.id, { status: "cancelled", booking_status: "cancelled" });
+      await loadData();
+      closeUpdateModal();
+    } catch (error: any) {
+      alert(error.message || "Could not cancel the booking.");
+    } finally {
+      setIsWorking(false);
+    }
+  };
+
   const handleAddBooking = async () => {
     if (!addForm.ownername || !addForm.dogname || !addForm.email || !addForm.phone) {
       alert("Please fill owner name, dog name, email and phone.");
@@ -1574,6 +1605,23 @@ const AdminDashboard: React.FC = () => {
                 Close
               </button>
             </div>
+
+            {activeBooking?.booking_status !== "cancelled" && (
+              <div className="mt-4 pt-4 border-t border-slate-200">
+                <p className="text-xs font-bold text-slate-500 uppercase mb-2">Cancel this booking</p>
+                <div className="flex flex-wrap gap-3">
+                  <button disabled={isWorking} onClick={() => activeBooking && handleCancelBooking(activeBooking, "whatsapp")} title="Free — opens WhatsApp with a cancellation message ready to send" className="bg-white border border-rose-300 hover:bg-rose-50 disabled:opacity-60 text-rose-700 px-4 py-2 rounded-lg text-sm font-bold">
+                    📱 Cancel + WhatsApp
+                  </button>
+                  <button disabled={isWorking} onClick={() => activeBooking && handleCancelBooking(activeBooking, "sms")} title="Sends a cancellation text automatically (~4p)" className="bg-white border border-rose-300 hover:bg-rose-50 disabled:opacity-60 text-rose-700 px-4 py-2 rounded-lg text-sm font-bold">
+                    💬 Cancel + SMS
+                  </button>
+                  <button disabled={isWorking} onClick={() => activeBooking && handleCancelBooking(activeBooking, "none")} title="Cancel without notifying the customer" className="bg-white border border-slate-300 hover:bg-slate-100 disabled:opacity-60 text-slate-600 px-4 py-2 rounded-lg text-sm font-bold">
+                    Cancel Only
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
