@@ -1922,7 +1922,7 @@ const AdminDashboard: React.FC = () => {
 
       {view === "diary" && (() => {
         const weekDates: string[] = [];
-        for (let i = 0; i < 5; i++) {
+        for (let i = 0; i < 7; i++) {
           const d = new Date(diaryWeekStart);
           d.setDate(d.getDate() + i);
           weekDates.push(toDateString(d));
@@ -1968,7 +1968,7 @@ const AdminDashboard: React.FC = () => {
           return "bg-amber-50 border-amber-300 text-amber-800";
         };
 
-        const weekLabel = `${new Date(`${weekDates[0]}T00:00:00`).toLocaleDateString("en-GB", { day: "numeric", month: "short" })} – ${new Date(`${weekDates[4]}T00:00:00`).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}`;
+        const weekLabel = `${new Date(`${weekDates[0]}T00:00:00`).toLocaleDateString("en-GB", { day: "numeric", month: "short" })} – ${new Date(`${weekDates[6]}T00:00:00`).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}`;
         const shiftWeek = (weeks: number) =>
           setDiaryWeekStart((prev) => {
             const next = new Date(prev);
@@ -2035,9 +2035,9 @@ const AdminDashboard: React.FC = () => {
             </div>
 
             <div className="overflow-x-auto">
-              <div className="min-w-[860px]">
+              <div className="min-w-[1150px]">
                 {/* Day headers */}
-                <div className="grid grid-cols-[64px_repeat(5,1fr)] gap-2 mb-2">
+                <div className="grid grid-cols-[64px_repeat(7,1fr)] gap-2 mb-2">
                   <div></div>
                   {weekDates.map((date) => {
                     const d = new Date(`${date}T00:00:00`);
@@ -2054,7 +2054,7 @@ const AdminDashboard: React.FC = () => {
 
                 {/* Slot rows */}
                 {SLOT_TIMES.map((slot) => (
-                  <div key={slot} className="grid grid-cols-[64px_repeat(5,1fr)] gap-2 mb-2">
+                  <div key={slot} className="grid grid-cols-[64px_repeat(7,1fr)] gap-2 mb-2">
                     <div className="text-xs font-black text-slate-400 pt-3 text-right pr-1">{slot}</div>
                     {weekDates.map((date) => {
                       const cellBookings = bookingsFor(date, slot);
