@@ -38,7 +38,7 @@ const AdminDashboard: React.FC = () => {
   const [authError, setAuthError] = useState("");
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [view, setView] = useState<"dashboard" | "bookings" | "diary" | "unavailable" | "services" | "settings" | "customers">("dashboard");
-  const [selectedLocation, setSelectedLocation] = useState(LOCATIONS[0].id);
+  const [selectedLocation, setSelectedLocation] = useState(ALL_LOCATIONS);
   const [isLoading, setIsLoading] = useState(true);
   const [dbStatus, setDbStatus] = useState<"connecting" | "connected" | "error">("connecting");
   const [unavailableDays, setUnavailableDays] = useState<string[]>([]);
