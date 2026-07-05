@@ -5,7 +5,7 @@ import Footer from "./components/Footer";
 import AdminDashboard from "./components/AdminDashboard";
 import IntakeForm from "./components/IntakeForm";
 import { CalendarPicker } from "./components/CalendarPicker";
-import { SERVICES, LOCATIONS, SLOT_TIMES, BOOKABLE_WEEKDAYS, EMAIL_ENDPOINT } from "./constants";
+import { SERVICES, LOCATIONS, SLOT_TIMES, EMAIL_ENDPOINT } from "./constants";
 import { getAvailableSlotTimes, saveAppointment, sendBookingEmail, sendConfirmationEmail, isDateAvailable, getUnavailableDays, getUnavailableWeekdays, sendHolidayEnquiryConfirmation, getHolidaySettings } from "./services/bookingService";
 
 
@@ -46,6 +46,7 @@ const App: React.FC = () => {
   const [advertEnd, setAdvertEnd] = useState<string | null>(null);
   const [advertText, setAdvertText] = useState<string | null>(null);
   const [advertColor, setAdvertColor] = useState<string>("#16a34a");
+  const [weekendsEnabled, setWeekendsEnabled] = useState(true);
 
   const selectedService = SERVICES.find((service) => service.id === formData.serviceid);
   const isHomeGroom = Boolean(selectedService && (selectedService.id.toLowerCase().includes("home") || selectedService.name.toLowerCase().includes("home") || selectedService.id.toLowerCase().includes("mobile") || selectedService.name.toLowerCase().includes("mobile")));
@@ -89,13 +90,14 @@ const App: React.FC = () => {
   // Load holiday + advert settings from Supabase on mount
   useEffect(() => {
     getHolidaySettings()
-      .then(({ holiday_start, holiday_end, advert_start, advert_end, advert_text, advert_color }) => {
+      .then(({ holiday_start, holiday_end, advert_start, advert_end, advert_text, advert_color, weekends_enabled }) => {
         setHolidayStart(holiday_start);
         setHolidayEnd(holiday_end);
         setAdvertStart(advert_start);
         setAdvertEnd(advert_end);
         setAdvertText(advert_text);
         if (advert_color) setAdvertColor(advert_color);
+        setWeekendsEnabled(weekends_enabled ?? true);
       })
       .catch(() => {});
   }, []);
@@ -149,14 +151,16 @@ const App: React.FC = () => {
     if (bookingStep === 2) {
       import("./services/bookingService").then(({ getUnavailableDays, getUnavailableWeekdays }) => {
         Promise.all([getUnavailableDays(formData.locationid || ""), getUnavailableWeekdays()]).then(([dates, weekdays]) => {
-          // Combine specific dates and recurring weekdays into one list for this month
-          const allUnavailable: string[] = [...dates];
+          // Combine specific dates and recurring weekdays into one list for this month.
+          // Today is never bookable (minimum notice = tomorrow from midday onwards).
           const today = new Date();
+          const allUnavailable: string[] = [...dates, today.toISOString().split("T")[0]];
           const maxDate = new Date(today.getTime() + 16 * 7 * 24 * 60 * 60 * 1000);
 
-          // Add unavailable weekdays and non-bookable days (weekends) within the booking window
+          // Add unavailable weekdays and non-bookable days (weekends, unless enabled) within the booking window
           for (let d = new Date(today); d <= maxDate; d.setDate(d.getDate() + 1)) {
-            if (weekdays.includes(d.getDay()) || !BOOKABLE_WEEKDAYS.includes(d.getDay())) {
+            const isWeekendDay = d.getDay() === 0 || d.getDay() === 6;
+            if (weekdays.includes(d.getDay()) || (isWeekendDay && !weekendsEnabled)) {
               allUnavailable.push(d.toISOString().split("T")[0]);
             }
           }
@@ -164,7 +168,7 @@ const App: React.FC = () => {
         });
       });
     }
-  }, [bookingStep, formData.locationid]);
+  }, [bookingStep, formData.locationid, weekendsEnabled]);
 
   const handleBookingSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -936,7 +940,7 @@ Message: ${enquiryData.message}
                 <h3 className="text-lg font-black text-slate-800 mb-3">3. Deposit & Cancellation Policy</h3>
                 <div className="space-y-3 ml-4">
                   <div>
-                    <strong>Non-Refundable Deposit:</strong> A £20 deposit is required at the time of booking to secure your appointment. This is deducted from the final groom price.
+                    <strong>Non-Refundable Deposit:</strong> A £20 deposit per dog is required at the time of booking to secure your appointment. This is deducted from the final groom price.
                   </div>
                   <div>
                     <strong>24-Hour Notice:</strong> We require at least 24 hours' notice for cancellations or rescheduling.

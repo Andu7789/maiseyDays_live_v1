@@ -110,6 +110,7 @@ export interface Appointment {
   deposit_paid_at?: string | null;
   deposit_notes?: string;
   customer_id?: string | null;
+  number_of_dogs?: number;
 }
 
 export interface AvailabilitySlot {

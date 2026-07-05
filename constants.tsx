@@ -20,8 +20,7 @@ export const INTAKE_TERMS: string[] = [
   "We will attempt to remove ticks ourselves. We believe it is something that may need to have your vet's advice on after. If we find any ticks, we will attempt to remove them if safe to do so. We will only remove up to 3 on one dog. However, if there are more ticks we will cease the groom and call you to come collect your dog. We will always advise a vet visit if this is the case.",
   "Late collection may result in a fee of £10/hour as we do not have facilities to keep your dog longer than the appointment.",
   "A late charge will be required if you are more than 30 minutes late to your dedicated appointment as we will have to reschedule.",
-  "A £20 deposit is required at the time of booking. This deposit will be deducted from the total cost of the groom. If you cancel with less than 24 hours' notice or fail to attend your appointment, a cancellation fee of 50% of the grooming price per dog will apply. In these cases, the deposit will be retained and counted towards the cancellation fee.",
-  "Ears are only plucked upon request by certain groomers only.",
+  "A £20 deposit per dog is required at the time of booking. This deposit will be deducted from the total cost of the groom. If you cancel with less than 24 hours' notice or fail to attend your appointment, a cancellation fee of 50% of the grooming price per dog will apply. In these cases, the deposit will be retained and counted towards the cancellation fee.",
   "If you are dissatisfied with your pet's groom, please let us know within 48 hours and we will do our best to resolve it for you.",
 ];
 

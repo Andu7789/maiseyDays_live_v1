@@ -152,6 +152,7 @@ export const getAppointments = async (): Promise<Appointment[]> => {
       calendar_sync_status: row.calendar_sync_status || "not_synced",
       calendar_last_synced_at: row.calendar_last_synced_at || null,
       calendar_last_error: row.calendar_last_error || null,
+      number_of_dogs: Number(row.number_of_dogs) || 1,
     }));
     return normalized;
   } catch (err) {
@@ -160,7 +161,7 @@ export const getAppointments = async (): Promise<Appointment[]> => {
   }
 };
 
-const ENHANCED_BOOKING_COLUMNS = ["requested_time_preference", "confirmed_date", "confirmed_time", "confirmed_duration_minutes", "is_confirmed", "confirmed_at", "confirmation_sent_at", "booking_source", "calendar_event_id", "calendar_sync_status", "calendar_last_synced_at", "calendar_last_error"];
+const ENHANCED_BOOKING_COLUMNS = ["requested_time_preference", "confirmed_date", "confirmed_time", "confirmed_duration_minutes", "is_confirmed", "confirmed_at", "confirmation_sent_at", "booking_source", "calendar_event_id", "calendar_sync_status", "calendar_last_synced_at", "calendar_last_error", "number_of_dogs"];
 
 const isSchemaColumnCacheError = (error: any) => {
   const message = String(error?.message || "").toLowerCase();
@@ -186,6 +187,7 @@ export const saveAppointment = async (app: Appointment) => {
   appointmentData.confirmed_at = app.confirmed_at ?? null;
   appointmentData.confirmation_sent_at = app.confirmation_sent_at ?? null;
   appointmentData.booking_source = app.booking_source || "web";
+  appointmentData.number_of_dogs = app.number_of_dogs || 1;
   if (!appointmentData.phone) {
     delete appointmentData.phone;
   }
@@ -671,13 +673,47 @@ const blockOverlappingSlots = (blocked: Set<string>, startMinutes: number, durat
   });
 };
 
+const toLocalDateString = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+/**
+ * Minimum-notice rule for web bookings: today is never bookable, and tomorrow
+ * only opens up from midday onwards (the 08:00/10:00 slots are blocked).
+ * Admin bookings bypass this via enforceLeadTime: false.
+ */
+const MIDDAY_MINUTES = 12 * 60;
+const applyLeadTimeRule = (blocked: Set<string>, date: string) => {
+  const now = new Date();
+  const todayStr = toLocalDateString(now);
+  if (date === todayStr) {
+    SLOT_TIMES.forEach((slot) => blocked.add(slot));
+    return;
+  }
+  const tomorrow = new Date(now);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  if (date === toLocalDateString(tomorrow)) {
+    SLOT_TIMES.forEach((slot) => {
+      if (timeToMinutes(slot) < MIDDAY_MINUTES) blocked.add(slot);
+    });
+  }
+};
+
 /**
  * Returns the free 2-hour slot start times for a location on a date.
  * Both pending requests and confirmed bookings block their slot.
+ * enforceLeadTime (default true) stops customers booking today or before
+ * tomorrow midday; pass false for admin-created bookings.
  */
-export const getAvailableSlotTimes = async (locationId: string, date: string): Promise<string[]> => {
+export const getAvailableSlotTimes = async (locationId: string, date: string, options?: { enforceLeadTime?: boolean }): Promise<string[]> => {
+  const enforceLeadTime = options?.enforceLeadTime ?? true;
   const dayOfWeek = new Date(`${date}T00:00:00`).getDay();
-  if (!BOOKABLE_WEEKDAYS.includes(dayOfWeek)) return [];
+  const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+  if (!BOOKABLE_WEEKDAYS.includes(dayOfWeek) && !isWeekend) return [];
+  if (isWeekend) {
+    const weekendsEnabled = await getHolidaySettings()
+      .then((s) => s.weekends_enabled)
+      .catch(() => true);
+    if (!weekendsEnabled) return [];
+  }
 
   const dateOpen = await isDateAvailable(locationId, date);
   if (!dateOpen) return [];
@@ -696,6 +732,8 @@ export const getAvailableSlotTimes = async (locationId: string, date: string): P
       if (!schedule || schedule.date !== date) continue;
       blockOverlappingSlots(blocked, schedule.startMinutes, schedule.durationMinutes);
     }
+
+    if (enforceLeadTime) applyLeadTimeRule(blocked, date);
 
     return SLOT_TIMES.filter((slot) => !blocked.has(slot));
   } catch (err) {
@@ -832,20 +870,29 @@ export const getHolidaySettings = async (): Promise<{
   advert_end: string | null;
   advert_text: string | null;
   advert_color: string | null;
+  weekends_enabled: boolean;
 }> => {
   const { data, error } = await supabase
     .from("holiday_settings")
-    .select("holiday_start, holiday_end, advert_start, advert_end, advert_text, advert_color")
+    .select("holiday_start, holiday_end, advert_start, advert_end, advert_text, advert_color, weekends_enabled")
     .eq("id", 1)
     .single();
   if (error) throw new Error(error.message);
-  return data;
+  return { ...data, weekends_enabled: data.weekends_enabled ?? true };
 };
 
 export const updateHolidaySettings = async (holidayStart: string | null, holidayEnd: string | null) => {
   const { error } = await supabase
     .from("holiday_settings")
     .update({ holiday_start: holidayStart || null, holiday_end: holidayEnd || null, updated_at: new Date().toISOString() })
+    .eq("id", 1);
+  if (error) throw new Error(error.message);
+};
+
+export const updateWeekendBookingsEnabled = async (enabled: boolean) => {
+  const { error } = await supabase
+    .from("holiday_settings")
+    .update({ weekends_enabled: enabled, updated_at: new Date().toISOString() })
     .eq("id", 1);
   if (error) throw new Error(error.message);
 };

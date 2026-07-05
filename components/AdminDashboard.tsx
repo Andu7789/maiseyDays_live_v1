@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { buildConfirmationMessage, checkAuthStatus, confirmAppointmentBooking, createManualAppointment, deleteAppointment, exportAppointmentsToExcel, findBookingClash, getAppointments, getCurrentUser, getEffectiveSchedule, getReminderSettings, getUnavailableDays, getUnavailableWeekdays, removeUnavailableDay, removeUnavailableWeekday, saveUnavailableDay, saveUnavailableWeekday, sendCustomerConfirmationSms, signInAdmin, signOutAdmin, updateAppointment, updateReminderSettings, getHolidaySettings, updateHolidaySettings, updateAdvertSettings, getDogNotes, getAllDogNotes, upsertDogNote } from "../services/bookingService";
+import { buildConfirmationMessage, checkAuthStatus, confirmAppointmentBooking, createManualAppointment, deleteAppointment, exportAppointmentsToExcel, findBookingClash, getAppointments, getAvailableSlotTimes, getCurrentUser, getEffectiveSchedule, getReminderSettings, getUnavailableDays, getUnavailableWeekdays, removeUnavailableDay, removeUnavailableWeekday, saveUnavailableDay, saveUnavailableWeekday, sendCustomerConfirmationSms, signInAdmin, signOutAdmin, updateAppointment, updateReminderSettings, getHolidaySettings, updateHolidaySettings, updateAdvertSettings, updateWeekendBookingsEnabled, getDogNotes, getAllDogNotes, upsertDogNote } from "../services/bookingService";
 import { buildIntakeLink, buildIntakeMessage, buildWhatsAppLink, createCustomer, deleteCustomer, deleteDog, ensureIntakeToken, getCustomers, markIntakeSent, saveDog, sendIntakeEmail, sendIntakeSms, updateCustomer } from "../services/customerService";
 import { Appointment, Customer, Dog, IntakeStatus, Service } from "../types";
 import { INTAKE_TERMS, LOCATIONS, MATTING_BULLETS, MATTING_CLOSING, MATTING_TERMS, SERVICES, SLOT_TIMES } from "../constants";
@@ -49,12 +49,33 @@ const AdminDashboard: React.FC = () => {
 
   const [showUpdateModal, setShowUpdateModal] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [addFormAvailableSlots, setAddFormAvailableSlots] = useState<string[]>(SLOT_TIMES);
   const [activeBooking, setActiveBooking] = useState<Appointment | null>(null);
   const [isWorking, setIsWorking] = useState(false);
   const [showDepositModal, setShowDepositModal] = useState(false);
   const [pendingConfirmChannel, setPendingConfirmChannel] = useState<"sms" | "whatsapp">("sms");
   const [diaryWeekStart, setDiaryWeekStart] = useState<Date>(() => getMonday(new Date()));
   const [diarySearch, setDiarySearch] = useState("");
+  const [showDiarySlotModal, setShowDiarySlotModal] = useState(false);
+  const [diarySlotDate, setDiarySlotDate] = useState("");
+  const [diarySlotTime, setDiarySlotTime] = useState("");
+  const [diarySlotCustomerSearch, setDiarySlotCustomerSearch] = useState("");
+  const [diarySlotSelectedCustomer, setDiarySlotSelectedCustomer] = useState<Customer | null>(null);
+  const [diarySlotForm, setDiarySlotForm] = useState({
+    ownername: "",
+    email: "",
+    phone: "",
+    dogname: "",
+    dogbreed: "",
+    serviceid: SERVICES[0].id,
+    locationid: LOCATIONS[0].id,
+    notes: "",
+    number_of_dogs: 1,
+    deposit_paid: false,
+    deposit_amount: 20,
+    deposit_notes: "",
+    confirm_channel: "whatsapp" as "none" | "whatsapp" | "sms",
+  });
 
   const [reminderSettings, setReminderSettings] = useState({
     enabled_28day: true,
@@ -70,6 +91,8 @@ const AdminDashboard: React.FC = () => {
   const [holidayStatus, setHolidayStatus] = useState<"idle" | "saved" | "error">("idle");
 
   const [advertForm, setAdvertForm] = useState({ advert_start: "", advert_end: "", advert_text: "", advert_color: "#EAB308" });
+  const [weekendsEnabled, setWeekendsEnabled] = useState(true);
+  const [weekendsSaving, setWeekendsSaving] = useState(false);
   const [advertSaving, setAdvertSaving] = useState(false);
   const [advertStatus, setAdvertStatus] = useState<"idle" | "saved" | "error">("idle");
   const [advertError, setAdvertError] = useState<string>("");
@@ -123,6 +146,7 @@ const AdminDashboard: React.FC = () => {
     confirmed_time: "",
     confirmed_duration_minutes: 120,
     notes: "",
+    number_of_dogs: 1,
     deposit_paid: false,
     deposit_amount: 20,
     deposit_notes: "",
@@ -141,6 +165,7 @@ const AdminDashboard: React.FC = () => {
     confirmed_time: "",
     confirmed_duration_minutes: 120,
     notes: "",
+    number_of_dogs: 1,
     deposit_paid: false,
     deposit_amount: 20,
     deposit_notes: "",
@@ -150,8 +175,28 @@ const AdminDashboard: React.FC = () => {
   // Pagination and sorting state
   const [pageSize, setPageSize] = useState(10);
   const [currentPage, setCurrentPage] = useState(1);
-  const [statusSort, setStatusSort] = useState<'asc' | 'desc' | null>(null);
+  type BookingSortColumn = "date" | "owner" | "deposit" | "status";
+  const [sortColumn, setSortColumn] = useState<BookingSortColumn>("date");
+  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc");
   const [bookingsSearch, setBookingsSearch] = useState("");
+
+  const toggleBookingSort = (column: BookingSortColumn) => {
+    setSortColumn((prevColumn) => {
+      if (prevColumn === column) {
+        setSortDirection((prevDir) => (prevDir === "asc" ? "desc" : "asc"));
+        return column;
+      }
+      // Sensible default direction per column: latest date / paid deposits / owner A-Z first
+      setSortDirection(column === "owner" ? "asc" : "desc");
+      return column;
+    });
+    setCurrentPage(1);
+  };
+
+  const sortIndicator = (column: BookingSortColumn) => (sortColumn === column ? (sortDirection === "asc" ? " ▲" : " ▼") : "");
+
+  // Booking status ordering used when sorting by status (pending -> confirmed -> completed -> due -> cancelled)
+  const STATUS_SORT_ORDER: Record<string, number> = { pending: 0, confirmed: 1, completed: 2, due_for_rebook: 3, cancelled: 4 };
 
   // Filter, sort, and paginate appointments
   const filteredAppointments = useMemo(() => {
@@ -165,28 +210,33 @@ const AdminDashboard: React.FC = () => {
           (a.phone || "").replace(/\s+/g, "").includes(search.replace(/\s+/g, "")),
       );
     }
-    // Sort by status if selected
-    if (statusSort) {
-      filtered = filtered.sort((a, b) => {
-        const aStatus = a.status || '';
-        const bStatus = b.status || '';
-        if (aStatus === bStatus) return 0;
-        return statusSort === 'asc' ? aStatus.localeCompare(bStatus) : bStatus.localeCompare(aStatus);
-      });
-    } else {
-      // Default: latest first
-      filtered = filtered.sort((a, b) => {
-        if (a.confirmation_sent_at && b.confirmation_sent_at) {
-          return (b.confirmation_sent_at as string).localeCompare(a.confirmation_sent_at as string);
-        }
-        if (a.id && b.id) {
-          return (b.id as string).localeCompare(a.id as string);
-        }
-        return (b.date || '').localeCompare(a.date || '');
-      });
-    }
+
+    const dir = sortDirection === "asc" ? 1 : -1;
+    filtered = [...filtered].sort((a, b) => {
+      if (sortColumn === "owner") {
+        return dir * (a.ownername || "").localeCompare(b.ownername || "");
+      }
+      if (sortColumn === "deposit") {
+        const aKey = (a.deposit_paid ? 1000 : 0) + (a.deposit_amount || 0);
+        const bKey = (b.deposit_paid ? 1000 : 0) + (b.deposit_amount || 0);
+        return dir * (aKey - bKey);
+      }
+      if (sortColumn === "status") {
+        const aKey = STATUS_SORT_ORDER[a.booking_status || "pending"] ?? 0;
+        const bKey = STATUS_SORT_ORDER[b.booking_status || "pending"] ?? 0;
+        return dir * (aKey - bKey);
+      }
+      // date: use the actual booking date (confirmed date wins, else requested date)
+      const aSchedule = getEffectiveSchedule(a);
+      const bSchedule = getEffectiveSchedule(b);
+      const aDate = aSchedule?.date || a.confirmed_date || a.date || "";
+      const bDate = bSchedule?.date || b.confirmed_date || b.date || "";
+      if (aDate !== bDate) return dir * aDate.localeCompare(bDate);
+      return dir * ((aSchedule?.startMinutes || 0) - (bSchedule?.startMinutes || 0));
+    });
+
     return filtered;
-  }, [appointments, selectedLocation, statusSort, bookingsSearch]);
+  }, [appointments, selectedLocation, sortColumn, sortDirection, bookingsSearch]);
 
   const totalPages = Math.ceil(filteredAppointments.length / pageSize);
   const paginatedAppointments = filteredAppointments.slice((currentPage - 1) * pageSize, currentPage * pageSize);
@@ -214,6 +264,19 @@ const AdminDashboard: React.FC = () => {
       loadData();
     }
   }, [isAuthorized, selectedLocation]);
+
+  // Keep the Add Booking modal's time slot options in sync with real availability
+  // (admin can still see/select an already-picked slot, but not a newly-clashing one)
+  useEffect(() => {
+    if (!showAddModal) return;
+    let cancelled = false;
+    getAvailableSlotTimes(addForm.locationid, addForm.date, { enforceLeadTime: false }).then((slots) => {
+      if (!cancelled) setAddFormAvailableSlots(slots);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [showAddModal, addForm.locationid, addForm.date]);
 
   const loadData = async () => {
     setIsLoading(true);
@@ -244,6 +307,7 @@ const AdminDashboard: React.FC = () => {
           advert_text: holSettings.advert_text ?? "",
           advert_color: holSettings.advert_color ?? "#EAB308",
         });
+        setWeekendsEnabled(holSettings.weekends_enabled ?? true);
       }
       setDbStatus("connected");
     } catch (err) {
@@ -565,8 +629,9 @@ const AdminDashboard: React.FC = () => {
       confirmed_time: booking.confirmed_time ? String(booking.confirmed_time).slice(0, 5) : (/^\d{1,2}:\d{2}$/.test((booking.requested_time_preference || booking.time || "").trim()) ? (booking.requested_time_preference || booking.time || "").trim().slice(0, 5) : ""),
       confirmed_duration_minutes: booking.confirmed_duration_minutes || 120,
       notes: booking.notes || "",
+      number_of_dogs: booking.number_of_dogs || 1,
       deposit_paid: booking.deposit_paid || false,
-      deposit_amount: booking.deposit_amount || 20,
+      deposit_amount: booking.deposit_amount || (booking.number_of_dogs || 1) * 20,
       deposit_notes: booking.deposit_notes || "",
       deposit_paid_at: booking.deposit_paid_at || null,
     });
@@ -592,6 +657,7 @@ const AdminDashboard: React.FC = () => {
       confirmed_time: "",
       confirmed_duration_minutes: 120,
       notes: "",
+      number_of_dogs: 1,
       deposit_paid: false,
       deposit_amount: 20,
       deposit_notes: "",
@@ -623,6 +689,7 @@ const AdminDashboard: React.FC = () => {
         confirmed_date: editForm.confirmed_date || null,
         confirmed_time: editForm.confirmed_time || null,
         confirmed_duration_minutes: editForm.confirmed_duration_minutes,
+        number_of_dogs: editForm.number_of_dogs,
         deposit_paid: editForm.deposit_paid,
         deposit_amount: editForm.deposit_amount,
         deposit_paid_at: editForm.deposit_paid ? new Date().toISOString() : null,
@@ -764,6 +831,7 @@ const AdminDashboard: React.FC = () => {
       confirmed_time: "",
       confirmed_duration_minutes: booking.confirmed_duration_minutes || 120,
       notes: `Rebooking from ${booking.confirmed_date || booking.date}`,
+      number_of_dogs: booking.number_of_dogs || 1,
       deposit_paid: false,
       deposit_amount: 20,
       deposit_notes: "",
@@ -818,6 +886,7 @@ const AdminDashboard: React.FC = () => {
         confirmed_time: addForm.confirmed_time,
         confirmed_duration_minutes: addForm.confirmed_duration_minutes,
         notes: addForm.notes,
+        number_of_dogs: addForm.number_of_dogs,
         status: "confirmed",
         booking_status: "confirmed",
         booking_source: "manual",
@@ -868,12 +937,125 @@ const AdminDashboard: React.FC = () => {
         confirmed_time: "",
         confirmed_duration_minutes: 120,
         notes: "",
+        number_of_dogs: 1,
         deposit_paid: false,
         deposit_amount: 20,
         deposit_notes: "",
         confirm_channel: "whatsapp" as "none" | "whatsapp" | "sms",
       });
       alert(addForm.confirm_channel === "sms" ? "Booking added and SMS confirmation sent." : addForm.confirm_channel === "whatsapp" ? "Booking added — WhatsApp message opened, just press send." : "Booking added.");
+    } catch (error: any) {
+      alert(error.message || "Could not add booking.");
+    } finally {
+      setIsWorking(false);
+    }
+  };
+
+  const openDiarySlotModal = (date: string, time: string) => {
+    setDiarySlotDate(date);
+    setDiarySlotTime(time);
+    setDiarySlotCustomerSearch("");
+    setDiarySlotSelectedCustomer(null);
+    setDiarySlotForm({
+      ownername: "",
+      email: "",
+      phone: "",
+      dogname: "",
+      dogbreed: "",
+      serviceid: SERVICES[0].id,
+      locationid: selectedLocation === ALL_LOCATIONS ? LOCATIONS[0].id : selectedLocation,
+      notes: "",
+      number_of_dogs: 1,
+      deposit_paid: false,
+      deposit_amount: 20,
+      deposit_notes: "",
+      confirm_channel: "whatsapp",
+    });
+    setShowDiarySlotModal(true);
+  };
+
+  const selectDiarySlotCustomer = (customer: Customer) => {
+    setDiarySlotSelectedCustomer(customer);
+    setDiarySlotForm((prev) => ({
+      ...prev,
+      ownername: customer.ownername,
+      email: customer.email || "",
+      phone: customer.phone || "",
+      dogname: customer.dogs?.[0]?.name || "",
+      dogbreed: customer.dogs?.[0]?.breed || "",
+    }));
+    setDiarySlotCustomerSearch("");
+  };
+
+  const handleDiarySlotBooking = async () => {
+    if (!diarySlotForm.ownername || !diarySlotForm.dogname || (!diarySlotForm.email && !diarySlotForm.phone)) {
+      alert("Please fill in owner name, dog name, and at least an email or phone number.");
+      return;
+    }
+
+    const clash = await findBookingClash(diarySlotForm.locationid, diarySlotDate, diarySlotTime, 120);
+    if (clash) {
+      const clashTime = getEffectiveSchedule(clash)?.timeLabel || "";
+      if (!window.confirm(`⚠️ DOUBLE BOOKING WARNING\n\n${clash.dogname} (${clash.ownername}) is already booked at ${clashTime} on this day.\n\nAdd this booking anyway?`)) return;
+    }
+
+    setIsWorking(true);
+    try {
+      const result = await createManualAppointment({
+        ownername: diarySlotForm.ownername,
+        email: diarySlotForm.email,
+        phone: diarySlotForm.phone,
+        dogname: diarySlotForm.dogname,
+        dogbreed: diarySlotForm.dogbreed,
+        serviceid: diarySlotForm.serviceid,
+        locationid: diarySlotForm.locationid,
+        date: diarySlotDate,
+        time: diarySlotTime,
+        confirmed_date: diarySlotDate,
+        confirmed_time: diarySlotTime,
+        confirmed_duration_minutes: 120,
+        notes: diarySlotForm.notes,
+        number_of_dogs: diarySlotForm.number_of_dogs,
+        status: "confirmed",
+        booking_status: "confirmed",
+        booking_source: "manual",
+        deposit_paid: diarySlotForm.deposit_paid,
+        deposit_amount: diarySlotForm.deposit_amount,
+        deposit_paid_at: diarySlotForm.deposit_paid ? new Date().toISOString() : null,
+        deposit_notes: diarySlotForm.deposit_notes,
+      });
+
+      const created = Array.isArray(result) ? result[0] : null;
+
+      // The auto-link trigger only matches by email — if we picked an existing
+      // customer explicitly (e.g. one with only a phone number), link it directly.
+      if (created?.id && diarySlotSelectedCustomer) {
+        await updateAppointment(created.id, { customer_id: diarySlotSelectedCustomer.id });
+      }
+
+      if (diarySlotForm.confirm_channel !== "none" && created?.id) {
+        const nowIso = new Date().toISOString();
+        const confirmedAppointment: Appointment = {
+          ...created,
+          confirmed_date: diarySlotDate,
+          confirmed_time: diarySlotTime,
+          confirmed_duration_minutes: 120,
+        };
+        try {
+          if (diarySlotForm.confirm_channel === "sms") {
+            await sendCustomerConfirmationSms(confirmedAppointment);
+          } else {
+            window.open(buildWhatsAppLink(diarySlotForm.phone, buildConfirmationMessage(confirmedAppointment)), "_blank");
+          }
+          await updateAppointment(created.id, { is_confirmed: true, confirmed_at: nowIso, confirmation_sent_at: nowIso });
+        } catch (sendErr: any) {
+          alert(`Booking created but the confirmation failed to send: ${sendErr.message}`);
+        }
+      }
+
+      await loadData();
+      await refreshCustomers();
+      setShowDiarySlotModal(false);
     } catch (error: any) {
       alert(error.message || "Could not add booking.");
     } finally {
@@ -987,11 +1169,7 @@ const AdminDashboard: React.FC = () => {
               <button className={`px-2 py-1 rounded border text-xs ${pageSize === 20 ? 'bg-emerald-100 text-emerald-700' : 'bg-white hover:bg-slate-100'}`} onClick={() => { setPageSize(20); setCurrentPage(1); }}>20</button>
               <button className={`px-2 py-1 rounded border text-xs ${pageSize === 30 ? 'bg-emerald-100 text-emerald-700' : 'bg-white hover:bg-slate-100'}`} onClick={() => { setPageSize(30); setCurrentPage(1); }}>30</button>
             </div>
-            <div className="flex items-center gap-2">
-              <label className="font-bold text-xs text-slate-600">Sort by status:</label>
-              <button onClick={() => { setStatusSort(statusSort === 'asc' ? 'desc' : 'asc'); setCurrentPage(1); }} className={`px-2 py-1 rounded border text-xs ${statusSort ? 'bg-emerald-100 text-emerald-700' : 'bg-white hover:bg-slate-100'}`}>{statusSort === 'asc' ? 'Ascending' : statusSort === 'desc' ? 'Descending' : 'None'}</button>
-              {statusSort && <button onClick={() => setStatusSort(null)} className="px-2 py-1 rounded border text-xs bg-white hover:bg-slate-100">Clear</button>}
-            </div>
+            <div className="text-xs text-slate-400 font-medium">Click a column heading to sort (Date, Dog &amp; Owner, Deposit, Status)</div>
             <div className="flex items-center gap-2">
               <button disabled={currentPage === 1} onClick={() => setCurrentPage(p => Math.max(1, p - 1))} className="px-2 py-1 rounded border text-xs bg-white hover:bg-slate-100">Prev</button>
               <span className="text-xs">Page {currentPage} of {totalPages}</span>
@@ -1006,14 +1184,14 @@ const AdminDashboard: React.FC = () => {
               <table className="w-full text-left min-w-[980px]">
                 <thead className="bg-slate-50 border-b">
                   <tr>
-                    <th className="p-4 font-bold text-slate-600">Dog & Owner</th>
+                    <th className="p-4 font-bold text-slate-600 cursor-pointer select-none hover:text-teal-600" onClick={() => toggleBookingSort("owner")}>Dog & Owner{sortIndicator("owner")}</th>
                     <th className="p-4 font-bold text-slate-600">Service</th>
                     <th className="p-4 font-bold text-slate-600">Requested</th>
-                    <th className="p-4 font-bold text-slate-600">Confirmed Date</th>
+                    <th className="p-4 font-bold text-slate-600 cursor-pointer select-none hover:text-teal-600" onClick={() => toggleBookingSort("date")}>Confirmed Date{sortIndicator("date")}</th>
                     <th className="p-4 font-bold text-slate-600">Time</th>
                     <th className="p-4 font-bold text-slate-600">Duration</th>
-                    <th className="p-4 font-bold text-slate-600">Status</th>
-                    <th className="p-4 font-bold text-slate-600">Deposit</th>
+                    <th className="p-4 font-bold text-slate-600 cursor-pointer select-none hover:text-teal-600" onClick={() => toggleBookingSort("status")}>Status{sortIndicator("status")}</th>
+                    <th className="p-4 font-bold text-slate-600 cursor-pointer select-none hover:text-teal-600" onClick={() => toggleBookingSort("deposit")}>Deposit{sortIndicator("deposit")}</th>
                     <th className="p-4 font-bold text-slate-600">Actions</th>
                   </tr>
                 </thead>
@@ -1323,11 +1501,27 @@ const AdminDashboard: React.FC = () => {
                 ))}
                 {editForm.confirmed_time && !SLOT_TIMES.includes(editForm.confirmed_time) && <option value={editForm.confirmed_time}>{editForm.confirmed_time} (custom)</option>}
               </select>
+              <div className="flex items-center gap-2">
+                <label className="text-xs font-bold text-slate-500 whitespace-nowrap">Number of dogs</label>
+                <input
+                  type="number"
+                  min={1}
+                  value={editForm.number_of_dogs}
+                  onChange={(e) => {
+                    const n = Math.max(1, Number(e.target.value) || 1);
+                    setEditForm({ ...editForm, number_of_dogs: n, deposit_amount: n * 20 });
+                  }}
+                  className="px-4 py-3 border rounded-lg w-full"
+                />
+              </div>
               <textarea value={editForm.notes} onChange={(e) => setEditForm({ ...editForm, notes: e.target.value })} placeholder="Notes" className="md:col-span-2 px-4 py-3 border rounded-lg min-h-24" />
             </div>
 
             <div className="mt-4 p-4 bg-amber-50 border border-amber-200 rounded-lg">
-              <h4 className="text-sm font-bold text-amber-900 mb-3">£20 Deposit Status</h4>
+              <h4 className="text-sm font-bold text-amber-900 mb-3">
+                £{editForm.deposit_amount} Deposit Status
+                {editForm.number_of_dogs > 1 && <span className="font-normal text-amber-700"> (£20 × {editForm.number_of_dogs} dogs)</span>}
+              </h4>
               <div className="flex items-center gap-4">
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input
@@ -1377,7 +1571,7 @@ const AdminDashboard: React.FC = () => {
                 <span className="text-3xl">💰</span>
               </div>
               <h3 className="text-xl font-black text-slate-800 mb-2">Deposit Reminder</h3>
-              <p className="text-sm text-slate-600">Has the customer paid their £20 deposit?</p>
+              <p className="text-sm text-slate-600">Has the customer paid their £{editForm.deposit_amount} deposit{editForm.number_of_dogs > 1 ? ` (£20 × ${editForm.number_of_dogs} dogs)` : ""}?</p>
             </div>
 
             <div className="space-y-3">
@@ -1483,6 +1677,37 @@ const AdminDashboard: React.FC = () => {
                   <p className="text-xs text-slate-500 mt-1">Currently set to {reminderSettings.next_day_time}</p>
                 </div>
               </div>
+            </div>
+
+            {/* Weekend Bookings */}
+            <div className="p-6 bg-teal-50 border-2 border-teal-200 rounded-2xl">
+              <h3 className="text-xl font-bold text-slate-800 mb-1">Weekend Bookings</h3>
+              <p className="text-slate-500 text-sm mb-4">
+                Weekdays (Mon–Fri) are always bookable. Use this to allow or stop customers booking Saturday/Sunday appointments online.
+              </p>
+              <label className="flex items-center gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={weekendsEnabled}
+                  disabled={weekendsSaving}
+                  onChange={async (e) => {
+                    const enabled = e.target.checked;
+                    setWeekendsEnabled(enabled);
+                    setWeekendsSaving(true);
+                    try {
+                      await updateWeekendBookingsEnabled(enabled);
+                    } catch (err: any) {
+                      setWeekendsEnabled(!enabled);
+                      alert(`Could not update setting: ${err.message}`);
+                    } finally {
+                      setWeekendsSaving(false);
+                    }
+                  }}
+                  className="w-5 h-5 rounded border-teal-300 text-teal-600"
+                />
+                <span className="font-medium text-slate-700">Allow customers to book weekend (Saturday/Sunday) appointments</span>
+                {weekendsSaving && <span className="text-xs text-teal-600 font-bold">Saving…</span>}
+              </label>
             </div>
 
             {/* Holiday Mode */}
@@ -1807,7 +2032,7 @@ const AdminDashboard: React.FC = () => {
               <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-amber-200 border border-amber-300"></span> Pending request (holds slot)</span>
               <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-emerald-200 border border-emerald-300"></span> Confirmed</span>
               <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-blue-200 border border-blue-300"></span> Completed</span>
-              <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-slate-200 border border-slate-300"></span> Closed day</span>
+              <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-red-200 border border-red-300"></span> Closed day</span>
             </div>
 
             <div className="overflow-x-auto">
@@ -1819,7 +2044,7 @@ const AdminDashboard: React.FC = () => {
                     const d = new Date(`${date}T00:00:00`);
                     const closed = isClosedDay(date);
                     return (
-                      <div key={date} className={`text-center py-2 rounded-xl ${date === todayStr ? "bg-teal-600 text-white" : closed ? "bg-slate-100 text-slate-400" : "bg-slate-50 text-slate-700"}`}>
+                      <div key={date} className={`text-center py-2 rounded-xl ${date === todayStr ? "bg-teal-600 text-white" : closed ? "bg-red-100 text-red-700" : "bg-slate-50 text-slate-700"}`}>
                         <div className="text-xs font-black uppercase">{DAYS[d.getDay()]}</div>
                         <div className="text-sm font-bold">{d.toLocaleDateString("en-GB", { day: "numeric", month: "short" })}</div>
                         {closed && <div className="text-[10px] font-black uppercase">Closed</div>}
@@ -1836,7 +2061,11 @@ const AdminDashboard: React.FC = () => {
                       const cellBookings = bookingsFor(date, slot);
                       const closed = isClosedDay(date);
                       return (
-                        <div key={`${date}-${slot}`} className={`min-h-[64px] rounded-xl border p-1.5 space-y-1.5 ${closed ? "bg-slate-50 border-slate-100" : cellBookings.length > 1 ? "bg-red-50 border-red-200" : "bg-white border-slate-100"}`}>
+                        <div
+                          key={`${date}-${slot}`}
+                          onClick={() => !closed && cellBookings.length === 0 && openDiarySlotModal(date, slot)}
+                          className={`min-h-[64px] rounded-xl border p-1.5 space-y-1.5 ${closed ? "bg-red-50 border-red-200" : cellBookings.length > 1 ? "bg-red-50 border-red-200" : cellBookings.length === 0 ? "bg-white border-slate-100 cursor-pointer hover:border-teal-300 hover:bg-teal-50/40 transition-colors" : "bg-white border-slate-100"}`}
+                        >
                           {cellBookings.map(({ apt, schedule }) => (
                             <button key={apt.id} onClick={() => openUpdateModal(apt)} className={`w-full text-left px-2 py-1.5 rounded-lg border text-xs font-bold hover:shadow transition-all ${chipStyle(apt)}`}>
                               <span className="block truncate">🐕 {apt.dogname}</span>
@@ -2362,6 +2591,7 @@ const AdminDashboard: React.FC = () => {
                       confirmed_time: "",
                       confirmed_duration_minutes: 120,
                       notes: "",
+                      number_of_dogs: 1,
                       deposit_paid: false,
                       deposit_amount: 20,
                       deposit_notes: "",
@@ -2529,6 +2759,133 @@ const AdminDashboard: React.FC = () => {
         );
       })()}
 
+      {/* Diary slot-click booking modal */}
+      {showDiarySlotModal && (() => {
+        const search = diarySlotCustomerSearch.trim().toLowerCase();
+        const searchResults = !search
+          ? []
+          : customersList
+              .filter(
+                (c) =>
+                  c.ownername.toLowerCase().includes(search) ||
+                  (c.email || "").toLowerCase().includes(search) ||
+                  (c.phone || "").replace(/\s+/g, "").includes(search.replace(/\s+/g, "")) ||
+                  (c.dogs || []).some((d) => d.name.toLowerCase().includes(search)),
+              )
+              .slice(0, 8);
+        const dateLabel = new Date(`${diarySlotDate}T00:00:00`).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "short", year: "numeric" });
+
+        return (
+          <div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-2xl p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+              <div className="flex justify-between items-center mb-1">
+                <h3 className="text-xl font-black text-slate-800">New Booking — {dateLabel}</h3>
+                <button onClick={() => setShowDiarySlotModal(false)} className="text-slate-400 hover:text-slate-600 text-2xl font-bold">×</button>
+              </div>
+              <p className="text-sm text-slate-500 mb-4">{diarySlotTime} · 2 hour slot</p>
+
+              <div className="mb-4">
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Find an existing customer</label>
+                <input
+                  value={diarySlotCustomerSearch}
+                  onChange={(e) => setDiarySlotCustomerSearch(e.target.value)}
+                  placeholder="🔍 Search by dog, owner name or phone..."
+                  className="w-full px-4 py-3 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-teal-500"
+                />
+                {searchResults.length > 0 && (
+                  <div className="mt-2 bg-slate-50 border border-slate-200 rounded-xl divide-y divide-slate-200 overflow-hidden">
+                    {searchResults.map((c) => (
+                      <button key={c.id} onClick={() => selectDiarySlotCustomer(c)} className="w-full text-left p-3 hover:bg-white transition-colors">
+                        <span className="font-bold text-sm text-slate-800">{c.ownername}</span>
+                        <span className="text-xs text-slate-500 ml-2">{c.phone} {c.email && `· ${c.email}`}</span>
+                        {(c.dogs || []).length > 0 && <span className="block text-xs text-slate-500">🐕 {(c.dogs || []).map((d) => d.name).join(", ")}</span>}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {diarySlotSelectedCustomer && (
+                  <div className="mt-2 flex items-center justify-between bg-teal-50 border border-teal-200 rounded-xl px-3 py-2">
+                    <span className="text-sm font-bold text-teal-800">✓ {diarySlotSelectedCustomer.ownername} selected</span>
+                    <button onClick={() => setDiarySlotSelectedCustomer(null)} className="text-xs font-bold text-teal-600 hover:text-teal-800 underline">Clear</button>
+                  </div>
+                )}
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <input value={diarySlotForm.ownername} onChange={(e) => setDiarySlotForm({ ...diarySlotForm, ownername: e.target.value })} placeholder="Owner name *" className="px-4 py-3 border rounded-lg" />
+                <input value={diarySlotForm.dogname} onChange={(e) => setDiarySlotForm({ ...diarySlotForm, dogname: e.target.value })} placeholder="Dog name *" className="px-4 py-3 border rounded-lg" />
+                <input value={diarySlotForm.email} onChange={(e) => setDiarySlotForm({ ...diarySlotForm, email: e.target.value })} placeholder="Email" className="px-4 py-3 border rounded-lg" />
+                <input value={diarySlotForm.phone} onChange={(e) => setDiarySlotForm({ ...diarySlotForm, phone: e.target.value })} placeholder="Phone" className="px-4 py-3 border rounded-lg" />
+                <input value={diarySlotForm.dogbreed} onChange={(e) => setDiarySlotForm({ ...diarySlotForm, dogbreed: e.target.value })} placeholder="Dog breed" className="px-4 py-3 border rounded-lg" />
+                <select value={diarySlotForm.serviceid} onChange={(e) => setDiarySlotForm({ ...diarySlotForm, serviceid: e.target.value })} className="px-4 py-3 border rounded-lg">
+                  {SERVICES.map((service) => (
+                    <option key={service.id} value={service.id}>
+                      {service.name}
+                    </option>
+                  ))}
+                </select>
+                <select value={diarySlotForm.locationid} onChange={(e) => setDiarySlotForm({ ...diarySlotForm, locationid: e.target.value })} className="px-4 py-3 border rounded-lg">
+                  {LOCATIONS.map((location) => (
+                    <option key={location.id} value={location.id}>
+                      {location.name}
+                    </option>
+                  ))}
+                </select>
+                <div className="flex items-center gap-2">
+                  <label className="text-xs font-bold text-slate-500 whitespace-nowrap">Number of dogs</label>
+                  <input
+                    type="number"
+                    min={1}
+                    value={diarySlotForm.number_of_dogs}
+                    onChange={(e) => {
+                      const n = Math.max(1, Number(e.target.value) || 1);
+                      setDiarySlotForm({ ...diarySlotForm, number_of_dogs: n, deposit_amount: n * 20 });
+                    }}
+                    className="px-4 py-3 border rounded-lg w-full"
+                  />
+                </div>
+                <textarea value={diarySlotForm.notes} onChange={(e) => setDiarySlotForm({ ...diarySlotForm, notes: e.target.value })} placeholder="Notes" className="md:col-span-2 px-4 py-3 border rounded-lg min-h-20" />
+              </div>
+
+              <div className="mt-4 p-4 bg-amber-50 border border-amber-200 rounded-lg">
+                <h4 className="text-sm font-bold text-amber-900 mb-3">
+                  £{diarySlotForm.deposit_amount} Deposit Status
+                  {diarySlotForm.number_of_dogs > 1 && <span className="font-normal text-amber-700"> (£20 × {diarySlotForm.number_of_dogs} dogs)</span>}
+                </h4>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input type="checkbox" checked={diarySlotForm.deposit_paid} onChange={(e) => setDiarySlotForm({ ...diarySlotForm, deposit_paid: e.target.checked })} className="w-5 h-5 rounded border-amber-300 text-amber-600 focus:ring-amber-500" />
+                  <span className="text-sm font-medium text-amber-900">Deposit Paid</span>
+                </label>
+              </div>
+
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mt-4">
+                <span className="text-sm font-semibold text-blue-900">Send booking confirmation to customer?</span>
+                <div className="flex flex-wrap gap-2 mt-2">
+                  <button type="button" onClick={() => setDiarySlotForm({ ...diarySlotForm, confirm_channel: "whatsapp" })} className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${diarySlotForm.confirm_channel === "whatsapp" ? "bg-green-500 text-white shadow" : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"}`}>
+                    📱 WhatsApp (free)
+                  </button>
+                  <button type="button" onClick={() => setDiarySlotForm({ ...diarySlotForm, confirm_channel: "sms" })} className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${diarySlotForm.confirm_channel === "sms" ? "bg-blue-500 text-white shadow" : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"}`}>
+                    💬 SMS (~4p)
+                  </button>
+                  <button type="button" onClick={() => setDiarySlotForm({ ...diarySlotForm, confirm_channel: "none" })} className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${diarySlotForm.confirm_channel === "none" ? "bg-slate-700 text-white shadow" : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"}`}>
+                    Don't send
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex gap-3 mt-5">
+                <button disabled={isWorking} onClick={handleDiarySlotBooking} className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white px-5 py-2 rounded-lg font-bold">
+                  {isWorking ? "Adding..." : "Add Booking"}
+                </button>
+                <button onClick={() => setShowDiarySlotModal(false)} className="bg-slate-200 hover:bg-slate-300 text-slate-700 px-5 py-2 rounded-lg font-bold">
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Add Customer Modal */}
       {showAddCustomerModal && (
         <div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center p-4 z-50">
@@ -2582,16 +2939,32 @@ const AdminDashboard: React.FC = () => {
               <select value={addForm.confirmed_time} onChange={(e) => setAddForm({ ...addForm, confirmed_time: e.target.value, confirmed_duration_minutes: 120 })} className="px-4 py-3 border rounded-lg">
                 <option value="">Time slot</option>
                 {SLOT_TIMES.map((slot) => (
-                  <option key={slot} value={slot}>
-                    {slot} (2 hrs)
+                  <option key={slot} value={slot} disabled={!addFormAvailableSlots.includes(slot)}>
+                    {slot} (2 hrs){!addFormAvailableSlots.includes(slot) ? " — booked" : ""}
                   </option>
                 ))}
               </select>
+              <div className="flex items-center gap-2">
+                <label className="text-xs font-bold text-slate-500 whitespace-nowrap">Number of dogs</label>
+                <input
+                  type="number"
+                  min={1}
+                  value={addForm.number_of_dogs}
+                  onChange={(e) => {
+                    const n = Math.max(1, Number(e.target.value) || 1);
+                    setAddForm({ ...addForm, number_of_dogs: n, deposit_amount: n * 20 });
+                  }}
+                  className="px-4 py-3 border rounded-lg w-full"
+                />
+              </div>
               <textarea value={addForm.notes} onChange={(e) => setAddForm({ ...addForm, notes: e.target.value })} placeholder="Notes" className="md:col-span-2 px-4 py-3 border rounded-lg min-h-24" />
             </div>
 
             <div className="mt-4 p-4 bg-amber-50 border border-amber-200 rounded-lg">
-              <h4 className="text-sm font-bold text-amber-900 mb-3">£20 Deposit Status</h4>
+              <h4 className="text-sm font-bold text-amber-900 mb-3">
+                £{addForm.deposit_amount} Deposit Status
+                {addForm.number_of_dogs > 1 && <span className="font-normal text-amber-700"> (£20 × {addForm.number_of_dogs} dogs)</span>}
+              </h4>
               <div className="flex items-center gap-4">
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input
