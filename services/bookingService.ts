@@ -117,6 +117,58 @@ const uploadBookingPhoto = async (appointment: Appointment, photo: File) => {
   throw new Error("Unable to generate photo URL.");
 };
 
+export type BookingPhotoType = "before" | "after" | "other";
+
+export interface BookingPhoto {
+  id: string;
+  appointment_id: string;
+  storage_path: string;
+  photo_type: BookingPhotoType;
+  caption: string | null;
+  created_at: string;
+  url: string;
+}
+
+/** Uploads a before/after/other photo for a booking and records it against that booking. */
+export const addBookingPhoto = async (appointmentId: string, photo: File, photoType: BookingPhotoType, caption?: string) => {
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const fileExt = photo.name.split(".").pop() || "jpg";
+  const filePath = `admin/${appointmentId}/${timestamp}.${fileExt}`;
+
+  const uploadResult = await supabase.storage.from(BOOKING_PHOTO_BUCKET).upload(filePath, photo, {
+    cacheControl: "3600",
+    upsert: false,
+    contentType: photo.type || "image/jpeg",
+  });
+  if (uploadResult.error) throw new Error(uploadResult.error.message);
+
+  const { error } = await supabase.from("booking_photos").insert([{ appointment_id: appointmentId, storage_path: filePath, photo_type: photoType, caption: caption || null }]);
+  if (error) throw new Error(error.message);
+};
+
+/** Lists a booking's photos with a freshly-generated view link each time (never goes dead). */
+export const getBookingPhotos = async (appointmentId: string): Promise<BookingPhoto[]> => {
+  const { data, error } = await supabase.from("booking_photos").select("*").eq("appointment_id", appointmentId).order("created_at", { ascending: true });
+  if (error) throw new Error(error.message);
+
+  return Promise.all(
+    (data || []).map(async (row: any) => {
+      const signed = await supabase.storage.from(BOOKING_PHOTO_BUCKET).createSignedUrl(row.storage_path, 60 * 60);
+      let url = signed.data?.signedUrl || "";
+      if (!url) {
+        url = supabase.storage.from(BOOKING_PHOTO_BUCKET).getPublicUrl(row.storage_path).data?.publicUrl || "";
+      }
+      return { ...row, url };
+    }),
+  );
+};
+
+export const deleteBookingPhoto = async (photo: BookingPhoto) => {
+  await supabase.storage.from(BOOKING_PHOTO_BUCKET).remove([photo.storage_path]);
+  const { error } = await supabase.from("booking_photos").delete().eq("id", photo.id);
+  if (error) throw new Error(error.message);
+};
+
 const normalizeLocationId = (rawValue: unknown) => {
   const value = String(rawValue || "").trim();
   if (!value) return LOCATIONS[0].id;

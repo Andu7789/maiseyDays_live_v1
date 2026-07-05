@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { buildCancellationMessage, buildConfirmationMessage, buildRebookNudgeMessage, checkAuthStatus, confirmAppointmentBooking, createManualAppointment, deleteAppointment, exportAppointmentsToExcel, findBookingClash, getAppointments, getAvailableSlotTimes, getBookingRevenue, getCurrentUser, getEffectiveSchedule, getReminderSettings, getServiceBasePrice, getUnavailableDays, getUnavailableWeekdays, removeUnavailableDay, removeUnavailableWeekday, saveUnavailableDay, saveUnavailableWeekday, sendCustomerCancellationSms, sendCustomerConfirmationSms, signInAdmin, signOutAdmin, updateAppointment, updateReminderSettings, getHolidaySettings, updateHolidaySettings, updateAdvertSettings, updateWeekendBookingsEnabled, getDogNotes, getAllDogNotes, upsertDogNote } from "../services/bookingService";
+import { addBookingPhoto, BookingPhoto, buildCancellationMessage, buildConfirmationMessage, buildRebookNudgeMessage, checkAuthStatus, confirmAppointmentBooking, createManualAppointment, deleteAppointment, deleteBookingPhoto, exportAppointmentsToExcel, findBookingClash, getAppointments, getAvailableSlotTimes, getBookingPhotos, getBookingRevenue, getCurrentUser, getEffectiveSchedule, getReminderSettings, getServiceBasePrice, getUnavailableDays, getUnavailableWeekdays, removeUnavailableDay, removeUnavailableWeekday, saveUnavailableDay, saveUnavailableWeekday, sendCustomerCancellationSms, sendCustomerConfirmationSms, signInAdmin, signOutAdmin, updateAppointment, updateReminderSettings, getHolidaySettings, updateHolidaySettings, updateAdvertSettings, updateWeekendBookingsEnabled, getDogNotes, getAllDogNotes, upsertDogNote } from "../services/bookingService";
 import { buildIntakeLink, buildIntakeMessage, buildWhatsAppLink, createCustomer, deleteCustomer, deleteDog, ensureIntakeToken, getCustomers, getDeletedCustomers, markIntakeSent, restoreCustomer, saveDog, sendIntakeEmail, sendIntakeSms, updateCustomer } from "../services/customerService";
 import { Appointment, Customer, Dog, IntakeStatus, Service } from "../types";
 import { INTAKE_TERMS, LOCATIONS, MATTING_BULLETS, MATTING_CLOSING, MATTING_TERMS, SERVICES, SLOT_TIMES } from "../constants";
@@ -59,6 +59,10 @@ const AdminDashboard: React.FC = () => {
   const [priceFixSaving, setPriceFixSaving] = useState<Record<string, boolean>>({});
   const [revenueHoverIndex, setRevenueHoverIndex] = useState<number | null>(null);
   const [nudgeSaving, setNudgeSaving] = useState<Record<string, boolean>>({});
+  const [activeBookingPhotos, setActiveBookingPhotos] = useState<BookingPhoto[]>([]);
+  const [loadingPhotos, setLoadingPhotos] = useState(false);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [newPhotoType, setNewPhotoType] = useState<"before" | "after" | "other">("before");
   const nudgePanelRef = useRef<HTMLDivElement>(null);
   const [pendingConfirmChannel, setPendingConfirmChannel] = useState<"sms" | "whatsapp">("sms");
   const [diaryWeekStart, setDiaryWeekStart] = useState<Date>(() => getMonday(new Date()));
@@ -690,7 +694,44 @@ const AdminDashboard: React.FC = () => {
       deposit_paid_at: booking.deposit_paid_at || null,
       actual_price: booking.actual_price ?? "",
     });
+    setNewPhotoType("before");
+    setActiveBookingPhotos([]);
+    if (booking.id) {
+      setLoadingPhotos(true);
+      getBookingPhotos(booking.id)
+        .then(setActiveBookingPhotos)
+        .catch(() => {})
+        .finally(() => setLoadingPhotos(false));
+    }
     setShowUpdateModal(true);
+  };
+
+  const handleUploadPhoto = async (file: File) => {
+    if (!activeBooking?.id) return;
+    if (file.size > 8 * 1024 * 1024) {
+      alert("Photo must be 8MB or less.");
+      return;
+    }
+    setUploadingPhoto(true);
+    try {
+      await addBookingPhoto(activeBooking.id, file, newPhotoType);
+      const photos = await getBookingPhotos(activeBooking.id);
+      setActiveBookingPhotos(photos);
+    } catch (error: any) {
+      alert(error.message || "Could not upload the photo.");
+    } finally {
+      setUploadingPhoto(false);
+    }
+  };
+
+  const handleDeletePhoto = async (photo: BookingPhoto) => {
+    if (!window.confirm("Remove this photo?")) return;
+    try {
+      await deleteBookingPhoto(photo);
+      setActiveBookingPhotos((prev) => prev.filter((p) => p.id !== photo.id));
+    } catch (error: any) {
+      alert(error.message || "Could not remove the photo.");
+    }
   };
 
   const closeUpdateModal = () => {
@@ -2206,6 +2247,63 @@ const AdminDashboard: React.FC = () => {
                   className="px-4 py-2 border border-emerald-200 rounded-lg w-40"
                 />
               </div>
+            </div>
+
+            <div className="mt-4 p-4 bg-slate-50 border border-slate-200 rounded-lg">
+              <h4 className="text-sm font-bold text-slate-700 mb-3">📷 Photos</h4>
+              {loadingPhotos ? (
+                <p className="text-xs text-slate-400">Loading photos...</p>
+              ) : (
+                <>
+                  {activeBookingPhotos.length > 0 && (
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 mb-4">
+                      {activeBookingPhotos.map((photo) => (
+                        <div key={photo.id} className="relative group">
+                          <a href={photo.url} target="_blank" rel="noreferrer">
+                            <img src={photo.url} alt={photo.photo_type} className="w-full h-24 object-cover rounded-lg border border-slate-200" />
+                          </a>
+                          <span
+                            className={`absolute top-1 left-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+                              photo.photo_type === "before" ? "bg-amber-100 text-amber-700" : photo.photo_type === "after" ? "bg-emerald-100 text-emerald-700" : "bg-slate-200 text-slate-600"
+                            }`}
+                          >
+                            {photo.photo_type}
+                          </span>
+                          <button
+                            onClick={() => handleDeletePhoto(photo)}
+                            title="Remove photo"
+                            className="absolute top-1 right-1 w-6 h-6 rounded-full bg-slate-900/60 hover:bg-rose-600 text-white text-xs font-bold flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                          >
+                            ×
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <select value={newPhotoType} onChange={(e) => setNewPhotoType(e.target.value as "before" | "after" | "other")} className="px-3 py-2 border rounded-lg text-sm">
+                      <option value="before">Before</option>
+                      <option value="after">After</option>
+                      <option value="other">Other</option>
+                    </select>
+                    <label className={`px-4 py-2 rounded-lg text-sm font-bold cursor-pointer ${uploadingPhoto ? "bg-slate-200 text-slate-400" : "bg-slate-700 hover:bg-slate-800 text-white"}`}>
+                      {uploadingPhoto ? "Uploading..." : "+ Add Photo"}
+                      <input
+                        type="file"
+                        accept="image/*"
+                        capture="environment"
+                        disabled={uploadingPhoto}
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) handleUploadPhoto(file);
+                          e.target.value = "";
+                        }}
+                      />
+                    </label>
+                  </div>
+                </>
+              )}
             </div>
 
             <div className="flex gap-3 mt-6">
