@@ -2929,7 +2929,7 @@ const AdminDashboard: React.FC = () => {
               </div>
               <div className="bg-amber-50 p-4 rounded-xl border border-amber-200">
                 <div className="text-2xl font-black text-amber-700">
-                  £{enriched.reduce((sum, c) => sum + c.totalSpent, 0)}
+                  £{Math.round(enriched.reduce((sum, c) => sum + c.totalSpent, 0))}
                 </div>
                 <div className="text-xs font-bold text-amber-600 uppercase">Total Revenue</div>
               </div>
@@ -2998,7 +2998,7 @@ const AdminDashboard: React.FC = () => {
                       </div>
                     </div>
                     <div className="text-right">
-                      <div className="text-2xl font-black text-emerald-600">£{totalSpent}</div>
+                      <div className="text-2xl font-black text-emerald-600">£{Math.round(totalSpent)}</div>
                       <div className="text-xs text-slate-500 mt-1">
                         {lastVisit && `Last: ${new Date(lastVisit).toLocaleDateString('en-GB')}`}
                       </div>
@@ -3192,7 +3192,7 @@ const AdminDashboard: React.FC = () => {
                   <div className="text-xs font-bold text-emerald-600">Total Visits</div>
                 </div>
                 <div className="bg-blue-50 p-4 rounded-xl text-center">
-                  <div className="text-3xl font-black text-blue-700">£{totalSpent}</div>
+                  <div className="text-3xl font-black text-blue-700">£{Math.round(totalSpent)}</div>
                   <div className="text-xs font-bold text-blue-600">Total Spent</div>
                 </div>
                 <div className="bg-purple-50 p-4 rounded-xl text-center">

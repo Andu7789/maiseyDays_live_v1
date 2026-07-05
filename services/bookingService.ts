@@ -278,8 +278,10 @@ export const getServiceBasePrice = (serviceid: string) => SERVICE_BASE_PRICE[ser
  * amount or just an estimate, so reporting UI can label it honestly.
  */
 export const getBookingRevenue = (apt: Appointment): { amount: number; isActual: boolean } => {
+  // Round to the nearest penny so summing many decimal prices (JS floating point,
+  // e.g. 0.1 + 0.2 = 0.30000000000000004) never leaks into revenue totals.
   if (apt.actual_price !== null && apt.actual_price !== undefined) {
-    return { amount: apt.actual_price, isActual: true };
+    return { amount: Math.round(apt.actual_price * 100) / 100, isActual: true };
   }
   return { amount: getServiceBasePrice(apt.serviceid) * (apt.number_of_dogs || 1), isActual: false };
 };
