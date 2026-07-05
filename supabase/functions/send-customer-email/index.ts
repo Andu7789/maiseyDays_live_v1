@@ -52,7 +52,7 @@ serve(async (req: Request) => {
       html = wrapHtml(`
         <p>Hello ${firstName},</p>
         <p>Thank you for requesting a booking with Maisey Days @ Dirty Dawg! We have received your booking request for <strong>${dogName}</strong>.</p>
-        <p>We will review your request and be in touch within the next 24 hours to confirm your appointment or discuss any details.</p>
+        <p>We will review your request and be in touch within the next 48 hours to confirm your appointment or discuss any details.</p>
         <p><strong>Booking Details:</strong><br>
         Dog: ${dogName}<br>
         Requested Date: ${date}<br>
