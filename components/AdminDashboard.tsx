@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useState } from "react";
-import { buildCancellationMessage, buildConfirmationMessage, checkAuthStatus, confirmAppointmentBooking, createManualAppointment, deleteAppointment, exportAppointmentsToExcel, findBookingClash, getAppointments, getAvailableSlotTimes, getBookingRevenue, getCurrentUser, getEffectiveSchedule, getReminderSettings, getServiceBasePrice, getUnavailableDays, getUnavailableWeekdays, removeUnavailableDay, removeUnavailableWeekday, saveUnavailableDay, saveUnavailableWeekday, sendCustomerCancellationSms, sendCustomerConfirmationSms, signInAdmin, signOutAdmin, updateAppointment, updateReminderSettings, getHolidaySettings, updateHolidaySettings, updateAdvertSettings, updateWeekendBookingsEnabled, getDogNotes, getAllDogNotes, upsertDogNote } from "../services/bookingService";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { buildCancellationMessage, buildConfirmationMessage, buildRebookNudgeMessage, checkAuthStatus, confirmAppointmentBooking, createManualAppointment, deleteAppointment, exportAppointmentsToExcel, findBookingClash, getAppointments, getAvailableSlotTimes, getBookingRevenue, getCurrentUser, getEffectiveSchedule, getReminderSettings, getServiceBasePrice, getUnavailableDays, getUnavailableWeekdays, removeUnavailableDay, removeUnavailableWeekday, saveUnavailableDay, saveUnavailableWeekday, sendCustomerCancellationSms, sendCustomerConfirmationSms, signInAdmin, signOutAdmin, updateAppointment, updateReminderSettings, getHolidaySettings, updateHolidaySettings, updateAdvertSettings, updateWeekendBookingsEnabled, getDogNotes, getAllDogNotes, upsertDogNote } from "../services/bookingService";
 import { buildIntakeLink, buildIntakeMessage, buildWhatsAppLink, createCustomer, deleteCustomer, deleteDog, ensureIntakeToken, getCustomers, getDeletedCustomers, markIntakeSent, restoreCustomer, saveDog, sendIntakeEmail, sendIntakeSms, updateCustomer } from "../services/customerService";
 import { Appointment, Customer, Dog, IntakeStatus, Service } from "../types";
 import { INTAKE_TERMS, LOCATIONS, MATTING_BULLETS, MATTING_CLOSING, MATTING_TERMS, SERVICES, SLOT_TIMES } from "../constants";
@@ -58,6 +58,8 @@ const AdminDashboard: React.FC = () => {
   const [priceFixDrafts, setPriceFixDrafts] = useState<Record<string, string>>({});
   const [priceFixSaving, setPriceFixSaving] = useState<Record<string, boolean>>({});
   const [revenueHoverIndex, setRevenueHoverIndex] = useState<number | null>(null);
+  const [nudgeSaving, setNudgeSaving] = useState<Record<string, boolean>>({});
+  const nudgePanelRef = useRef<HTMLDivElement>(null);
   const [pendingConfirmChannel, setPendingConfirmChannel] = useState<"sms" | "whatsapp">("sms");
   const [diaryWeekStart, setDiaryWeekStart] = useState<Date>(() => getMonday(new Date()));
   const [diarySearch, setDiarySearch] = useState("");
@@ -873,6 +875,41 @@ const AdminDashboard: React.FC = () => {
 
   // Best-guess slot for an old booking that only ever recorded a rough
   // Morning/Afternoon/Evening preference, never an exact time.
+  const handleNudgeWhatsApp = (apt: Appointment) => {
+    if (!apt.phone) {
+      alert("No phone number on record for this customer.");
+      return;
+    }
+    window.open(buildWhatsAppLink(apt.phone, buildRebookNudgeMessage(apt)), "_blank");
+  };
+
+  const handleMarkNudgeContacted = async (apt: Appointment) => {
+    if (!apt.id) return;
+    setNudgeSaving((prev) => ({ ...prev, [apt.id!]: true }));
+    try {
+      await updateAppointment(apt.id, { rebook_contacted_at: new Date().toISOString() });
+      await loadData();
+    } catch (error: any) {
+      alert(error.message || "Could not update.");
+    } finally {
+      setNudgeSaving((prev) => ({ ...prev, [apt.id!]: false }));
+    }
+  };
+
+  const handleMarkNudgeClosed = async (apt: Appointment) => {
+    if (!apt.id) return;
+    if (!window.confirm(`Mark ${apt.dogname} (${apt.ownername}) as no longer expected to return? This removes them from your rebook nudge list.`)) return;
+    setNudgeSaving((prev) => ({ ...prev, [apt.id!]: true }));
+    try {
+      await updateAppointment(apt.id, { rebook_closed_at: new Date().toISOString() });
+      await loadData();
+    } catch (error: any) {
+      alert(error.message || "Could not update.");
+    } finally {
+      setNudgeSaving((prev) => ({ ...prev, [apt.id!]: false }));
+    }
+  };
+
   const guessSlotForPreference = (pref: string) => {
     const p = pref.trim().toLowerCase();
     if (p === "morning") return "08:00";
@@ -1298,7 +1335,27 @@ const AdminDashboard: React.FC = () => {
         const depositsOwedTotal = depositsOwed.reduce((sum, a) => sum + (a.deposit_amount || (a.number_of_dogs || 1) * 20), 0);
 
         const pendingRequests = scoped.filter((a) => (a.booking_status || a.status) === "pending" && a.status !== "cancelled");
-        const dueForRebook = scoped.filter((a) => a.booking_status === "due_for_rebook");
+
+        // Computed live (not dependent on the once-a-day automated reminder catching the
+        // exact day): a groom is "due a nudge" once its completed_at is N+ days old, the
+        // same dog hasn't had a later booking since, and Rachel hasn't already resolved it.
+        const rebookIntervalDays = reminderSettings.days_interval || 28;
+        const dueForNudge = scoped
+          .filter((a) => a.booking_status === "completed" && a.completed_at && !a.rebook_contacted_at && !a.rebook_closed_at)
+          .filter((a) => {
+            const daysSince = (now.getTime() - new Date(a.completed_at!).getTime()) / (1000 * 60 * 60 * 24);
+            if (daysSince < rebookIntervalDays) return false;
+            const alreadyRebooked = appointments.some((b) => {
+              if (b.id === a.id || b.dogname !== a.dogname) return false;
+              if (b.status === "cancelled" || b.booking_status === "cancelled") return false;
+              const sameCustomer = (a.customer_id && b.customer_id && a.customer_id === b.customer_id) || (a.email && b.email && a.email.toLowerCase() === b.email.toLowerCase());
+              if (!sameCustomer) return false;
+              const bSchedule = getEffectiveSchedule(b);
+              return Boolean(bSchedule && bSchedule.date > a.completed_at!.slice(0, 10));
+            });
+            return !alreadyRebooked;
+          })
+          .sort((a, b) => (a.completed_at || "").localeCompare(b.completed_at || ""));
         const missingPrice = scoped
           .filter((a) => isCompleted(a) && (a.actual_price === null || a.actual_price === undefined))
           .sort((a, b) => (b.completed_at || "").localeCompare(a.completed_at || ""));
@@ -1446,14 +1503,10 @@ const AdminDashboard: React.FC = () => {
                   <div className="text-xs font-bold text-orange-600">Matting consent due</div>
                 </button>
                 <button
-                  onClick={() => {
-                    setBookingsStatusFilter("due_for_rebook");
-                    setBookingsSearch("");
-                    setView("bookings");
-                  }}
+                  onClick={() => nudgePanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
                   className="text-left p-4 bg-purple-50 hover:bg-purple-100 border border-purple-200 rounded-xl transition-colors"
                 >
-                  <div className="text-2xl font-black text-purple-700">{dueForRebook.length}</div>
+                  <div className="text-2xl font-black text-purple-700">{dueForNudge.length}</div>
                   <div className="text-xs font-bold text-purple-600">Due for rebook</div>
                 </button>
               </div>
@@ -1509,6 +1562,48 @@ const AdminDashboard: React.FC = () => {
                   ))}
                 </div>
               </div>
+            </div>
+
+            {/* Customers due a rebook nudge */}
+            <div ref={nudgePanelRef} className="bg-white rounded-3xl shadow-sm border border-slate-100 p-6 scroll-mt-4">
+              <h3 className="text-lg font-black text-slate-800 mb-1">🔔 Customers Due a Nudge</h3>
+              <p className="text-xs text-slate-400 mb-4">
+                It's been {rebookIntervalDays}+ days since their last groom with no new booking since. These stay here until you mark them as contacted or as no longer expected to return.
+              </p>
+              {dueForNudge.length === 0 ? (
+                <div className="text-center py-8 text-slate-400 text-sm">Nobody's overdue for a nudge right now. 🎉</div>
+              ) : (
+                <div className="space-y-3">
+                  {dueForNudge.map((apt) => {
+                    const daysSince = Math.floor((now.getTime() - new Date(apt.completed_at!).getTime()) / (1000 * 60 * 60 * 24));
+                    const saving = nudgeSaving[apt.id!];
+                    return (
+                      <div key={apt.id} className="flex flex-wrap items-center justify-between gap-3 p-4 bg-purple-50 border border-purple-200 rounded-xl">
+                        <div className="min-w-0">
+                          <div className="font-bold text-slate-800 text-sm">
+                            🐕 {apt.dogname} <span className="font-medium text-slate-500">— {apt.ownername}</span>
+                          </div>
+                          <div className="text-xs text-slate-500">
+                            Last groom: {SERVICES.find((s) => s.id === apt.serviceid)?.name || apt.serviceid} on {new Date(apt.completed_at!).toLocaleDateString("en-GB")} ·{" "}
+                            <span className="font-bold text-purple-700">{daysSince} days ago</span>
+                          </div>
+                        </div>
+                        <div className="flex flex-wrap gap-2 shrink-0">
+                          <button disabled={saving} onClick={() => handleNudgeWhatsApp(apt)} title="Opens WhatsApp with a friendly nudge message ready to send" className="bg-green-500 hover:bg-green-600 disabled:opacity-50 text-white text-xs font-bold px-3 py-2 rounded-lg">
+                            📱 WhatsApp
+                          </button>
+                          <button disabled={saving} onClick={() => handleMarkNudgeContacted(apt)} className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-bold px-3 py-2 rounded-lg">
+                            {saving ? "..." : "✓ I've Contacted Them"}
+                          </button>
+                          <button disabled={saving} onClick={() => handleMarkNudgeClosed(apt)} className="bg-slate-200 hover:bg-slate-300 disabled:opacity-50 text-slate-700 text-xs font-bold px-3 py-2 rounded-lg">
+                            Not Returning
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
 
             {/* Top services + record missing prices */}

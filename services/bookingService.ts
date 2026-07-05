@@ -158,7 +158,7 @@ export const getAppointments = async (): Promise<Appointment[]> => {
   }
 };
 
-const ENHANCED_BOOKING_COLUMNS = ["requested_time_preference", "confirmed_date", "confirmed_time", "confirmed_duration_minutes", "is_confirmed", "confirmed_at", "confirmation_sent_at", "booking_source", "calendar_event_id", "calendar_sync_status", "calendar_last_synced_at", "calendar_last_error", "number_of_dogs", "actual_price"];
+const ENHANCED_BOOKING_COLUMNS = ["requested_time_preference", "confirmed_date", "confirmed_time", "confirmed_duration_minutes", "is_confirmed", "confirmed_at", "confirmation_sent_at", "booking_source", "calendar_event_id", "calendar_sync_status", "calendar_last_synced_at", "calendar_last_error", "number_of_dogs", "actual_price", "rebook_contacted_at", "rebook_closed_at"];
 
 const isSchemaColumnCacheError = (error: any) => {
   const message = String(error?.message || "").toLowerCase();
@@ -294,6 +294,10 @@ export const buildCancellationMessage = (appointment: Appointment) => {
   const bookedDate = appointment.confirmed_date || appointment.date;
   const bookedTime = appointment.confirmed_time || "";
   return `Hi ${appointment.ownername}, unfortunately your ${getServiceName(appointment.serviceid)} appointment for ${appointment.dogname} at Maisey Days (${getLocationName(appointment.locationid)}) on ${formatHumanDate(bookedDate)}${bookedTime ? ` at ${bookedTime}` : ""} has been cancelled. Please contact us if you have any questions. Thank you 🐾`;
+};
+
+export const buildRebookNudgeMessage = (appointment: Appointment) => {
+  return `Hi ${appointment.ownername}, it's been a little while since ${appointment.dogname}'s last groom with us at Maisey Days @ Dirty Dawg! Would you like to book their next appointment? 🐾`;
 };
 
 export const sendCustomerCancellationSms = async (appointment: Appointment) => {

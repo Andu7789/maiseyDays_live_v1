@@ -113,6 +113,8 @@ export interface Appointment {
   customer_id?: string | null;
   number_of_dogs?: number;
   actual_price?: number | null;
+  rebook_contacted_at?: string | null;
+  rebook_closed_at?: string | null;
 }
 
 export interface AvailabilitySlot {
