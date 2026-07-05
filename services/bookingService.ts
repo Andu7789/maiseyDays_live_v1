@@ -184,6 +184,9 @@ export const saveAppointment = async (app: Appointment) => {
   appointmentData.confirmation_sent_at = app.confirmation_sent_at ?? null;
   appointmentData.booking_source = app.booking_source || "web";
   appointmentData.number_of_dogs = app.number_of_dogs || 1;
+  // The DB column used to default to 'confirmed', silently marking every new
+  // web request as confirmed. Always set it explicitly so a plain request stays pending.
+  appointmentData.booking_status = app.booking_status || app.status || "pending";
   if (!appointmentData.phone) {
     delete appointmentData.phone;
   }
