@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { buildConfirmationMessage, checkAuthStatus, confirmAppointmentBooking, createManualAppointment, deleteAppointment, exportAppointmentsToExcel, findBookingClash, getAppointments, getAvailableSlotTimes, getCurrentUser, getEffectiveSchedule, getReminderSettings, getUnavailableDays, getUnavailableWeekdays, removeUnavailableDay, removeUnavailableWeekday, saveUnavailableDay, saveUnavailableWeekday, sendCustomerConfirmationSms, signInAdmin, signOutAdmin, updateAppointment, updateReminderSettings, getHolidaySettings, updateHolidaySettings, updateAdvertSettings, updateWeekendBookingsEnabled, getDogNotes, getAllDogNotes, upsertDogNote } from "../services/bookingService";
-import { buildIntakeLink, buildIntakeMessage, buildWhatsAppLink, createCustomer, deleteCustomer, deleteDog, ensureIntakeToken, getCustomers, markIntakeSent, saveDog, sendIntakeEmail, sendIntakeSms, updateCustomer } from "../services/customerService";
+import { buildIntakeLink, buildIntakeMessage, buildWhatsAppLink, createCustomer, deleteCustomer, deleteDog, ensureIntakeToken, getCustomers, getDeletedCustomers, markIntakeSent, restoreCustomer, saveDog, sendIntakeEmail, sendIntakeSms, updateCustomer } from "../services/customerService";
 import { Appointment, Customer, Dog, IntakeStatus, Service } from "../types";
 import { INTAKE_TERMS, LOCATIONS, MATTING_BULLETS, MATTING_CLOSING, MATTING_TERMS, SERVICES, SLOT_TIMES } from "../constants";
 
@@ -109,6 +109,9 @@ const AdminDashboard: React.FC = () => {
   const [editingCustomerInfo, setEditingCustomerInfo] = useState(false);
   const [customerInfoForm, setCustomerInfoForm] = useState({ ownername: "", email: "", phone: "", address: "" });
   const [rebookSelectedDogs, setRebookSelectedDogs] = useState<Set<string>>(new Set());
+  const [showDeletedCustomersModal, setShowDeletedCustomersModal] = useState(false);
+  const [deletedCustomersList, setDeletedCustomersList] = useState<Customer[]>([]);
+  const [loadingDeletedCustomers, setLoadingDeletedCustomers] = useState(false);
   const [showAgreementEditor, setShowAgreementEditor] = useState(false);
   const [agreementForm, setAgreementForm] = useState({
     hear_about_us: "",
@@ -424,13 +427,24 @@ const AdminDashboard: React.FC = () => {
   };
 
   const handleDeleteCustomer = async (customer: Customer) => {
-    if (!window.confirm(`Delete ${customer.ownername}'s customer record? Their booking history will be kept, but the agreement and dog details will be removed. This cannot be undone.`)) return;
+    if (!window.confirm(`Delete ${customer.ownername}? This hides them from the customer list and cancels any of their upcoming bookings so the slots free up for other customers. Their booking history is kept, and this can be undone from "Deleted customers".`)) return;
     try {
       await deleteCustomer(customer.id);
       setShowCustomerModal(false);
       await refreshCustomers();
+      await loadData();
     } catch (err: any) {
       alert(`Could not delete customer: ${err.message}`);
+    }
+  };
+
+  const handleRestoreCustomer = async (customer: Customer) => {
+    try {
+      await restoreCustomer(customer.id);
+      await refreshCustomers();
+      setDeletedCustomersList((prev) => prev.filter((c) => c.id !== customer.id));
+    } catch (err: any) {
+      alert(`Could not restore customer: ${err.message}`);
     }
   };
 
@@ -886,8 +900,9 @@ const AdminDashboard: React.FC = () => {
         confirmed_duration_minutes: addForm.confirmed_duration_minutes,
         notes: addForm.notes,
         number_of_dogs: addForm.number_of_dogs,
-        status: "confirmed",
-        booking_status: "confirmed",
+        // Only mark as confirmed if the customer is actually being notified now
+        status: addForm.confirm_channel === "none" ? "pending" : "confirmed",
+        booking_status: addForm.confirm_channel === "none" ? "pending" : "confirmed",
         booking_source: "manual",
         deposit_paid: addForm.deposit_paid,
         deposit_amount: addForm.deposit_amount,
@@ -1015,8 +1030,9 @@ const AdminDashboard: React.FC = () => {
         confirmed_duration_minutes: 120,
         notes: diarySlotForm.notes,
         number_of_dogs: diarySlotForm.number_of_dogs,
-        status: "confirmed",
-        booking_status: "confirmed",
+        // Only mark as confirmed if the customer is actually being notified now
+        status: diarySlotForm.confirm_channel === "none" ? "pending" : "confirmed",
+        booking_status: diarySlotForm.confirm_channel === "none" ? "pending" : "confirmed",
         booking_source: "manual",
         deposit_paid: diarySlotForm.deposit_paid,
         deposit_amount: diarySlotForm.deposit_amount,
@@ -2063,12 +2079,12 @@ const AdminDashboard: React.FC = () => {
                         <div
                           key={`${date}-${slot}`}
                           onClick={() => !closed && cellBookings.length === 0 && openDiarySlotModal(date, slot)}
-                          className={`min-h-[64px] rounded-xl border p-1.5 space-y-1.5 ${closed ? "bg-red-50 border-red-200" : cellBookings.length > 1 ? "bg-red-50 border-red-200" : cellBookings.length === 0 ? "bg-white border-slate-100 cursor-pointer hover:border-teal-300 hover:bg-teal-50/40 transition-colors" : "bg-white border-slate-100"}`}
+                          className={`min-h-[64px] min-w-0 rounded-xl border p-1.5 space-y-1.5 ${closed ? "bg-red-50 border-red-200" : cellBookings.length > 1 ? "bg-red-50 border-red-200" : cellBookings.length === 0 ? "bg-white border-slate-100 cursor-pointer hover:border-teal-300 hover:bg-teal-50/40 transition-colors" : "bg-white border-slate-100"}`}
                         >
                           {cellBookings.map(({ apt, schedule }) => (
-                            <button key={apt.id} onClick={() => openUpdateModal(apt)} className={`w-full text-left px-2 py-1.5 rounded-lg border text-xs font-bold hover:shadow transition-all ${chipStyle(apt)}`}>
-                              <span className="block truncate">🐕 {apt.dogname}</span>
-                              <span className="block truncate font-medium opacity-75">
+                            <button key={apt.id} onClick={() => openUpdateModal(apt)} className={`w-full min-w-0 text-left px-2 py-1.5 rounded-lg border text-xs font-bold hover:shadow transition-all ${chipStyle(apt)}`}>
+                              <span className="block break-words whitespace-normal leading-snug">🐕 {apt.dogname}</span>
+                              <span className="block break-words whitespace-normal font-medium opacity-75 leading-snug">
                                 {schedule.timeLabel !== slot ? `${schedule.timeLabel} · ` : ""}
                                 {SERVICES.find((s) => s.id === apt.serviceid)?.name?.split(" ")[0] || apt.serviceid}
                                 {selectedLocation === ALL_LOCATIONS ? ` · ${LOCATIONS.find((l) => l.id === apt.locationid)?.name?.split(" ")[0] || ""}` : ""}
@@ -2134,6 +2150,23 @@ const AdminDashboard: React.FC = () => {
               <div className="flex gap-2">
                 <button onClick={() => refreshCustomers()} title="Reload customers to see newly completed forms" className="bg-slate-100 hover:bg-slate-200 text-slate-600 px-4 py-3 rounded-xl font-bold">
                   ↻ Refresh
+                </button>
+                <button
+                  onClick={async () => {
+                    setShowDeletedCustomersModal(true);
+                    setLoadingDeletedCustomers(true);
+                    try {
+                      setDeletedCustomersList(await getDeletedCustomers());
+                    } catch {
+                      setDeletedCustomersList([]);
+                    } finally {
+                      setLoadingDeletedCustomers(false);
+                    }
+                  }}
+                  title="View and restore deleted customers"
+                  className="bg-slate-100 hover:bg-slate-200 text-slate-600 px-4 py-3 rounded-xl font-bold"
+                >
+                  🗑️ Deleted
                 </button>
                 <button onClick={() => setShowAddCustomerModal(true)} className="bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-3 rounded-xl font-bold">
                   + Add Customer
@@ -2918,6 +2951,41 @@ const AdminDashboard: React.FC = () => {
           </div>
         );
       })()}
+
+      {/* Deleted Customers Modal */}
+      {showDeletedCustomersModal && (
+        <div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-2xl max-h-[80vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-1">
+              <h3 className="text-xl font-black text-slate-800">Deleted Customers</h3>
+              <button onClick={() => setShowDeletedCustomersModal(false)} className="text-slate-400 hover:text-slate-600 text-2xl font-bold">×</button>
+            </div>
+            <p className="text-sm text-slate-500 mb-4">Restoring a customer brings back their record and dog details. Any bookings that were cancelled when they were deleted stay cancelled — rebook them separately if needed.</p>
+            {loadingDeletedCustomers ? (
+              <div className="text-center py-8 text-slate-400">Loading...</div>
+            ) : deletedCustomersList.length === 0 ? (
+              <div className="text-center py-8 text-slate-400">No deleted customers.</div>
+            ) : (
+              <div className="space-y-2">
+                {deletedCustomersList.map((customer) => (
+                  <div key={customer.id} className="flex items-center justify-between p-4 bg-slate-50 border border-slate-200 rounded-xl">
+                    <div>
+                      <div className="font-bold text-slate-800">{customer.ownername}</div>
+                      <div className="text-xs text-slate-500">
+                        {customer.email} {customer.phone && `· ${customer.phone}`}
+                        {customer.deleted_at && ` · Deleted ${new Date(customer.deleted_at).toLocaleDateString("en-GB")}`}
+                      </div>
+                    </div>
+                    <button onClick={() => handleRestoreCustomer(customer)} className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-bold">
+                      Restore
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Add Customer Modal */}
       {showAddCustomerModal && (

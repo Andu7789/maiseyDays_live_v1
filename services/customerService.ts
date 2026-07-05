@@ -11,7 +11,7 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 export const getCustomers = async (): Promise<Customer[]> => {
   const [customersResult, dogsResult] = await Promise.all([
-    supabase.from("customers").select("*").order("created_at", { ascending: false }),
+    supabase.from("customers").select("*").is("deleted_at", null).order("created_at", { ascending: false }),
     supabase.from("dogs").select("*"),
   ]);
   if (customersResult.error) throw new Error(customersResult.error.message);
@@ -27,6 +27,13 @@ export const getCustomers = async (): Promise<Customer[]> => {
     intake_status: c.intake_status || "not_sent",
     dogs: dogsByCustomer[c.id] || [],
   }));
+};
+
+/** Customers that have been soft-deleted, for the "Deleted customers" restore list. */
+export const getDeletedCustomers = async (): Promise<Customer[]> => {
+  const { data, error } = await supabase.from("customers").select("*").not("deleted_at", "is", null).order("deleted_at", { ascending: false });
+  if (error) throw new Error(error.message);
+  return (data || []).map((c: any) => ({ ...c, intake_status: c.intake_status || "not_sent", dogs: [] }));
 };
 
 export const createCustomer = async (details: { ownername: string; email?: string; phone?: string }): Promise<Customer> => {
@@ -55,8 +62,35 @@ export const updateCustomer = async (id: string, updates: Partial<Customer>) => 
   if (error) throw new Error(error.message);
 };
 
+/**
+ * Soft-deletes a customer: the record and their booking history are kept
+ * (recoverable via restoreCustomer), but they disappear from the normal
+ * customer list. Any of their not-yet-happened bookings are cancelled so
+ * the time slot frees up for other customers.
+ */
 export const deleteCustomer = async (id: string) => {
-  const { error } = await supabase.from("customers").delete().eq("id", id);
+  const nowIso = new Date().toISOString();
+  const { error } = await supabase.from("customers").update({ deleted_at: nowIso, updated_at: nowIso }).eq("id", id);
+  if (error) throw new Error(error.message);
+
+  const { data: appointments, error: apptError } = await supabase.from("appointments").select("id, status, booking_status, date, confirmed_date").eq("customer_id", id);
+  if (apptError) throw new Error(apptError.message);
+
+  const todayStr = new Date().toISOString().split("T")[0];
+  const toCancel = (appointments || []).filter((apt: any) => {
+    if (apt.status === "cancelled" || apt.booking_status === "cancelled" || apt.booking_status === "completed") return false;
+    const effectiveDate = apt.confirmed_date || apt.date;
+    return Boolean(effectiveDate) && effectiveDate >= todayStr;
+  });
+
+  for (const apt of toCancel) {
+    await supabase.from("appointments").update({ status: "cancelled", booking_status: "cancelled" }).eq("id", apt.id);
+  }
+};
+
+/** Restores a soft-deleted customer. Bookings that were cancelled on delete stay cancelled. */
+export const restoreCustomer = async (id: string) => {
+  const { error } = await supabase.from("customers").update({ deleted_at: null, updated_at: new Date().toISOString() }).eq("id", id);
   if (error) throw new Error(error.message);
 };
 
