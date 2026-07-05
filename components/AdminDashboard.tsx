@@ -107,6 +107,9 @@ const AdminDashboard: React.FC = () => {
   const [showCustomerModal, setShowCustomerModal] = useState(false);
   const [customersList, setCustomersList] = useState<Customer[]>([]);
   const [intakeFilter, setIntakeFilter] = useState<"all" | IntakeStatus>("all");
+  const [showOnlyMattingDue, setShowOnlyMattingDue] = useState(false);
+  type BookingStatusFilter = "all" | "pending" | "confirmed" | "completed" | "due_for_rebook" | "cancelled" | "deposit_unpaid";
+  const [bookingsStatusFilter, setBookingsStatusFilter] = useState<BookingStatusFilter>("all");
   const [showAddCustomerModal, setShowAddCustomerModal] = useState(false);
   const [addCustomerForm, setAddCustomerForm] = useState({ ownername: "", email: "", phone: "" });
   const [sendingIntake, setSendingIntake] = useState<string | null>(null);
@@ -210,6 +213,11 @@ const AdminDashboard: React.FC = () => {
   const filteredAppointments = useMemo(() => {
     const search = bookingsSearch.trim().toLowerCase();
     let filtered = appointments.filter((a) => selectedLocation === ALL_LOCATIONS || a.locationid === selectedLocation);
+    if (bookingsStatusFilter === "deposit_unpaid") {
+      filtered = filtered.filter((a) => a.booking_status === "confirmed" && !a.deposit_paid);
+    } else if (bookingsStatusFilter !== "all") {
+      filtered = filtered.filter((a) => (a.booking_status || "pending") === bookingsStatusFilter);
+    }
     if (search) {
       filtered = filtered.filter(
         (a) =>
@@ -244,15 +252,15 @@ const AdminDashboard: React.FC = () => {
     });
 
     return filtered;
-  }, [appointments, selectedLocation, sortColumn, sortDirection, bookingsSearch]);
+  }, [appointments, selectedLocation, sortColumn, sortDirection, bookingsSearch, bookingsStatusFilter]);
 
   const totalPages = Math.ceil(filteredAppointments.length / pageSize);
   const paginatedAppointments = filteredAppointments.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
-  // Jump back to page 1 whenever the search changes so results are visible
+  // Jump back to page 1 whenever the search or status filter changes so results are visible
   useEffect(() => {
     setCurrentPage(1);
-  }, [bookingsSearch]);
+  }, [bookingsSearch, bookingsStatusFilter]);
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -1334,27 +1342,72 @@ const AdminDashboard: React.FC = () => {
             <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-6">
               <h3 className="text-lg font-black text-slate-800 mb-4">🔔 Needs Your Attention</h3>
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-                <button onClick={() => setView("bookings")} className="text-left p-4 bg-orange-50 hover:bg-orange-100 border border-orange-200 rounded-xl transition-colors">
+                <button
+                  onClick={() => {
+                    setBookingsStatusFilter("pending");
+                    setBookingsSearch("");
+                    setView("bookings");
+                  }}
+                  className="text-left p-4 bg-orange-50 hover:bg-orange-100 border border-orange-200 rounded-xl transition-colors"
+                >
                   <div className="text-2xl font-black text-orange-700">{pendingRequests.length}</div>
                   <div className="text-xs font-bold text-orange-600">Awaiting confirmation</div>
                 </button>
-                <button onClick={() => setView("bookings")} className="text-left p-4 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-xl transition-colors">
+                <button
+                  onClick={() => {
+                    setBookingsStatusFilter("deposit_unpaid");
+                    setBookingsSearch("");
+                    setView("bookings");
+                  }}
+                  className="text-left p-4 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-xl transition-colors"
+                >
                   <div className="text-2xl font-black text-amber-700">{depositsOwed.length}</div>
                   <div className="text-xs font-bold text-amber-600">Deposits unpaid</div>
                 </button>
-                <button onClick={() => setView("customers")} className="text-left p-4 bg-red-50 hover:bg-red-100 border border-red-200 rounded-xl transition-colors">
+                <button
+                  onClick={() => {
+                    setShowOnlyMattingDue(false);
+                    setIntakeFilter("not_sent");
+                    setCustomerSearch("");
+                    setView("customers");
+                  }}
+                  className="text-left p-4 bg-red-50 hover:bg-red-100 border border-red-200 rounded-xl transition-colors"
+                >
                   <div className="text-2xl font-black text-red-700">{formsNotSent}</div>
                   <div className="text-xs font-bold text-red-600">Forms not sent</div>
                 </button>
-                <button onClick={() => setView("customers")} className="text-left p-4 bg-yellow-50 hover:bg-yellow-100 border border-yellow-200 rounded-xl transition-colors">
+                <button
+                  onClick={() => {
+                    setShowOnlyMattingDue(false);
+                    setIntakeFilter("sent");
+                    setCustomerSearch("");
+                    setView("customers");
+                  }}
+                  className="text-left p-4 bg-yellow-50 hover:bg-yellow-100 border border-yellow-200 rounded-xl transition-colors"
+                >
                   <div className="text-2xl font-black text-yellow-700">{formsAwaiting}</div>
                   <div className="text-xs font-bold text-yellow-600">Forms awaiting</div>
                 </button>
-                <button onClick={() => setView("customers")} className="text-left p-4 bg-orange-50 hover:bg-orange-100 border border-orange-200 rounded-xl transition-colors">
+                <button
+                  onClick={() => {
+                    setIntakeFilter("all");
+                    setShowOnlyMattingDue(true);
+                    setCustomerSearch("");
+                    setView("customers");
+                  }}
+                  className="text-left p-4 bg-orange-50 hover:bg-orange-100 border border-orange-200 rounded-xl transition-colors"
+                >
                   <div className="text-2xl font-black text-orange-700">{mattingOutstanding}</div>
                   <div className="text-xs font-bold text-orange-600">Matting consent due</div>
                 </button>
-                <button onClick={() => setView("bookings")} className="text-left p-4 bg-purple-50 hover:bg-purple-100 border border-purple-200 rounded-xl transition-colors">
+                <button
+                  onClick={() => {
+                    setBookingsStatusFilter("due_for_rebook");
+                    setBookingsSearch("");
+                    setView("bookings");
+                  }}
+                  className="text-left p-4 bg-purple-50 hover:bg-purple-100 border border-purple-200 rounded-xl transition-colors"
+                >
                   <div className="text-2xl font-black text-purple-700">{dueForRebook.length}</div>
                   <div className="text-xs font-bold text-purple-600">Due for rebook</div>
                 </button>
@@ -1527,6 +1580,26 @@ const AdminDashboard: React.FC = () => {
                 <button onClick={() => setBookingsSearch("")} className="ml-3 text-teal-600 hover:text-teal-800 underline">Clear</button>
               </p>
             )}
+            <div className="flex flex-wrap gap-2 mt-3">
+              {([
+                ["all", "All"],
+                ["pending", "Awaiting confirmation"],
+                ["deposit_unpaid", "Deposit unpaid"],
+                ["confirmed", "Confirmed"],
+                ["due_for_rebook", "Due for rebook"],
+                ["completed", "Completed"],
+                ["cancelled", "Cancelled"],
+              ] as [BookingStatusFilter, string][]).map(([value, label]) => (
+                <button key={value} onClick={() => setBookingsStatusFilter(value)} className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${bookingsStatusFilter === value ? "bg-slate-800 text-white shadow" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}>
+                  {label}
+                </button>
+              ))}
+              {bookingsStatusFilter !== "all" && (
+                <button onClick={() => setBookingsStatusFilter("all")} className="px-3 py-1.5 rounded-lg text-xs font-bold text-teal-600 hover:text-teal-800 underline">
+                  Clear filter
+                </button>
+              )}
+            </div>
           </div>
 
           {/* Pagination and sorting controls */}
@@ -2559,6 +2632,7 @@ const AdminDashboard: React.FC = () => {
         const search = customerSearch.toLowerCase();
         const filteredCustomers = enriched.filter(({ customer, dogNames }) => {
           if (intakeFilter !== "all" && customer.intake_status !== intakeFilter) return false;
+          if (showOnlyMattingDue && !(customer.matting_required && !customer.matting_signed_at)) return false;
           if (!search) return true;
           return (
             customer.ownername.toLowerCase().includes(search) ||
@@ -2632,6 +2706,12 @@ const AdminDashboard: React.FC = () => {
                   {label}
                 </button>
               ))}
+              <button
+                onClick={() => setShowOnlyMattingDue((prev) => !prev)}
+                className={`px-4 py-2 rounded-xl text-sm font-bold transition-all ${showOnlyMattingDue ? "bg-orange-500 text-white shadow" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}
+              >
+                ⚠️ Matting Due ({customersList.filter((c) => c.matting_required && !c.matting_signed_at).length})
+              </button>
             </div>
 
             {/* Stats Summary */}
