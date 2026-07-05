@@ -213,6 +213,25 @@ const AdminDashboard: React.FC = () => {
   // Booking status ordering used when sorting by status (pending -> confirmed -> completed -> due -> cancelled)
   const STATUS_SORT_ORDER: Record<string, number> = { pending: 0, confirmed: 1, completed: 2, due_for_rebook: 3, cancelled: 4 };
 
+  // Single source of truth for "due a rebook nudge": computed live (not the once-a-day
+  // automated flag, which only catches a booking on the exact day it turns N days old)
+  // so the Dashboard panel and the Bookings tab filter always agree.
+  const isDueForNudge = (apt: Appointment): boolean => {
+    if (apt.booking_status !== "completed" || !apt.completed_at) return false;
+    if (apt.rebook_contacted_at || apt.rebook_closed_at) return false;
+    const intervalDays = reminderSettings.days_interval || 28;
+    const daysSince = (Date.now() - new Date(apt.completed_at).getTime()) / (1000 * 60 * 60 * 24);
+    if (daysSince < intervalDays) return false;
+    return !appointments.some((b) => {
+      if (b.id === apt.id || b.dogname !== apt.dogname) return false;
+      if (b.status === "cancelled" || b.booking_status === "cancelled") return false;
+      const sameCustomer = (apt.customer_id && b.customer_id && apt.customer_id === b.customer_id) || (apt.email && b.email && apt.email.toLowerCase() === b.email.toLowerCase());
+      if (!sameCustomer) return false;
+      const bSchedule = getEffectiveSchedule(b);
+      return Boolean(bSchedule && bSchedule.date > apt.completed_at!.slice(0, 10));
+    });
+  };
+
   // Filter, sort, and paginate appointments
   const filteredAppointments = useMemo(() => {
     const search = bookingsSearch.trim().toLowerCase();
@@ -221,6 +240,8 @@ const AdminDashboard: React.FC = () => {
       filtered = filtered.filter((a) => a.booking_status === "confirmed" && !a.deposit_paid);
     } else if (bookingsStatusFilter === "needs_time") {
       filtered = filtered.filter((a) => a.status !== "cancelled" && a.booking_status !== "cancelled" && !a.confirmed_time);
+    } else if (bookingsStatusFilter === "due_for_rebook") {
+      filtered = filtered.filter(isDueForNudge);
     } else if (bookingsStatusFilter !== "all") {
       filtered = filtered.filter((a) => (a.booking_status || "pending") === bookingsStatusFilter);
     }
@@ -258,7 +279,7 @@ const AdminDashboard: React.FC = () => {
     });
 
     return filtered;
-  }, [appointments, selectedLocation, sortColumn, sortDirection, bookingsSearch, bookingsStatusFilter]);
+  }, [appointments, selectedLocation, sortColumn, sortDirection, bookingsSearch, bookingsStatusFilter, reminderSettings.days_interval]);
 
   const totalPages = Math.ceil(filteredAppointments.length / pageSize);
   const paginatedAppointments = filteredAppointments.slice((currentPage - 1) * pageSize, currentPage * pageSize);
@@ -1336,26 +1357,10 @@ const AdminDashboard: React.FC = () => {
 
         const pendingRequests = scoped.filter((a) => (a.booking_status || a.status) === "pending" && a.status !== "cancelled");
 
-        // Computed live (not dependent on the once-a-day automated reminder catching the
-        // exact day): a groom is "due a nudge" once its completed_at is N+ days old, the
-        // same dog hasn't had a later booking since, and Rachel hasn't already resolved it.
+        // Same live "due a rebook nudge" rule used by the Bookings tab filter (isDueForNudge),
+        // so the two never disagree.
         const rebookIntervalDays = reminderSettings.days_interval || 28;
-        const dueForNudge = scoped
-          .filter((a) => a.booking_status === "completed" && a.completed_at && !a.rebook_contacted_at && !a.rebook_closed_at)
-          .filter((a) => {
-            const daysSince = (now.getTime() - new Date(a.completed_at!).getTime()) / (1000 * 60 * 60 * 24);
-            if (daysSince < rebookIntervalDays) return false;
-            const alreadyRebooked = appointments.some((b) => {
-              if (b.id === a.id || b.dogname !== a.dogname) return false;
-              if (b.status === "cancelled" || b.booking_status === "cancelled") return false;
-              const sameCustomer = (a.customer_id && b.customer_id && a.customer_id === b.customer_id) || (a.email && b.email && a.email.toLowerCase() === b.email.toLowerCase());
-              if (!sameCustomer) return false;
-              const bSchedule = getEffectiveSchedule(b);
-              return Boolean(bSchedule && bSchedule.date > a.completed_at!.slice(0, 10));
-            });
-            return !alreadyRebooked;
-          })
-          .sort((a, b) => (a.completed_at || "").localeCompare(b.completed_at || ""));
+        const dueForNudge = scoped.filter(isDueForNudge).sort((a, b) => (a.completed_at || "").localeCompare(b.completed_at || ""));
         const missingPrice = scoped
           .filter((a) => isCompleted(a) && (a.actual_price === null || a.actual_price === undefined))
           .sort((a, b) => (b.completed_at || "").localeCompare(a.completed_at || ""));
@@ -1730,7 +1735,7 @@ const AdminDashboard: React.FC = () => {
                   "needs_time",
                   `⏰ Needs time set (${appointments.filter((a) => (selectedLocation === ALL_LOCATIONS || a.locationid === selectedLocation) && a.status !== "cancelled" && a.booking_status !== "cancelled" && !a.confirmed_time).length})`,
                 ],
-                ["due_for_rebook", "Due for rebook"],
+                ["due_for_rebook", `Due for rebook (${appointments.filter((a) => (selectedLocation === ALL_LOCATIONS || a.locationid === selectedLocation) && isDueForNudge(a)).length})`],
                 ["completed", "Completed"],
                 ["cancelled", "Cancelled"],
               ] as [BookingStatusFilter, string][]).map(([value, label]) => (
