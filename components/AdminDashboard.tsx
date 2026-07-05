@@ -108,8 +108,10 @@ const AdminDashboard: React.FC = () => {
   const [customersList, setCustomersList] = useState<Customer[]>([]);
   const [intakeFilter, setIntakeFilter] = useState<"all" | IntakeStatus>("all");
   const [showOnlyMattingDue, setShowOnlyMattingDue] = useState(false);
-  type BookingStatusFilter = "all" | "pending" | "confirmed" | "completed" | "due_for_rebook" | "cancelled" | "deposit_unpaid";
+  type BookingStatusFilter = "all" | "pending" | "confirmed" | "completed" | "due_for_rebook" | "cancelled" | "deposit_unpaid" | "needs_time";
   const [bookingsStatusFilter, setBookingsStatusFilter] = useState<BookingStatusFilter>("all");
+  const [legacyTimeDrafts, setLegacyTimeDrafts] = useState<Record<string, { date: string; time: string }>>({});
+  const [legacyTimeSaving, setLegacyTimeSaving] = useState<Record<string, boolean>>({});
   const [showAddCustomerModal, setShowAddCustomerModal] = useState(false);
   const [addCustomerForm, setAddCustomerForm] = useState({ ownername: "", email: "", phone: "" });
   const [sendingIntake, setSendingIntake] = useState<string | null>(null);
@@ -215,6 +217,8 @@ const AdminDashboard: React.FC = () => {
     let filtered = appointments.filter((a) => selectedLocation === ALL_LOCATIONS || a.locationid === selectedLocation);
     if (bookingsStatusFilter === "deposit_unpaid") {
       filtered = filtered.filter((a) => a.booking_status === "confirmed" && !a.deposit_paid);
+    } else if (bookingsStatusFilter === "needs_time") {
+      filtered = filtered.filter((a) => a.status !== "cancelled" && a.booking_status !== "cancelled" && !a.confirmed_time);
     } else if (bookingsStatusFilter !== "all") {
       filtered = filtered.filter((a) => (a.booking_status || "pending") === bookingsStatusFilter);
     }
@@ -864,6 +868,47 @@ const AdminDashboard: React.FC = () => {
       alert(error.message || "Could not save the price.");
     } finally {
       setPriceFixSaving((prev) => ({ ...prev, [apt.id!]: false }));
+    }
+  };
+
+  // Best-guess slot for an old booking that only ever recorded a rough
+  // Morning/Afternoon/Evening preference, never an exact time.
+  const guessSlotForPreference = (pref: string) => {
+    const p = pref.trim().toLowerCase();
+    if (p === "morning") return "08:00";
+    if (p === "afternoon") return "12:00";
+    if (p === "evening") return "16:00";
+    return "10:00";
+  };
+
+  const getLegacyTimeDraft = (apt: Appointment) =>
+    legacyTimeDrafts[apt.id!] || { date: apt.date, time: guessSlotForPreference(apt.requested_time_preference || apt.time || "") };
+
+  const setLegacyTimeDraft = (aptId: string, updates: Partial<{ date: string; time: string }>) => {
+    setLegacyTimeDrafts((prev) => ({ ...prev, [aptId]: { ...(prev[aptId] || getLegacyTimeDraft(appointments.find((a) => a.id === aptId)!)), ...updates } }));
+  };
+
+  const handleSaveLegacyTime = async (apt: Appointment, alsoMarkCompleted: boolean) => {
+    if (!apt.id) return;
+    const draft = getLegacyTimeDraft(apt);
+    if (!draft.date || !draft.time) {
+      alert("Please set both a date and a time.");
+      return;
+    }
+    setLegacyTimeSaving((prev) => ({ ...prev, [apt.id!]: true }));
+    try {
+      const updates = { confirmed_date: draft.date, confirmed_time: draft.time, confirmed_duration_minutes: apt.confirmed_duration_minutes || 120 };
+      await updateAppointment(apt.id, updates);
+      if (alsoMarkCompleted) {
+        setCompletingBooking({ ...apt, ...updates });
+        setCompletePriceInput(apt.actual_price != null ? String(apt.actual_price) : "");
+      } else {
+        await loadData();
+      }
+    } catch (error: any) {
+      alert(error.message || "Could not save the time.");
+    } finally {
+      setLegacyTimeSaving((prev) => ({ ...prev, [apt.id!]: false }));
     }
   };
 
@@ -1586,6 +1631,10 @@ const AdminDashboard: React.FC = () => {
                 ["pending", "Awaiting confirmation"],
                 ["deposit_unpaid", "Deposit unpaid"],
                 ["confirmed", "Confirmed"],
+                [
+                  "needs_time",
+                  `⏰ Needs time set (${appointments.filter((a) => (selectedLocation === ALL_LOCATIONS || a.locationid === selectedLocation) && a.status !== "cancelled" && a.booking_status !== "cancelled" && !a.confirmed_time).length})`,
+                ],
                 ["due_for_rebook", "Due for rebook"],
                 ["completed", "Completed"],
                 ["cancelled", "Cancelled"],
@@ -1620,6 +1669,60 @@ const AdminDashboard: React.FC = () => {
 
           {isLoading ? (
             <div className="p-10 text-center text-slate-500">Loading bookings...</div>
+          ) : bookingsStatusFilter === "needs_time" ? (
+            <div className="p-4">
+              <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-xl text-sm text-blue-800">
+                These were confirmed before the exact time-slot system existed, so no real time was ever recorded — only a rough "Morning/Afternoon/Evening" preference. Set the actual time below (defaulted to a best guess). If the appointment already happened, use <strong>Save &amp; Mark Completed</strong> to close it out and record the price — that also lets it count properly in your revenue reports.
+              </div>
+              <div className="space-y-3">
+                {paginatedAppointments.map((apt) => {
+                  const draft = getLegacyTimeDraft(apt);
+                  const saving = legacyTimeSaving[apt.id!];
+                  return (
+                    <div key={apt.id} className="p-4 bg-slate-50 border border-slate-200 rounded-xl">
+                      <div className="mb-3">
+                        <div className="font-bold text-slate-800">
+                          🐕 {apt.dogname} <span className="font-medium text-slate-500">— {apt.ownername}</span>
+                        </div>
+                        <div className="text-xs text-slate-500 mt-1">
+                          Originally booked {apt.date} ·{" "}
+                          <span className="px-2 py-0.5 bg-amber-100 text-amber-700 rounded-full font-bold">{apt.requested_time_preference || apt.time || "no preference"}</span>
+                          {" · "}
+                          {SERVICES.find((s) => s.id === apt.serviceid)?.name || apt.serviceid}
+                          {selectedLocation === ALL_LOCATIONS ? ` · ${LOCATIONS.find((l) => l.id === apt.locationid)?.name || ""}` : ""}
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap items-end gap-3">
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Date</label>
+                          <input type="date" value={draft.date} onChange={(e) => setLegacyTimeDraft(apt.id!, { date: e.target.value })} className="px-3 py-2 border rounded-lg text-sm" />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Time slot</label>
+                          <select value={draft.time} onChange={(e) => setLegacyTimeDraft(apt.id!, { time: e.target.value })} className="px-3 py-2 border rounded-lg text-sm">
+                            {SLOT_TIMES.map((slot) => (
+                              <option key={slot} value={slot}>
+                                {slot}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <button disabled={saving} onClick={() => handleSaveLegacyTime(apt, false)} className="bg-slate-700 hover:bg-slate-800 disabled:opacity-50 text-white text-xs font-bold px-4 py-2 rounded-lg">
+                          {saving ? "Saving..." : "Save Time"}
+                        </button>
+                        <button disabled={saving} onClick={() => handleSaveLegacyTime(apt, true)} className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-bold px-4 py-2 rounded-lg">
+                          Save &amp; Mark Completed
+                        </button>
+                        <button onClick={() => openUpdateModal(apt)} className="text-xs font-bold text-teal-600 hover:text-teal-800 underline ml-auto">
+                          Open full details
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+                {paginatedAppointments.length === 0 && <div className="text-center py-10 text-slate-400">🎉 All bookings have a real time set.</div>}
+              </div>
+            </div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-left min-w-[980px]">
