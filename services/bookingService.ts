@@ -1,10 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
-import emailjs from "emailjs-com";
 import { Appointment, AvailabilitySlot, WeeklyTemplate } from "../types";
-import { EMAIL_ENDPOINT, LOCATIONS, SERVICES, SUPABASE_URL, SUPABASE_ANON_KEY, STANDARD_HOURS, SLOT_TIMES, SLOT_DURATION_MINUTES, BOOKABLE_WEEKDAYS, EMAILJS_PUBLIC_KEY, EMAILJS_SERVICE_ID, EMAILJS_CONFIRMATION_TEMPLATE_ID, EMAILJS_HOLIDAY_TEMPLATE_ID } from "../constants";
-
-// Initialize EmailJS
-emailjs.init(EMAILJS_PUBLIC_KEY);
+import { EMAIL_ENDPOINT, LOCATIONS, SERVICES, SUPABASE_URL, SUPABASE_ANON_KEY, STANDARD_HOURS, SLOT_TIMES, SLOT_DURATION_MINUTES, BOOKABLE_WEEKDAYS } from "../constants";
 
 // Validation for the user's convenience
 if (SUPABASE_ANON_KEY && !SUPABASE_ANON_KEY.startsWith("eyJ")) {
@@ -472,34 +468,16 @@ ${photoLink ? `\nPhoto for ${appointment.dogname} (Owner: ${appointment.ownernam
 
 export const sendConfirmationEmail = async (appointment: Appointment) => {
   try {
-    const confirmationMessage = `
-Hello ${appointment.ownername},
-
-Thank you for requesting a booking with Maisey Days @ Dirty Dawg! We have received your booking request for ${appointment.dogname}.
-
-We will review your request and be in touch within the next 24 hours to confirm your appointment or discuss any details.
-
-Booking Details:
-- Dog: ${appointment.dogname}
-- Requested Date & Time: ${appointment.date}
-- Service: ${SERVICES.find((s) => s.id === appointment.serviceid)?.name || appointment.serviceid}
-- Location: ${LOCATIONS.find((l) => l.id === appointment.locationid)?.name || appointment.locationid}
-
-If you have any questions in the meantime, please don't hesitate to contact us.
-
-Best regards,
-Maisey Days @ Dirty Dawg 🐾
-    `;
-
-    const result = await emailjs.send(EMAILJS_SERVICE_ID, EMAILJS_CONFIRMATION_TEMPLATE_ID, {
-      to_email: appointment.email,
-      to_name: appointment.ownername,
-      subject: `Booking Request Received - ${appointment.dogname}`,
-      message: confirmationMessage,
-      dog_name: appointment.dogname,
+    const result = await invokeEdgeFunction("send-customer-email", {
+      to: appointment.email,
+      name: appointment.ownername,
+      template: "booking-received",
+      dogName: appointment.dogname,
+      date: appointment.date,
+      serviceName: SERVICES.find((s) => s.id === appointment.serviceid)?.name || appointment.serviceid,
+      locationName: LOCATIONS.find((l) => l.id === appointment.locationid)?.name || appointment.locationid,
     });
-    console.log("Confirmation email sent successfully:", result.status);
-    return result.status === 200;
+    return Boolean((result as any)?.success);
   } catch (e) {
     console.error("Error sending confirmation email:", e);
     return false;
@@ -508,11 +486,12 @@ Maisey Days @ Dirty Dawg 🐾
 
 export const sendHolidayEnquiryConfirmation = async (name: string, email: string): Promise<boolean> => {
   try {
-    const result = await emailjs.send(EMAILJS_SERVICE_ID, EMAILJS_HOLIDAY_TEMPLATE_ID, {
-      to_email: email,
-      to_name: name,
+    const result = await invokeEdgeFunction("send-customer-email", {
+      to: email,
+      name,
+      template: "holiday-enquiry",
     });
-    return result.status === 200;
+    return Boolean((result as any)?.success);
   } catch (e) {
     console.error("Error sending holiday enquiry confirmation:", e);
     return false;

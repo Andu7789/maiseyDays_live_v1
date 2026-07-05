@@ -3,11 +3,8 @@ import { Service, Location } from "./types";
 // EMAIL CONFIGURATION (Formspree - Business Bookings)
 export const EMAIL_ENDPOINT = "https://formspree.io/f/xnjvowlz";
 
-// EMAIL CONFIGURATION (EmailJS - Customer Confirmations)
-export const EMAILJS_PUBLIC_KEY = "FimgDIgYCermEEAUS";
-export const EMAILJS_SERVICE_ID = "service_n31emcr";
-export const EMAILJS_CONFIRMATION_TEMPLATE_ID = "template_huea638";
-export const EMAILJS_HOLIDAY_TEMPLATE_ID = "template_1k8va7s";
+// Customer-facing confirmation emails (booking received, holiday enquiry) are sent
+// via the send-customer-email edge function using Resend on the verified domain.
 
 // GROOMING AGREEMENT (customer intake form)
 export const INTAKE_TERMS_VERSION = "2026-07";
