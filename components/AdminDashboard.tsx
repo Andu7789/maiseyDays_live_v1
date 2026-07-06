@@ -2810,6 +2810,14 @@ const AdminDashboard: React.FC = () => {
           }
           return false;
         };
+        const formatMinutesAsTime = (mins: number) => `${String(Math.floor(mins / 60)).padStart(2, "0")}:${String(mins % 60).padStart(2, "0")}`;
+        // A booking whose window runs past this row's 2-hour block spills visually
+        // into the next row with nothing shown there — flag it so we can hint at it.
+        const getOverflowIntoNextRow = (date: string, slotIndex: number) => {
+          if (slotIndex < 0 || slotIndex >= SLOT_TIMES.length - 1) return [];
+          const nextRowStart = slotStartMinutes(SLOT_TIMES[slotIndex + 1]);
+          return bookingsFor(date, SLOT_TIMES[slotIndex]).filter(({ schedule }) => schedule.startMinutes + schedule.durationMinutes > nextRowStart && schedule.startMinutes < nextRowStart);
+        };
         const isClosedDay = (date: string) => unavailableDays.includes(date) || unavailableWeekdays.includes(new Date(`${date}T00:00:00`).getDay());
 
         const chipStyle = (apt: Appointment) => {
@@ -2906,29 +2914,43 @@ const AdminDashboard: React.FC = () => {
                 </div>
 
                 {/* Slot rows */}
-                {SLOT_TIMES.map((slot) => (
+                {SLOT_TIMES.map((slot, slotIndex) => (
                   <div key={slot} className="grid grid-cols-[64px_repeat(7,1fr)] gap-2 mb-2">
                     <div className="text-xs font-black text-slate-400 pt-3 text-right pr-1">{slot}</div>
                     {weekDates.map((date) => {
                       const cellBookings = bookingsFor(date, slot);
                       const closed = isClosedDay(date);
                       const overlapping = hasRealOverlap(cellBookings);
+                      const overflowFromPrev = getOverflowIntoNextRow(date, slotIndex - 1);
                       return (
                         <div
                           key={`${date}-${slot}`}
                           onClick={() => !closed && cellBookings.length === 0 && openDiarySlotModal(date, slot)}
                           className={`min-h-[64px] min-w-0 rounded-xl border p-1.5 space-y-1.5 ${closed ? "bg-red-50 border-red-200" : overlapping ? "bg-red-50 border-red-200" : cellBookings.length === 0 ? "bg-white border-slate-100 cursor-pointer hover:border-teal-300 hover:bg-teal-50/40 transition-colors" : "bg-white border-slate-100"}`}
                         >
-                          {cellBookings.map(({ apt, schedule }) => (
-                            <button key={apt.id} onClick={() => openUpdateModal(apt)} className={`w-full min-w-0 text-left px-2 py-1.5 rounded-lg border text-xs font-bold hover:shadow transition-all ${chipStyle(apt)}`}>
-                              <span className="block break-words whitespace-normal leading-snug">🐕 {apt.dogname}</span>
-                              <span className="block break-words whitespace-normal font-medium opacity-75 leading-snug">
-                                {schedule.timeLabel !== slot ? `${schedule.timeLabel} · ` : ""}
-                                {SERVICES.find((s) => s.id === apt.serviceid)?.name?.split(" ")[0] || apt.serviceid}
-                                {selectedLocation === ALL_LOCATIONS ? ` · ${LOCATIONS.find((l) => l.id === apt.locationid)?.name?.split(" ")[0] || ""}` : ""}
-                              </span>
-                            </button>
-                          ))}
+                          {overflowFromPrev.length > 0 && (
+                            <div className="text-[9px] font-bold text-slate-400 border-b border-dashed border-slate-300 pb-1 mb-1 truncate">
+                              ↳ {overflowFromPrev.map(({ apt }) => apt.dogname).join(", ")} until {formatMinutesAsTime(overflowFromPrev[0].schedule.startMinutes + overflowFromPrev[0].schedule.durationMinutes)}
+                            </div>
+                          )}
+                          {cellBookings.map(({ apt, schedule }) => {
+                            const isStandardSlot = schedule.timeLabel === slot && schedule.durationMinutes === 120;
+                            const endLabel = formatMinutesAsTime(schedule.startMinutes + schedule.durationMinutes);
+                            return (
+                              <button
+                                key={apt.id}
+                                onClick={() => openUpdateModal(apt)}
+                                className={`w-full min-w-0 text-left px-2 py-1.5 rounded-lg border text-xs font-bold hover:shadow transition-all ${chipStyle(apt)} ${!isStandardSlot ? "border-l-4" : ""}`}
+                              >
+                                <span className="block break-words whitespace-normal leading-snug">🐕 {apt.dogname}</span>
+                                <span className="block break-words whitespace-normal font-medium opacity-75 leading-snug">
+                                  {!isStandardSlot ? `⏰ ${schedule.timeLabel}–${endLabel} · ` : ""}
+                                  {SERVICES.find((s) => s.id === apt.serviceid)?.name?.split(" ")[0] || apt.serviceid}
+                                  {selectedLocation === ALL_LOCATIONS ? ` · ${LOCATIONS.find((l) => l.id === apt.locationid)?.name?.split(" ")[0] || ""}` : ""}
+                                </span>
+                              </button>
+                            );
+                          })}
                           {overlapping && <div className="text-[10px] font-black text-red-500 text-center uppercase">Double booked</div>}
                         </div>
                       );
