@@ -70,6 +70,7 @@ const AdminDashboard: React.FC = () => {
   const [showDiarySlotModal, setShowDiarySlotModal] = useState(false);
   const [diarySlotDate, setDiarySlotDate] = useState("");
   const [diarySlotTime, setDiarySlotTime] = useState("");
+  const [diarySlotDuration, setDiarySlotDuration] = useState(120);
   const [diarySlotCustomerSearch, setDiarySlotCustomerSearch] = useState("");
   const [diarySlotSelectedCustomer, setDiarySlotSelectedCustomer] = useState<Customer | null>(null);
   const [diarySlotForm, setDiarySlotForm] = useState({
@@ -1182,6 +1183,7 @@ const AdminDashboard: React.FC = () => {
   const openDiarySlotModal = (date: string, time: string) => {
     setDiarySlotDate(date);
     setDiarySlotTime(time);
+    setDiarySlotDuration(120);
     setDiarySlotCustomerSearch("");
     setDiarySlotSelectedCustomer(null);
     setDiarySlotForm({
@@ -1221,7 +1223,7 @@ const AdminDashboard: React.FC = () => {
       return;
     }
 
-    const clash = await findBookingClash(diarySlotForm.locationid, diarySlotDate, diarySlotTime, 120);
+    const clash = await findBookingClash(diarySlotForm.locationid, diarySlotDate, diarySlotTime, diarySlotDuration);
     if (clash) {
       const clashTime = getEffectiveSchedule(clash)?.timeLabel || "";
       if (!window.confirm(`⚠️ DOUBLE BOOKING WARNING\n\n${clash.dogname} (${clash.ownername}) is already booked at ${clashTime} on this day.\n\nAdd this booking anyway?`)) return;
@@ -1241,7 +1243,7 @@ const AdminDashboard: React.FC = () => {
         time: diarySlotTime,
         confirmed_date: diarySlotDate,
         confirmed_time: diarySlotTime,
-        confirmed_duration_minutes: 120,
+        confirmed_duration_minutes: diarySlotDuration,
         notes: diarySlotForm.notes,
         number_of_dogs: diarySlotForm.number_of_dogs,
         // Only mark as confirmed if the customer is actually being notified now
@@ -1268,7 +1270,7 @@ const AdminDashboard: React.FC = () => {
           ...created,
           confirmed_date: diarySlotDate,
           confirmed_time: diarySlotTime,
-          confirmed_duration_minutes: 120,
+          confirmed_duration_minutes: diarySlotDuration,
         };
         try {
           if (diarySlotForm.confirm_channel === "sms") {
@@ -2177,15 +2179,28 @@ const AdminDashboard: React.FC = () => {
                 <option value="Evening">Evening (legacy)</option>
               </select>
               <input type="date" value={editForm.confirmed_date} onChange={(e) => setEditForm({ ...editForm, confirmed_date: e.target.value })} className="px-4 py-3 border rounded-lg" />
-              <select value={editForm.confirmed_time} onChange={(e) => setEditForm({ ...editForm, confirmed_time: e.target.value, confirmed_duration_minutes: 120 })} className="px-4 py-3 border rounded-lg">
-                <option value="">Confirmed time slot</option>
+              <select value={SLOT_TIMES.includes(editForm.confirmed_time) ? editForm.confirmed_time : ""} onChange={(e) => setEditForm({ ...editForm, confirmed_time: e.target.value, confirmed_duration_minutes: 120 })} className="px-4 py-3 border rounded-lg">
+                <option value="">Quick slot (2 hrs)...</option>
                 {SLOT_TIMES.map((slot) => (
                   <option key={slot} value={slot}>
                     {slot} (2 hrs)
                   </option>
                 ))}
-                {editForm.confirmed_time && !SLOT_TIMES.includes(editForm.confirmed_time) && <option value={editForm.confirmed_time}>{editForm.confirmed_time} (custom)</option>}
               </select>
+              <div className="flex items-center gap-2 md:col-span-2">
+                <label className="text-xs font-bold text-slate-500 whitespace-nowrap">Or exact time</label>
+                <input type="time" value={editForm.confirmed_time} onChange={(e) => setEditForm({ ...editForm, confirmed_time: e.target.value })} className="px-4 py-3 border rounded-lg" />
+                <label className="text-xs font-bold text-slate-500 whitespace-nowrap">for</label>
+                <input
+                  type="number"
+                  min={15}
+                  step={15}
+                  value={editForm.confirmed_duration_minutes}
+                  onChange={(e) => setEditForm({ ...editForm, confirmed_duration_minutes: Math.max(15, Number(e.target.value) || 120) })}
+                  className="px-4 py-3 border rounded-lg w-24"
+                />
+                <label className="text-xs font-bold text-slate-500 whitespace-nowrap">mins</label>
+              </div>
               <div className="flex items-center gap-2">
                 <label className="text-xs font-bold text-slate-500 whitespace-nowrap">Number of dogs</label>
                 <input
@@ -2782,6 +2797,19 @@ const AdminDashboard: React.FC = () => {
           const start = slotStartMinutes(slot);
           return scheduled.filter(({ schedule }) => schedule.date === date && schedule.startMinutes >= start && schedule.startMinutes < start + 120);
         };
+        // Custom-time bookings can land in the same display row without actually
+        // overlapping (e.g. 12:00-13:00 and 13:15-14:00 both show under "12:00"),
+        // so check real time overlap rather than just "more than one in this cell".
+        const hasRealOverlap = (bookings: ReturnType<typeof bookingsFor>) => {
+          for (let i = 0; i < bookings.length; i++) {
+            for (let j = i + 1; j < bookings.length; j++) {
+              const a = bookings[i].schedule;
+              const b = bookings[j].schedule;
+              if (a.startMinutes < b.startMinutes + b.durationMinutes && b.startMinutes < a.startMinutes + a.durationMinutes) return true;
+            }
+          }
+          return false;
+        };
         const isClosedDay = (date: string) => unavailableDays.includes(date) || unavailableWeekdays.includes(new Date(`${date}T00:00:00`).getDay());
 
         const chipStyle = (apt: Appointment) => {
@@ -2884,11 +2912,12 @@ const AdminDashboard: React.FC = () => {
                     {weekDates.map((date) => {
                       const cellBookings = bookingsFor(date, slot);
                       const closed = isClosedDay(date);
+                      const overlapping = hasRealOverlap(cellBookings);
                       return (
                         <div
                           key={`${date}-${slot}`}
                           onClick={() => !closed && cellBookings.length === 0 && openDiarySlotModal(date, slot)}
-                          className={`min-h-[64px] min-w-0 rounded-xl border p-1.5 space-y-1.5 ${closed ? "bg-red-50 border-red-200" : cellBookings.length > 1 ? "bg-red-50 border-red-200" : cellBookings.length === 0 ? "bg-white border-slate-100 cursor-pointer hover:border-teal-300 hover:bg-teal-50/40 transition-colors" : "bg-white border-slate-100"}`}
+                          className={`min-h-[64px] min-w-0 rounded-xl border p-1.5 space-y-1.5 ${closed ? "bg-red-50 border-red-200" : overlapping ? "bg-red-50 border-red-200" : cellBookings.length === 0 ? "bg-white border-slate-100 cursor-pointer hover:border-teal-300 hover:bg-teal-50/40 transition-colors" : "bg-white border-slate-100"}`}
                         >
                           {cellBookings.map(({ apt, schedule }) => (
                             <button key={apt.id} onClick={() => openUpdateModal(apt)} className={`w-full min-w-0 text-left px-2 py-1.5 rounded-lg border text-xs font-bold hover:shadow transition-all ${chipStyle(apt)}`}>
@@ -2900,7 +2929,7 @@ const AdminDashboard: React.FC = () => {
                               </span>
                             </button>
                           ))}
-                          {cellBookings.length > 1 && <div className="text-[10px] font-black text-red-500 text-center uppercase">Double booked</div>}
+                          {overlapping && <div className="text-[10px] font-black text-red-500 text-center uppercase">Double booked</div>}
                         </div>
                       );
                     })}
@@ -3664,7 +3693,13 @@ const AdminDashboard: React.FC = () => {
                 <h3 className="text-xl font-black text-slate-800">New Booking — {dateLabel}</h3>
                 <button onClick={() => setShowDiarySlotModal(false)} className="text-slate-400 hover:text-slate-600 text-2xl font-bold">×</button>
               </div>
-              <p className="text-sm text-slate-500 mb-4">{diarySlotTime} · 2 hour slot</p>
+              <div className="flex items-center gap-2 mb-4">
+                <label className="text-xs font-bold text-slate-500 whitespace-nowrap">Time</label>
+                <input type="time" value={diarySlotTime} onChange={(e) => setDiarySlotTime(e.target.value)} className="px-3 py-2 border rounded-lg text-sm" />
+                <label className="text-xs font-bold text-slate-500 whitespace-nowrap">for</label>
+                <input type="number" min={15} step={15} value={diarySlotDuration} onChange={(e) => setDiarySlotDuration(Math.max(15, Number(e.target.value) || 120))} className="px-3 py-2 border rounded-lg text-sm w-20" />
+                <label className="text-xs font-bold text-slate-500 whitespace-nowrap">mins</label>
+              </div>
 
               <div className="mb-4">
                 <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Find an existing customer</label>
@@ -3853,14 +3888,28 @@ const AdminDashboard: React.FC = () => {
                 ))}
               </select>
               <input type="date" value={addForm.date} onChange={(e) => setAddForm({ ...addForm, date: e.target.value })} className="px-4 py-3 border rounded-lg" />
-              <select value={addForm.confirmed_time} onChange={(e) => setAddForm({ ...addForm, confirmed_time: e.target.value, confirmed_duration_minutes: 120 })} className="px-4 py-3 border rounded-lg">
-                <option value="">Time slot</option>
+              <select value={SLOT_TIMES.includes(addForm.confirmed_time) ? addForm.confirmed_time : ""} onChange={(e) => setAddForm({ ...addForm, confirmed_time: e.target.value, confirmed_duration_minutes: 120 })} className="px-4 py-3 border rounded-lg">
+                <option value="">Quick slot (2 hrs)...</option>
                 {SLOT_TIMES.map((slot) => (
                   <option key={slot} value={slot} disabled={!addFormAvailableSlots.includes(slot)}>
                     {slot} (2 hrs){!addFormAvailableSlots.includes(slot) ? " — booked" : ""}
                   </option>
                 ))}
               </select>
+              <div className="flex items-center gap-2 md:col-span-2">
+                <label className="text-xs font-bold text-slate-500 whitespace-nowrap">Or exact time</label>
+                <input type="time" value={addForm.confirmed_time} onChange={(e) => setAddForm({ ...addForm, confirmed_time: e.target.value })} className="px-4 py-3 border rounded-lg" />
+                <label className="text-xs font-bold text-slate-500 whitespace-nowrap">for</label>
+                <input
+                  type="number"
+                  min={15}
+                  step={15}
+                  value={addForm.confirmed_duration_minutes}
+                  onChange={(e) => setAddForm({ ...addForm, confirmed_duration_minutes: Math.max(15, Number(e.target.value) || 120) })}
+                  className="px-4 py-3 border rounded-lg w-24"
+                />
+                <label className="text-xs font-bold text-slate-500 whitespace-nowrap">mins</label>
+              </div>
               <div className="flex items-center gap-2">
                 <label className="text-xs font-bold text-slate-500 whitespace-nowrap">Number of dogs</label>
                 <input
