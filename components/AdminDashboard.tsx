@@ -6,7 +6,7 @@ import { INTAKE_TERMS, LOCATIONS, MATTING_BULLETS, MATTING_CLOSING, MATTING_TERM
 
 const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const ALL_LOCATIONS = "__all__";
-const EMAIL_CUSTOMER_REPLY_TO = "bookings@dirtydawggrooming.co.uk";
+const EMAIL_CUSTOMER_REPLY_TO = "hello@dirtydawggrooming.co.uk";
 
 const getMonday = (source: Date) => {
   const copy = new Date(source);
