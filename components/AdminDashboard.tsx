@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { addBookingPhoto, BookingPhoto, buildCancellationMessage, buildConfirmationMessage, buildRebookNudgeMessage, checkAuthStatus, confirmAppointmentBooking, createManualAppointment, deleteAppointment, deleteBookingPhoto, exportAppointmentsToExcel, findBookingClash, getAppointments, getAvailableSlotTimes, getBookingPhotos, getBookingRevenue, getCurrentUser, getEffectiveSchedule, getReminderSettings, getServiceBasePrice, getUnavailableDays, getUnavailableWeekdays, removeUnavailableDay, removeUnavailableWeekday, saveUnavailableDay, saveUnavailableWeekday, sendCustomerCancellationSms, sendCustomerConfirmationSms, signInAdmin, signOutAdmin, updateAppointment, updateReminderSettings, getHolidaySettings, updateHolidaySettings, updateAdvertSettings, updateWeekendBookingsEnabled, getDogNotes, getAllDogNotes, upsertDogNote } from "../services/bookingService";
+import { addBookingPhoto, BookingPhoto, buildCancellationMessage, buildConfirmationMessage, buildRebookNudgeMessage, checkAuthStatus, confirmAppointmentBooking, createManualAppointment, deleteAppointment, deleteBookingPhoto, exportAppointmentsToExcel, findBookingClash, getAppointments, getAvailableSlotTimes, getBookingPhotos, getBookingRevenue, getCurrentUser, getEffectiveSchedule, getReminderSettings, getServiceBasePrice, getUnavailableDays, getUnavailableWeekdays, removeUnavailableDay, removeUnavailableWeekday, saveUnavailableDay, saveUnavailableWeekday, sendCustomEmail, sendCustomerCancellationSms, sendCustomerConfirmationSms, signInAdmin, signOutAdmin, updateAppointment, updateReminderSettings, getHolidaySettings, updateHolidaySettings, updateAdvertSettings, updateWeekendBookingsEnabled, getDogNotes, getAllDogNotes, upsertDogNote } from "../services/bookingService";
 import { buildIntakeLink, buildIntakeMessage, buildWhatsAppLink, createCustomer, deleteCustomer, deleteDog, ensureIntakeToken, getCustomers, getDeletedCustomers, markIntakeSent, restoreCustomer, saveDog, sendIntakeEmail, sendIntakeSms, updateCustomer } from "../services/customerService";
 import { Appointment, Customer, Dog, IntakeStatus, Service } from "../types";
 import { INTAKE_TERMS, LOCATIONS, MATTING_BULLETS, MATTING_CLOSING, MATTING_TERMS, SERVICES, SLOT_TIMES } from "../constants";
@@ -60,6 +60,10 @@ const AdminDashboard: React.FC = () => {
   const [revenueHoverIndex, setRevenueHoverIndex] = useState<number | null>(null);
   const [nudgeSaving, setNudgeSaving] = useState<Record<string, boolean>>({});
   const [activeBookingPhotos, setActiveBookingPhotos] = useState<BookingPhoto[]>([]);
+  const [showEmailModal, setShowEmailModal] = useState(false);
+  const [emailSubject, setEmailSubject] = useState("");
+  const [emailMessage, setEmailMessage] = useState("");
+  const [emailSending, setEmailSending] = useState(false);
   const [loadingPhotos, setLoadingPhotos] = useState(false);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [newPhotoType, setNewPhotoType] = useState<"before" | "after" | "other">("before");
@@ -1078,6 +1082,35 @@ const AdminDashboard: React.FC = () => {
       alert(error.message || "Could not cancel the booking.");
     } finally {
       setIsWorking(false);
+    }
+  };
+
+  const openEmailModal = (booking: Appointment) => {
+    if (!booking.email) {
+      alert("No email address on record for this customer.");
+      return;
+    }
+    const firstName = (booking.ownername || "").trim().split(/\s+/)[0] || "there";
+    setEmailSubject(`Your booking request - ${booking.dogname}`);
+    setEmailMessage(`Hi ${firstName},\n\nThanks for your booking request for ${booking.dogname}.\n\n\n\nBest regards,\nMaisey Days @ Dirty Dawg 🐾`);
+    setShowEmailModal(true);
+  };
+
+  const handleSendCustomEmail = async () => {
+    if (!activeBooking?.email) return;
+    if (!emailMessage.trim()) {
+      alert("Please write a message.");
+      return;
+    }
+    setEmailSending(true);
+    try {
+      await sendCustomEmail(activeBooking.email, activeBooking.ownername, emailSubject, emailMessage, reminderSettings.reminder_email);
+      setShowEmailModal(false);
+      alert("Email sent.");
+    } catch (error: any) {
+      alert(error.message || "Could not send the email.");
+    } finally {
+      setEmailSending(false);
     }
   };
 
@@ -2331,6 +2364,9 @@ const AdminDashboard: React.FC = () => {
               <button disabled={isWorking} onClick={() => confirmBooking("sms")} title="Sends a text automatically (~4p)" className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white px-5 py-2 rounded-lg font-bold">
                 💬 Confirm + SMS
               </button>
+              <button disabled={isWorking} onClick={() => activeBooking && openEmailModal(activeBooking)} title="Free — sends from the business email address, not a personal inbox" className="bg-slate-600 hover:bg-slate-700 disabled:opacity-60 text-white px-5 py-2 rounded-lg font-bold">
+                📧 Email Customer
+              </button>
               <button onClick={closeUpdateModal} className="bg-slate-200 hover:bg-slate-300 text-slate-700 px-5 py-2 rounded-lg font-bold">
                 Close
               </button>
@@ -2387,6 +2423,32 @@ const AdminDashboard: React.FC = () => {
                 disabled={isWorking}
                 className="w-full text-slate-500 hover:text-slate-700 px-5 py-2 text-sm font-medium"
               >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showEmailModal && activeBooking && (
+        <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center p-4 z-[70]">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-lg shadow-2xl">
+            <div className="flex justify-between items-center mb-1">
+              <h3 className="text-xl font-black text-slate-800">📧 Email {activeBooking.ownername}</h3>
+              <button onClick={() => setShowEmailModal(false)} className="text-slate-400 hover:text-slate-600 text-2xl font-bold">×</button>
+            </div>
+            <p className="text-xs text-slate-500 mb-4">
+              Sends to {activeBooking.email} from the business email address — replies will land in your inbox ({reminderSettings.reminder_email || "your reminder email"}), not spam-flagged like a personal-inbox reply.
+            </p>
+            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Subject</label>
+            <input value={emailSubject} onChange={(e) => setEmailSubject(e.target.value)} className="w-full px-4 py-2 border border-slate-200 rounded-lg mb-3" />
+            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Message</label>
+            <textarea value={emailMessage} onChange={(e) => setEmailMessage(e.target.value)} rows={8} className="w-full px-4 py-3 border border-slate-200 rounded-lg" />
+            <div className="flex gap-3 mt-4">
+              <button disabled={emailSending} onClick={handleSendCustomEmail} className="bg-slate-700 hover:bg-slate-800 disabled:opacity-60 text-white px-5 py-2 rounded-lg font-bold">
+                {emailSending ? "Sending..." : "Send Email"}
+              </button>
+              <button onClick={() => setShowEmailModal(false)} className="bg-slate-200 hover:bg-slate-300 text-slate-700 px-5 py-2 rounded-lg font-bold">
                 Cancel
               </button>
             </div>

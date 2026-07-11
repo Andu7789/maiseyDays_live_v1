@@ -68,9 +68,25 @@ serve(async (req: Request) => {
         <p>Thank you for your enquiry! We're currently away, but we've received your details and will be in touch as soon as we're back to arrange your appointment.</p>
         <p>Best regards,<br>Maisey Days @ Dirty Dawg 🐾</p>
       `);
+    } else if (template === "custom") {
+      // Free-form reply typed by the admin (e.g. replying to a booking request),
+      // sent through the properly-authenticated domain instead of a personal inbox.
+      subject = String(body.subject || "Message from Maisey Days @ Dirty Dawg").trim();
+      const messageText = String(body.message || "").trim();
+      if (!messageText) {
+        return jsonResponse({ success: false, error: "Message is empty." });
+      }
+      const escapedHtml = messageText
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/\n/g, "<br>");
+      html = wrapHtml(`<p>${escapedHtml}</p>`);
     } else {
       return jsonResponse({ success: false, error: "Unknown template." });
     }
+
+    const replyTo = String(body.replyTo || "").trim();
 
     const response = await fetch("https://api.resend.com/emails", {
       method: "POST",
@@ -78,7 +94,7 @@ serve(async (req: Request) => {
         Authorization: `Bearer ${resendApiKey}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ from: fromAddress, to: [to], subject, html }),
+      body: JSON.stringify({ from: fromAddress, to: [to], subject, html, ...(replyTo ? { reply_to: replyTo } : {}) }),
     });
 
     const data = await response.json().catch(() => ({}));

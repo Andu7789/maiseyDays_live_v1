@@ -608,6 +608,25 @@ export const sendHolidayEnquiryConfirmation = async (name: string, email: string
   }
 };
 
+/**
+ * Sends a free-form email typed by the admin, through the authenticated
+ * dirtydawggrooming.co.uk domain rather than a personal inbox (replying from
+ * a personal inbox is what was landing customers' replies in spam).
+ */
+export const sendCustomEmail = async (to: string, name: string, subject: string, message: string, replyTo?: string) => {
+  const result = await invokeEdgeFunction("send-customer-email", {
+    to,
+    name,
+    template: "custom",
+    subject,
+    message,
+    replyTo: replyTo || "",
+  });
+  if (!(result as any)?.success) {
+    throw new Error((result as any)?.error || "Email failed to send.");
+  }
+};
+
 export const getUnavailableDays = async (locationId: string): Promise<string[]> => {
   try {
     const { data, error } = await supabase.from("availabilities").select("date, day_of_week").eq("isAvailable", false);
