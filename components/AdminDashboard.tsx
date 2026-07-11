@@ -6,6 +6,7 @@ import { INTAKE_TERMS, LOCATIONS, MATTING_BULLETS, MATTING_CLOSING, MATTING_TERM
 
 const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const ALL_LOCATIONS = "__all__";
+const EMAIL_CUSTOMER_REPLY_TO = "bookings@dirtydawggrooming.co.uk";
 
 const getMonday = (source: Date) => {
   const copy = new Date(source);
@@ -1104,7 +1105,7 @@ const AdminDashboard: React.FC = () => {
     }
     setEmailSending(true);
     try {
-      await sendCustomEmail(activeBooking.email, activeBooking.ownername, emailSubject, emailMessage, reminderSettings.reminder_email);
+      await sendCustomEmail(activeBooking.email, activeBooking.ownername, emailSubject, emailMessage, EMAIL_CUSTOMER_REPLY_TO);
       setShowEmailModal(false);
       alert("Email sent.");
     } catch (error: any) {
@@ -2438,7 +2439,7 @@ const AdminDashboard: React.FC = () => {
               <button onClick={() => setShowEmailModal(false)} className="text-slate-400 hover:text-slate-600 text-2xl font-bold">×</button>
             </div>
             <p className="text-xs text-slate-500 mb-4">
-              Sends to {activeBooking.email} from the business email address — replies will land in your inbox ({reminderSettings.reminder_email || "your reminder email"}), not spam-flagged like a personal-inbox reply.
+              Sends to {activeBooking.email} from the business email address — replies will land in {EMAIL_CUSTOMER_REPLY_TO}, not spam-flagged like a personal-inbox reply.
             </p>
             <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Subject</label>
             <input value={emailSubject} onChange={(e) => setEmailSubject(e.target.value)} className="w-full px-4 py-2 border border-slate-200 rounded-lg mb-3" />
