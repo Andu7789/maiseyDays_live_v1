@@ -1115,7 +1115,7 @@ const AdminDashboard: React.FC = () => {
     }
   };
 
-  const handleAddBooking = async () => {
+  const handleAddBooking = async (hold: boolean = false) => {
     if (!addForm.ownername || !addForm.dogname || !addForm.email || !addForm.phone) {
       alert("Please fill owner name, dog name, email and phone.");
       return;
@@ -1149,9 +1149,10 @@ const AdminDashboard: React.FC = () => {
         confirmed_duration_minutes: addForm.confirmed_duration_minutes,
         notes: addForm.notes,
         number_of_dogs: addForm.number_of_dogs,
-        // Only mark as confirmed if the customer is actually being notified now
-        status: addForm.confirm_channel === "none" ? "pending" : "confirmed",
-        booking_status: addForm.confirm_channel === "none" ? "pending" : "confirmed",
+        // Adding a booking confirms it (you know the details are right) unless
+        // you deliberately choose to Hold it as a tentative/pending booking.
+        status: hold ? "pending" : "confirmed",
+        booking_status: hold ? "pending" : "confirmed",
         booking_source: "manual",
         deposit_paid: addForm.deposit_paid,
         deposit_amount: addForm.deposit_amount,
@@ -1161,7 +1162,7 @@ const AdminDashboard: React.FC = () => {
 
       const createdBooking = Array.isArray(result) ? result[0] : null;
 
-      if (addForm.confirm_channel !== "none" && createdBooking?.id) {
+      if (!hold && addForm.confirm_channel !== "none" && createdBooking?.id) {
         const nowIso = new Date().toISOString();
         const confirmedAppointment: Appointment = {
           ...createdBooking,
@@ -1206,7 +1207,7 @@ const AdminDashboard: React.FC = () => {
         deposit_notes: "",
         confirm_channel: "whatsapp" as "none" | "whatsapp" | "sms",
       });
-      alert(addForm.confirm_channel === "sms" ? "Booking added and SMS confirmation sent." : addForm.confirm_channel === "whatsapp" ? "Booking added — WhatsApp message opened, just press send." : "Booking added.");
+      alert(hold ? "Booking added and held as pending." : addForm.confirm_channel === "sms" ? "Booking added and confirmed — SMS sent." : addForm.confirm_channel === "whatsapp" ? "Booking added and confirmed — WhatsApp message opened, just press send." : "Booking added and confirmed.");
     } catch (error: any) {
       alert(error.message || "Could not add booking.");
     } finally {
@@ -1251,7 +1252,7 @@ const AdminDashboard: React.FC = () => {
     setDiarySlotCustomerSearch("");
   };
 
-  const handleDiarySlotBooking = async () => {
+  const handleDiarySlotBooking = async (hold: boolean = false) => {
     if (!diarySlotForm.ownername || !diarySlotForm.dogname || (!diarySlotForm.email && !diarySlotForm.phone)) {
       alert("Please fill in owner name, dog name, and at least an email or phone number.");
       return;
@@ -1280,9 +1281,9 @@ const AdminDashboard: React.FC = () => {
         confirmed_duration_minutes: diarySlotDuration,
         notes: diarySlotForm.notes,
         number_of_dogs: diarySlotForm.number_of_dogs,
-        // Only mark as confirmed if the customer is actually being notified now
-        status: diarySlotForm.confirm_channel === "none" ? "pending" : "confirmed",
-        booking_status: diarySlotForm.confirm_channel === "none" ? "pending" : "confirmed",
+        // Adding a booking confirms it unless you deliberately Hold it as pending.
+        status: hold ? "pending" : "confirmed",
+        booking_status: hold ? "pending" : "confirmed",
         booking_source: "manual",
         deposit_paid: diarySlotForm.deposit_paid,
         deposit_amount: diarySlotForm.deposit_amount,
@@ -1298,7 +1299,7 @@ const AdminDashboard: React.FC = () => {
         await updateAppointment(created.id, { customer_id: diarySlotSelectedCustomer.id });
       }
 
-      if (diarySlotForm.confirm_channel !== "none" && created?.id) {
+      if (!hold && diarySlotForm.confirm_channel !== "none" && created?.id) {
         const nowIso = new Date().toISOString();
         const confirmedAppointment: Appointment = {
           ...created,
@@ -3876,8 +3877,11 @@ const AdminDashboard: React.FC = () => {
               </div>
 
               <div className="flex gap-3 mt-5">
-                <button disabled={isWorking} onClick={handleDiarySlotBooking} className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white px-5 py-2 rounded-lg font-bold">
-                  {isWorking ? "Adding..." : "Add Booking"}
+                <button disabled={isWorking} onClick={() => handleDiarySlotBooking(false)} title="Adds the booking as confirmed" className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white px-5 py-2 rounded-lg font-bold">
+                  {isWorking ? "Adding..." : "Add Booking (Confirmed)"}
+                </button>
+                <button disabled={isWorking} onClick={() => handleDiarySlotBooking(true)} title="Adds the booking as pending — no notification sent, review it later" className="bg-amber-100 hover:bg-amber-200 disabled:opacity-60 text-amber-800 px-5 py-2 rounded-lg font-bold">
+                  Hold Booking (Pending)
                 </button>
                 <button onClick={() => setShowDiarySlotModal(false)} className="bg-slate-200 hover:bg-slate-300 text-slate-700 px-5 py-2 rounded-lg font-bold">
                   Cancel
@@ -4056,8 +4060,11 @@ const AdminDashboard: React.FC = () => {
             </div>
 
             <div className="flex gap-3 mt-4">
-              <button disabled={isWorking} onClick={handleAddBooking} className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white px-5 py-2 rounded-lg font-bold">
-                {isWorking ? "Adding..." : addForm.confirm_channel === "sms" ? "Add & Send SMS" : addForm.confirm_channel === "whatsapp" ? "Add & Send WhatsApp" : "Add Booking"}
+              <button disabled={isWorking} onClick={() => handleAddBooking(false)} title="Adds the booking as confirmed" className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white px-5 py-2 rounded-lg font-bold">
+                {isWorking ? "Adding..." : addForm.confirm_channel === "sms" ? "Add & Send SMS" : addForm.confirm_channel === "whatsapp" ? "Add & Send WhatsApp" : "Add Booking (Confirmed)"}
+              </button>
+              <button disabled={isWorking} onClick={() => handleAddBooking(true)} title="Adds the booking as pending — no notification sent, review it later" className="bg-amber-100 hover:bg-amber-200 disabled:opacity-60 text-amber-800 px-5 py-2 rounded-lg font-bold">
+                Hold Booking (Pending)
               </button>
               <button onClick={() => setShowAddModal(false)} className="bg-slate-200 hover:bg-slate-300 text-slate-700 px-5 py-2 rounded-lg font-bold">
                 Close
