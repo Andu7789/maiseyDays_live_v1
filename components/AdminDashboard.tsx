@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { addBookingPhoto, BookingPhoto, buildCancellationMessage, buildConfirmationMessage, buildRebookNudgeMessage, checkAuthStatus, confirmAppointmentBooking, createManualAppointment, deleteAppointment, deleteBookingPhoto, exportAppointmentsToExcel, findBookingClash, getAppointments, getAvailableSlotTimes, getBookingPhotos, getBookingRevenue, getCurrentUser, getEffectiveSchedule, getReminderSettings, getServiceBasePrice, getUnavailableDays, getUnavailableWeekdays, removeUnavailableDay, removeUnavailableWeekday, saveUnavailableDay, saveUnavailableWeekday, sendCustomEmail, sendCustomerCancellationSms, sendCustomerConfirmationSms, signInAdmin, signOutAdmin, updateAppointment, updateReminderSettings, getHolidaySettings, updateHolidaySettings, updateAdvertSettings, updateWeekendBookingsEnabled, getDogNotes, getAllDogNotes, upsertDogNote } from "../services/bookingService";
+import { addBookingPhoto, BookingPhoto, buildCancellationMessage, buildConfirmationMessage, buildRebookNudgeMessage, checkAuthStatus, confirmAppointmentBooking, createManualAppointment, deleteAppointment, deleteBookingPhoto, enrollMfaTotp, exportAppointmentsToExcel, findBookingClash, getAppointments, getAvailableSlotTimes, getBookingPhotos, getBookingRevenue, getCurrentUser, getEffectiveSchedule, getMfaAssuranceLevel, getReminderSettings, getServiceBasePrice, getUnavailableDays, getUnavailableWeekdays, listMfaFactors, removeUnavailableDay, removeUnavailableWeekday, saveUnavailableDay, saveUnavailableWeekday, sendCustomEmail, sendCustomerCancellationSms, sendCustomerConfirmationSms, signInAdmin, signOutAdmin, unenrollMfaFactor, updateAppointment, updateReminderSettings, getHolidaySettings, updateHolidaySettings, updateAdvertSettings, updateWeekendBookingsEnabled, verifyMfaCode, getDogNotes, getAllDogNotes, upsertDogNote } from "../services/bookingService";
 import { buildIntakeLink, buildIntakeMessage, buildWhatsAppLink, createCustomer, deleteCustomer, deleteDog, ensureIntakeToken, getCustomers, getDeletedCustomers, markIntakeSent, permanentlyDeleteCustomer, restoreCustomer, saveDog, sendIntakeEmail, sendIntakeSms, updateCustomer } from "../services/customerService";
 import { Appointment, Customer, Dog, IntakeStatus, Service } from "../types";
 import { INTAKE_TERMS, LOCATIONS, MATTING_BULLETS, MATTING_CLOSING, MATTING_TERMS, SERVICES, SLOT_TIMES } from "../constants";
@@ -37,6 +37,19 @@ const AdminDashboard: React.FC = () => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [authError, setAuthError] = useState("");
+  // Two-factor auth: set once a password login succeeds but the session still
+  // needs a TOTP code (an enrolled factor exists but hasn't been verified yet
+  // this session). Login UI swaps to the code-entry form while this is set.
+  const [mfaFactorId, setMfaFactorId] = useState<string | null>(null);
+  const [mfaCodeInput, setMfaCodeInput] = useState("");
+  const [mfaLoginError, setMfaLoginError] = useState("");
+  const [mfaVerifying, setMfaVerifying] = useState(false);
+  // Settings > Security: the admin's own enrolled factors, and in-progress enrollment state.
+  const [mfaFactors, setMfaFactors] = useState<{ id: string; friendly_name?: string; status: string }[]>([]);
+  const [mfaEnrollment, setMfaEnrollment] = useState<{ id: string; qrCode: string; secret: string } | null>(null);
+  const [mfaEnrollCodeInput, setMfaEnrollCodeInput] = useState("");
+  const [mfaEnrollError, setMfaEnrollError] = useState("");
+  const [mfaBusy, setMfaBusy] = useState(false);
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [view, setView] = useState<"dashboard" | "bookings" | "diary" | "unavailable" | "services" | "settings" | "customers">("dashboard");
   const [selectedLocation, setSelectedLocation] = useState(ALL_LOCATIONS);
@@ -360,7 +373,25 @@ const AdminDashboard: React.FC = () => {
   useEffect(() => {
     const checkAuth = async () => {
       const user = await getCurrentUser();
-      if (user) setIsAuthorized(true);
+      if (!user) return;
+      try {
+        // A persisted session can be sitting at aal1 (password only) even though a
+        // TOTP factor is enrolled — e.g. the tab was closed before the code was
+        // entered. Only treat the admin as in once the session has actually
+        // reached the level it needs to.
+        const level = await getMfaAssuranceLevel();
+        if (level.nextLevel === "aal2" && level.currentLevel !== "aal2") {
+          const factors = await listMfaFactors();
+          const factorId = factors.totp?.[0]?.id;
+          if (factorId) {
+            setMfaFactorId(factorId);
+            return;
+          }
+        }
+        setIsAuthorized(true);
+      } catch {
+        setIsAuthorized(true);
+      }
     };
     checkAuth();
 
@@ -444,6 +475,15 @@ const AdminDashboard: React.FC = () => {
     setAuthError("");
     try {
       await signInAdmin(email, password);
+      const level = await getMfaAssuranceLevel();
+      if (level.nextLevel === "aal2" && level.currentLevel !== "aal2") {
+        const factors = await listMfaFactors();
+        const factorId = factors.totp?.[0]?.id;
+        if (factorId) {
+          setMfaFactorId(factorId);
+          return;
+        }
+      }
       setIsAuthorized(true);
     } catch (err: any) {
       let errorMsg = "Invalid email or password";
@@ -456,12 +496,100 @@ const AdminDashboard: React.FC = () => {
     }
   };
 
+  const handleMfaLoginSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!mfaFactorId) return;
+    setMfaLoginError("");
+    setMfaVerifying(true);
+    try {
+      await verifyMfaCode(mfaFactorId, mfaCodeInput);
+      setMfaCodeInput("");
+      setMfaFactorId(null);
+      setIsAuthorized(true);
+    } catch (err: any) {
+      setMfaLoginError(err.message || "Incorrect code — check your authenticator app and try again.");
+    } finally {
+      setMfaVerifying(false);
+    }
+  };
+
   const handleLogout = async () => {
     try {
       await signOutAdmin();
       setIsAuthorized(false);
+      setMfaFactorId(null);
+      setMfaCodeInput("");
+      setMfaLoginError("");
     } catch (err) {
       console.error("Logout error:", err);
+    }
+  };
+
+  // ===== Two-factor auth setup (Settings > Security) =====
+
+  const refreshMfaFactors = async () => {
+    try {
+      const factors = await listMfaFactors();
+      setMfaFactors(factors.totp || []);
+    } catch (err) {
+      console.error("Failed to load 2FA factors:", err);
+    }
+  };
+
+  const handleStartMfaEnrollment = async () => {
+    setMfaEnrollError("");
+    setMfaBusy(true);
+    try {
+      const data = await enrollMfaTotp();
+      setMfaEnrollment({ id: data.id, qrCode: data.totp.qr_code, secret: data.totp.secret });
+      setMfaEnrollCodeInput("");
+    } catch (err: any) {
+      setMfaEnrollError(err.message || "Could not start 2FA setup.");
+    } finally {
+      setMfaBusy(false);
+    }
+  };
+
+  const handleConfirmMfaEnrollment = async () => {
+    if (!mfaEnrollment) return;
+    setMfaEnrollError("");
+    setMfaBusy(true);
+    try {
+      await verifyMfaCode(mfaEnrollment.id, mfaEnrollCodeInput);
+      setMfaEnrollment(null);
+      setMfaEnrollCodeInput("");
+      await refreshMfaFactors();
+      alert("Two-factor authentication is now enabled. You'll need your authenticator app code at every login.");
+    } catch (err: any) {
+      setMfaEnrollError(err.message || "Incorrect code — check your authenticator app and try again.");
+    } finally {
+      setMfaBusy(false);
+    }
+  };
+
+  const handleCancelMfaEnrollment = async () => {
+    if (mfaEnrollment) {
+      try {
+        await unenrollMfaFactor(mfaEnrollment.id);
+      } catch {
+        // Best-effort cleanup of the unconfirmed factor; ignore failures.
+      }
+    }
+    setMfaEnrollment(null);
+    setMfaEnrollCodeInput("");
+    setMfaEnrollError("");
+  };
+
+  const handleRemoveMfaFactor = async (factorId: string) => {
+    if (!window.confirm("Turn off two-factor authentication? Future logins will only need your password.")) return;
+    setMfaBusy(true);
+    try {
+      await unenrollMfaFactor(factorId);
+      await refreshMfaFactors();
+    } catch (err: any) {
+      alert(err.message || "Could not remove this 2FA method.");
+    } finally {
+      setMfaBusy(false);
     }
   };
 
@@ -1429,20 +1557,63 @@ const AdminDashboard: React.FC = () => {
     return (
       <div className="min-h-[80vh] flex items-center justify-center p-4">
         <div className="max-w-md w-full bg-white p-10 rounded-3xl shadow-2xl border border-slate-100">
-          <div className="text-center mb-8">
-            <div className="inline-flex items-center justify-center w-16 h-16 bg-emerald-100 rounded-full mb-4">
-              <span className="text-3xl">🔐</span>
-            </div>
-            <h2 className="text-3xl font-black text-slate-800">Admin Login</h2>
-          </div>
-          <form onSubmit={handleLogin} className="space-y-4">
-            {authError && <div className="bg-rose-50 border border-rose-200 text-rose-700 px-4 py-3 rounded-2xl text-sm font-semibold">{authError}</div>}
-            <input type="email" placeholder="Admin Email" value={email} onChange={(e) => setEmail(e.target.value)} className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-emerald-500 transition-all" required autoFocus />
-            <input type="password" placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-emerald-500 transition-all" required />
-            <button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-4 rounded-2xl font-bold shadow-lg shadow-emerald-600/20 transition-all">
-              Unlock Dashboard
-            </button>
-          </form>
+          {mfaFactorId ? (
+            <>
+              <div className="text-center mb-8">
+                <div className="inline-flex items-center justify-center w-16 h-16 bg-emerald-100 rounded-full mb-4">
+                  <span className="text-3xl">🔢</span>
+                </div>
+                <h2 className="text-3xl font-black text-slate-800">Enter Your Code</h2>
+                <p className="text-sm text-slate-500 mt-2">Open your authenticator app and enter the current 6-digit code.</p>
+              </div>
+              <form onSubmit={handleMfaLoginSubmit} className="space-y-4">
+                {mfaLoginError && <div className="bg-rose-50 border border-rose-200 text-rose-700 px-4 py-3 rounded-2xl text-sm font-semibold">{mfaLoginError}</div>}
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  placeholder="123456"
+                  value={mfaCodeInput}
+                  onChange={(e) => setMfaCodeInput(e.target.value)}
+                  className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-emerald-500 transition-all text-center text-2xl tracking-[0.5em] font-bold"
+                  maxLength={6}
+                  required
+                  autoFocus
+                />
+                <button type="submit" disabled={mfaVerifying} className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white py-4 rounded-2xl font-bold shadow-lg shadow-emerald-600/20 transition-all">
+                  {mfaVerifying ? "Checking..." : "Verify"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMfaFactorId(null);
+                    setMfaCodeInput("");
+                    setMfaLoginError("");
+                    signOutAdmin().catch(() => {});
+                  }}
+                  className="w-full text-slate-500 hover:text-slate-700 py-2 text-sm font-medium"
+                >
+                  Back to login
+                </button>
+              </form>
+            </>
+          ) : (
+            <>
+              <div className="text-center mb-8">
+                <div className="inline-flex items-center justify-center w-16 h-16 bg-emerald-100 rounded-full mb-4">
+                  <span className="text-3xl">🔐</span>
+                </div>
+                <h2 className="text-3xl font-black text-slate-800">Admin Login</h2>
+              </div>
+              <form onSubmit={handleLogin} className="space-y-4">
+                {authError && <div className="bg-rose-50 border border-rose-200 text-rose-700 px-4 py-3 rounded-2xl text-sm font-semibold">{authError}</div>}
+                <input type="email" placeholder="Admin Email" value={email} onChange={(e) => setEmail(e.target.value)} className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-emerald-500 transition-all" required autoFocus />
+                <input type="password" placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-emerald-500 transition-all" required />
+                <button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-4 rounded-2xl font-bold shadow-lg shadow-emerald-600/20 transition-all">
+                  Unlock Dashboard
+                </button>
+              </form>
+            </>
+          )}
         </div>
       </div>
     );
@@ -1477,7 +1648,7 @@ const AdminDashboard: React.FC = () => {
           <button onClick={() => setView("services")} className={`px-4 py-2 rounded-lg font-bold transition-all ${view === "services" ? "bg-white shadow-sm text-emerald-600" : "text-slate-600"}`}>
             Services
           </button>
-          <button onClick={() => setView("settings")} className={`px-4 py-2 rounded-lg font-bold transition-all ${view === "settings" ? "bg-white shadow-sm text-emerald-600" : "text-slate-600"}`}>
+          <button onClick={() => { setView("settings"); refreshMfaFactors(); }} className={`px-4 py-2 rounded-lg font-bold transition-all ${view === "settings" ? "bg-white shadow-sm text-emerald-600" : "text-slate-600"}`}>
             Settings
           </button>
         </div>
@@ -2939,6 +3110,62 @@ const AdminDashboard: React.FC = () => {
                 {advertStatus === "saved" && <span className="text-emerald-600 text-sm font-bold">Saved!</span>}
                 {advertStatus === "error" && <span className="text-rose-600 text-sm font-bold">Failed to save: {advertError}</span>}
               </div>
+            </div>
+
+            {/* Two-Factor Authentication */}
+            <div className="p-6 bg-slate-50 border-2 border-slate-200 rounded-2xl">
+              <h3 className="text-xl font-bold text-slate-800 mb-1">Two-Factor Authentication</h3>
+              <p className="text-slate-500 text-sm mb-4">
+                Adds a second step to logging in — after your password, you'll need a 6-digit code from an authenticator app (like Google Authenticator or Authy) on your phone.
+              </p>
+
+              {mfaFactors.length > 0 ? (
+                <div className="space-y-3">
+                  {mfaFactors.map((f) => (
+                    <div key={f.id} className="flex items-center justify-between p-4 bg-emerald-50 border border-emerald-200 rounded-xl">
+                      <span className="text-sm font-bold text-emerald-800">✓ Enabled{f.friendly_name ? ` — ${f.friendly_name}` : ""}</span>
+                      <button disabled={mfaBusy} onClick={() => handleRemoveMfaFactor(f.id)} className="bg-rose-100 hover:bg-rose-200 text-rose-700 px-4 py-2 rounded-lg text-sm font-bold disabled:opacity-50">
+                        Turn Off
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : mfaEnrollment ? (
+                <div className="p-5 bg-white border border-slate-200 rounded-xl space-y-4">
+                  <p className="text-sm text-slate-600">Scan this QR code with your authenticator app, then enter the 6-digit code it shows you.</p>
+                  <div className="flex justify-center">
+                    <img src={mfaEnrollment.qrCode} alt="2FA QR code" className="w-48 h-48 border border-slate-200 rounded-lg" />
+                  </div>
+                  <p className="text-xs text-slate-500 text-center">
+                    Can't scan it? Enter this key manually: <span className="font-mono font-bold">{mfaEnrollment.secret}</span>
+                  </p>
+                  {mfaEnrollError && <div className="bg-rose-50 border border-rose-200 text-rose-700 px-4 py-3 rounded-xl text-sm font-semibold">{mfaEnrollError}</div>}
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    placeholder="123456"
+                    value={mfaEnrollCodeInput}
+                    onChange={(e) => setMfaEnrollCodeInput(e.target.value)}
+                    maxLength={6}
+                    className="w-full px-4 py-3 border rounded-lg text-center text-xl tracking-[0.4em] font-bold"
+                  />
+                  <div className="flex gap-3">
+                    <button disabled={mfaBusy} onClick={handleConfirmMfaEnrollment} className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white px-5 py-2 rounded-lg font-bold">
+                      {mfaBusy ? "Confirming..." : "Confirm & Enable"}
+                    </button>
+                    <button disabled={mfaBusy} onClick={handleCancelMfaEnrollment} className="text-slate-500 hover:text-slate-700 px-4 py-2 text-sm font-medium">
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  {mfaEnrollError && <div className="mb-3 bg-rose-50 border border-rose-200 text-rose-700 px-4 py-3 rounded-xl text-sm font-semibold">{mfaEnrollError}</div>}
+                  <button disabled={mfaBusy} onClick={handleStartMfaEnrollment} className="bg-slate-800 hover:bg-slate-900 disabled:opacity-60 text-white px-5 py-3 rounded-lg font-bold">
+                    {mfaBusy ? "Starting..." : "Set Up Two-Factor Authentication"}
+                  </button>
+                </>
+              )}
             </div>
 
             {/* Save Button */}

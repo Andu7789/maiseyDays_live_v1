@@ -78,6 +78,46 @@ export const checkAuthStatus = () => {
   });
 };
 
+// ============================================================
+// TWO-FACTOR AUTHENTICATION (TOTP via an authenticator app)
+// ============================================================
+
+/** Where this session currently stands vs. where it needs to be. */
+export const getMfaAssuranceLevel = async () => {
+  const { data, error } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+  if (error) throw error;
+  return data; // { currentLevel: 'aal1' | 'aal2', nextLevel, currentAuthenticationMethods }
+};
+
+export const listMfaFactors = async () => {
+  const { data, error } = await supabase.auth.mfa.listFactors();
+  if (error) throw error;
+  return data; // { all, totp: [...], phone: [...] }
+};
+
+/** Starts enrolling a new authenticator-app factor. Returns the QR code + secret to show the admin. */
+export const enrollMfaTotp = async () => {
+  const { data, error } = await supabase.auth.mfa.enroll({ factorType: "totp" });
+  if (error) throw error;
+  return data; // { id, totp: { qr_code, secret, uri } }
+};
+
+/**
+ * Verifies a 6-digit code for a factor. Used both to confirm a fresh enrollment
+ * (the first successful verify activates the factor) and to complete a normal
+ * login's second step.
+ */
+export const verifyMfaCode = async (factorId: string, code: string) => {
+  const { data, error } = await supabase.auth.mfa.challengeAndVerify({ factorId, code: code.trim() });
+  if (error) throw error;
+  return data;
+};
+
+export const unenrollMfaFactor = async (factorId: string) => {
+  const { error } = await supabase.auth.mfa.unenroll({ factorId });
+  if (error) throw error;
+};
+
 const BOOKING_PHOTO_BUCKET = "booking-photos";
 const sanitizeForPath = (value: string) =>
   value
