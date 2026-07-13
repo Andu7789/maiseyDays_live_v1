@@ -399,7 +399,7 @@ export const confirmAppointmentBooking = async (
     confirmedTime: string;
     confirmedDurationMinutes: number;
   },
-  channel: "sms" | "whatsapp" = "sms",
+  channel: "sms" | "whatsapp" | "none" = "sms",
 ) => {
   if (!appointment.id) {
     throw new Error("Booking ID is required to confirm.");
@@ -442,7 +442,7 @@ export const confirmAppointmentBooking = async (
     confirmed_time: confirmation.confirmedTime,
     confirmed_duration_minutes: confirmation.confirmedDurationMinutes,
     confirmed_at: nowIso,
-    confirmation_sent_at: nowIso,
+    ...(channel !== "none" ? { confirmation_sent_at: nowIso } : {}),
   });
 };
 

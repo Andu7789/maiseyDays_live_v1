@@ -69,7 +69,7 @@ const AdminDashboard: React.FC = () => {
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [newPhotoType, setNewPhotoType] = useState<"before" | "after" | "other">("before");
   const nudgePanelRef = useRef<HTMLDivElement>(null);
-  const [pendingConfirmChannel, setPendingConfirmChannel] = useState<"sms" | "whatsapp">("sms");
+  const [pendingConfirmChannel, setPendingConfirmChannel] = useState<"sms" | "whatsapp" | "none">("sms");
   const [diaryWeekStart, setDiaryWeekStart] = useState<Date>(() => getMonday(new Date()));
   const [diarySearch, setDiarySearch] = useState("");
   const [showDiarySlotModal, setShowDiarySlotModal] = useState(false);
@@ -836,13 +836,13 @@ const AdminDashboard: React.FC = () => {
     }
   };
 
-  const confirmBooking = async (channel: "sms" | "whatsapp") => {
+  const confirmBooking = async (channel: "sms" | "whatsapp" | "none") => {
     if (!activeBooking?.id) return;
     if (!editForm.confirmed_date || !editForm.confirmed_time || !editForm.confirmed_duration_minutes) {
       alert("Please set confirmed date, time and duration first.");
       return;
     }
-    if (!editForm.phone) {
+    if (channel !== "none" && !editForm.phone) {
       alert(`A phone number is needed to confirm via ${channel === "whatsapp" ? "WhatsApp" : "SMS"}.`);
       return;
     }
@@ -858,7 +858,7 @@ const AdminDashboard: React.FC = () => {
     await proceedWithConfirmation(channel);
   };
 
-  const proceedWithConfirmation = async (channel: "sms" | "whatsapp" = pendingConfirmChannel) => {
+  const proceedWithConfirmation = async (channel: "sms" | "whatsapp" | "none" = pendingConfirmChannel) => {
     if (!activeBooking?.id) return;
 
     const clash = await findBookingClash(activeBooking.locationid, editForm.confirmed_date, editForm.confirmed_time, Number(editForm.confirmed_duration_minutes) || 120, activeBooking.id);
@@ -867,7 +867,7 @@ const AdminDashboard: React.FC = () => {
       if (!window.confirm(`⚠️ DOUBLE BOOKING WARNING\n\n${clash.dogname} (${clash.ownername}) is already booked at ${clashTime} on this day.\n\nConfirm this booking anyway?`)) return;
     }
 
-    const shouldConfirm = window.confirm(`Confirm this booking and send the ${channel === "whatsapp" ? "WhatsApp message" : "SMS"}?`);
+    const shouldConfirm = window.confirm(channel === "none" ? "Confirm this booking without sending a message to the customer?" : `Confirm this booking and send the ${channel === "whatsapp" ? "WhatsApp message" : "SMS"}?`);
     if (!shouldConfirm) return;
 
     setIsWorking(true);
@@ -900,7 +900,7 @@ const AdminDashboard: React.FC = () => {
 
       await loadData();
       closeUpdateModal();
-      alert(channel === "whatsapp" ? "Booking confirmed — WhatsApp message opened, just press send." : "Booking confirmed and SMS sent.");
+      alert(channel === "whatsapp" ? "Booking confirmed — WhatsApp message opened, just press send." : channel === "sms" ? "Booking confirmed and SMS sent." : "Booking confirmed — no message sent.");
     } catch (error: any) {
       alert(error.message || "Failed to confirm booking.");
     } finally {
@@ -2395,6 +2395,9 @@ const AdminDashboard: React.FC = () => {
               </button>
               <button disabled={isWorking} onClick={() => confirmBooking("sms")} title="Sends a text automatically (~4p)" className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white px-5 py-2 rounded-lg font-bold">
                 💬 Confirm + SMS
+              </button>
+              <button disabled={isWorking} onClick={() => confirmBooking("none")} title="Marks it confirmed without sending anything — e.g. for a paper booking the customer already knows about" className="bg-slate-500 hover:bg-slate-600 disabled:opacity-60 text-white px-5 py-2 rounded-lg font-bold">
+                ✓ Confirm (No Message)
               </button>
               <button disabled={isWorking} onClick={() => activeBooking && openEmailModal(activeBooking)} title="Free — sends from the business email address, not a personal inbox" className="bg-slate-600 hover:bg-slate-700 disabled:opacity-60 text-white px-5 py-2 rounded-lg font-bold">
                 📧 Email Customer
