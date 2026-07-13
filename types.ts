@@ -112,6 +112,9 @@ export interface Appointment {
   deposit_notes?: string;
   deposit_refunded_at?: string | null;
   estimated_price?: number | null;
+  missed?: boolean;
+  missed_reason?: string | null;
+  missed_at?: string | null;
   customer_id?: string | null;
   number_of_dogs?: number;
   actual_price?: number | null;

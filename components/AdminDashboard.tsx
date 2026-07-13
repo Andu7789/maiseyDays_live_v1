@@ -54,8 +54,8 @@ const AdminDashboard: React.FC = () => {
   const [activeBooking, setActiveBooking] = useState<Appointment | null>(null);
   const [isWorking, setIsWorking] = useState(false);
   const [showDepositModal, setShowDepositModal] = useState(false);
-  const [completingBooking, setCompletingBooking] = useState<Appointment | null>(null);
-  const [completePriceInput, setCompletePriceInput] = useState<string>("");
+  const [missedBooking, setMissedBooking] = useState<Appointment | null>(null);
+  const [missedReasonInput, setMissedReasonInput] = useState<string>("");
   const [priceFixDrafts, setPriceFixDrafts] = useState<Record<string, string>>({});
   const [priceFixSaving, setPriceFixSaving] = useState<Record<string, boolean>>({});
   const [revenueHoverIndex, setRevenueHoverIndex] = useState<number | null>(null);
@@ -263,6 +263,39 @@ const AdminDashboard: React.FC = () => {
     return Math.floor((Date.now() - new Date(pastDates[0]).getTime()) / (1000 * 60 * 60 * 24 * 7));
   };
 
+  // Confirmed bookings auto-complete once their date has fully passed, so nobody
+  // has to remember to click a button. Applied whenever appointments are (re)loaded.
+  // Patches the array immediately (so the UI reflects it right away) and fires the
+  // matching DB writes in the background — already-completed bookings are skipped,
+  // so repeated calls (e.g. the Diary's 30s auto-refresh) are harmless no-ops.
+  const autoCompletePastBookings = (apps: Appointment[]): Appointment[] => {
+    const todayStr = new Date().toISOString().split("T")[0];
+    const toPersist: Appointment[] = [];
+    const patched = apps.map((a) => {
+      if (a.booking_status !== "confirmed") return a;
+      const schedule = getEffectiveSchedule(a);
+      if (!schedule || schedule.date >= todayStr) return a;
+      const updated: Appointment = { ...a, booking_status: "completed", completed_at: a.completed_at || new Date().toISOString() };
+      toPersist.push(updated);
+      return updated;
+    });
+    if (toPersist.length > 0) {
+      Promise.allSettled(toPersist.map((a) => updateAppointment(a.id!, { booking_status: "completed", completed_at: a.completed_at! }))).catch(() => {});
+    }
+    return patched;
+  };
+
+  // Any unresolved "missed appointment" flags for this contact (matched by email or
+  // phone), so the admin can be warned with the reason before booking them again.
+  const getMissedHistory = (email: string, phone: string): Appointment[] => {
+    const normEmail = email.trim().toLowerCase();
+    const normPhone = phone.replace(/\D/g, "");
+    if (!normEmail && !normPhone) return [];
+    return appointments.filter(
+      (a) => a.missed && ((normEmail && a.email && a.email.toLowerCase() === normEmail) || (normPhone && a.phone && a.phone.replace(/\D/g, "") === normPhone))
+    );
+  };
+
   // Filter, sort, and paginate appointments
   const filteredAppointments = useMemo(() => {
     const search = bookingsSearch.trim().toLowerCase();
@@ -373,7 +406,7 @@ const AdminDashboard: React.FC = () => {
         getHolidaySettings().catch(() => null),
         getCustomers().catch(() => [] as Customer[]),
       ]);
-      setAppointments(apps);
+      setAppointments(autoCompletePastBookings(apps));
       setCustomersList(custs);
       setUnavailableDays(unavail);
       setUnavailableWeekdays(unavailWeekdays);
@@ -944,26 +977,30 @@ const AdminDashboard: React.FC = () => {
     await proceedWithConfirmation();
   };
 
-  const handleMarkCompleted = (booking: Appointment) => {
+  const handleMarkMissed = (booking: Appointment) => {
     if (!booking.id) return;
-    setCompletingBooking(booking);
-    setCompletePriceInput(booking.actual_price != null ? String(booking.actual_price) : "");
+    setMissedBooking(booking);
+    setMissedReasonInput(booking.missed_reason || "");
   };
 
-  const confirmMarkCompleted = async () => {
-    if (!completingBooking?.id) return;
+  const confirmMarkMissed = async () => {
+    if (!missedBooking?.id) return;
+    if (!missedReasonInput.trim()) {
+      alert("Please enter a reason — this is what you'll be reminded of next time this customer books.");
+      return;
+    }
     setIsWorking(true);
     try {
-      await updateAppointment(completingBooking.id, {
-        booking_status: "completed",
-        completed_at: new Date().toISOString(),
-        actual_price: completePriceInput === "" ? null : Number(completePriceInput),
+      await updateAppointment(missedBooking.id, {
+        missed: true,
+        missed_reason: missedReasonInput.trim(),
+        missed_at: new Date().toISOString(),
       });
       await loadData();
-      setCompletingBooking(null);
-      alert("Appointment marked as completed. Customer will receive a 28-day rebooking reminder.");
+      setMissedBooking(null);
+      alert("Appointment flagged as missed. You'll see a warning with this reason next time you book this customer.");
     } catch (error: any) {
-      alert(error.message || "Could not mark as completed.");
+      alert(error.message || "Could not flag this appointment as missed.");
     } finally {
       setIsWorking(false);
     }
@@ -1046,13 +1083,12 @@ const AdminDashboard: React.FC = () => {
     setLegacyTimeSaving((prev) => ({ ...prev, [apt.id!]: true }));
     try {
       const updates = { confirmed_date: draft.date, confirmed_time: draft.time, confirmed_duration_minutes: apt.confirmed_duration_minutes || 120 };
-      await updateAppointment(apt.id, updates);
       if (alsoMarkCompleted) {
-        setCompletingBooking({ ...apt, ...updates });
-        setCompletePriceInput(apt.actual_price != null ? String(apt.actual_price) : "");
+        await updateAppointment(apt.id, { ...updates, booking_status: "completed", completed_at: apt.completed_at || new Date().toISOString() });
       } else {
-        await loadData();
+        await updateAppointment(apt.id, updates);
       }
+      await loadData();
     } catch (error: any) {
       alert(error.message || "Could not save the time.");
     } finally {
@@ -1982,9 +2018,11 @@ const AdminDashboard: React.FC = () => {
                       rowClass = "bg-emerald-50 hover:bg-emerald-100"; // Green: legacy confirmed
                     }
 
-                    // Check if appointment is in the past and confirmed (eligible for "Mark as Completed")
-                    const isPastAppointment = app.confirmed_date && new Date(app.confirmed_date) < new Date();
-                    const canMarkCompleted = isPastAppointment && app.booking_status === "confirmed";
+                    // Check if the appointment's date has fully passed (eligible to flag as missed)
+                    const todayStr = new Date().toISOString().split("T")[0];
+                    const effSchedule = getEffectiveSchedule(app);
+                    const isPastAppointment = Boolean(effSchedule && effSchedule.date < todayStr);
+                    const canFlagMissed = isPastAppointment && app.booking_status !== "cancelled" && !app.missed;
 
                     return (
                       <tr key={app.id} className={`border-b ${rowClass}`}>
@@ -2015,6 +2053,11 @@ const AdminDashboard: React.FC = () => {
                           {(!app.booking_status || app.booking_status === "pending") && (
                             <span className="px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider bg-orange-100 text-orange-700">Pending</span>
                           )}
+                          {app.missed && (
+                            <span className="block mt-1 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider bg-red-600 text-white" title={app.missed_reason || ""}>
+                              ⚠ Missed
+                            </span>
+                          )}
                         </td>
                         <td className="p-4">
                           <span className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${app.deposit_paid ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`} title={app.deposit_notes || ""}>
@@ -2026,9 +2069,9 @@ const AdminDashboard: React.FC = () => {
                             <button onClick={() => openUpdateModal(app)} className="bg-slate-200 hover:bg-slate-300 text-slate-700 px-3 py-1 rounded-md text-xs font-bold">
                               Update
                             </button>
-                            {canMarkCompleted && (
-                              <button onClick={() => handleMarkCompleted(app)} className="bg-blue-100 hover:bg-blue-200 text-blue-700 px-3 py-1 rounded-md text-xs font-bold">
-                                ✓ Complete
+                            {canFlagMissed && (
+                              <button onClick={() => handleMarkMissed(app)} title="Customer didn't show up — flag it with a reason" className="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded-md text-xs font-bold">
+                                ⚠ Missed
                               </button>
                             )}
                             {app.booking_status === "due_for_rebook" && (
@@ -2235,6 +2278,18 @@ const AdminDashboard: React.FC = () => {
               <h3 className="text-xl font-black text-slate-800">Update Booking</h3>
               <button onClick={closeUpdateModal} className="text-slate-400 hover:text-slate-600 text-2xl font-bold">×</button>
             </div>
+            {(() => {
+              const missedHistory = getMissedHistory(editForm.email, editForm.phone).filter((a) => a.id !== activeBooking?.id);
+              if (missedHistory.length === 0) return null;
+              return (
+                <div className="mb-4 p-4 bg-red-50 border-2 border-red-200 rounded-xl">
+                  <p className="text-sm font-bold text-red-800 mb-1">⚠ Missed appointment on record</p>
+                  {missedHistory.map((a) => (
+                    <p key={a.id} className="text-xs text-red-700">{a.dogname} — {a.missed_reason}</p>
+                  ))}
+                </div>
+              );
+            })()}
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <input value={editForm.ownername} onChange={(e) => setEditForm({ ...editForm, ownername: e.target.value })} placeholder="Owner name" className="px-4 py-3 border rounded-lg" />
@@ -2530,43 +2585,36 @@ const AdminDashboard: React.FC = () => {
         </div>
       )}
 
-      {completingBooking && (
+      {missedBooking && (
         <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center p-4 z-[60]">
           <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-2xl relative">
-            <button onClick={() => setCompletingBooking(null)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 text-2xl font-bold">×</button>
+            <button onClick={() => setMissedBooking(null)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 text-2xl font-bold">×</button>
             <div className="text-center mb-6">
-              <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                <span className="text-3xl">✂️</span>
+              <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <span className="text-3xl">⚠️</span>
               </div>
-              <h3 className="text-xl font-black text-slate-800 mb-2">Mark {completingBooking.dogname} as Completed</h3>
-              <p className="text-sm text-slate-600">What was actually charged for this groom? This is what counts toward your revenue reports.</p>
+              <h3 className="text-xl font-black text-slate-800 mb-2">Mark {missedBooking.dogname} as Missed</h3>
+              <p className="text-sm text-slate-600">Why didn't this appointment go ahead? You'll see this reason as a warning next time you book this customer.</p>
             </div>
 
-            <div className="flex items-center justify-center gap-2 mb-2">
-              <span className="text-slate-700 font-bold text-lg">£</span>
-              <input
-                type="number"
-                min={0}
-                step="0.01"
-                autoFocus
-                value={completePriceInput}
-                onChange={(e) => setCompletePriceInput(e.target.value)}
-                placeholder={`${getServiceBasePrice(completingBooking.serviceid) * (completingBooking.number_of_dogs || 1)}`}
-                className="px-4 py-3 border border-slate-200 rounded-lg w-32 text-center text-lg font-bold"
-              />
-            </div>
-            <p className="text-xs text-slate-400 text-center mb-6">Leave blank to use the estimated price (£{getServiceBasePrice(completingBooking.serviceid) * (completingBooking.number_of_dogs || 1)})</p>
+            <textarea
+              autoFocus
+              value={missedReasonInput}
+              onChange={(e) => setMissedReasonInput(e.target.value)}
+              placeholder="e.g. No-show, cancelled last minute, no contact..."
+              className="w-full px-4 py-3 border border-slate-200 rounded-lg min-h-24 mb-6"
+            />
 
             <div className="space-y-3">
               <button
-                onClick={confirmMarkCompleted}
+                onClick={confirmMarkMissed}
                 disabled={isWorking}
-                className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white px-5 py-3 rounded-lg font-bold transition-colors"
+                className="w-full bg-red-600 hover:bg-red-700 disabled:opacity-60 text-white px-5 py-3 rounded-lg font-bold transition-colors"
               >
-                {isWorking ? "Saving..." : "✓ Mark Completed"}
+                {isWorking ? "Saving..." : "⚠ Mark as Missed"}
               </button>
               <button
-                onClick={() => setCompletingBooking(null)}
+                onClick={() => setMissedBooking(null)}
                 disabled={isWorking}
                 className="w-full text-slate-500 hover:text-slate-700 px-5 py-2 text-sm font-medium"
               >
@@ -3893,6 +3941,19 @@ const AdminDashboard: React.FC = () => {
                 <label className="text-xs font-bold text-slate-500 whitespace-nowrap">mins</label>
               </div>
 
+              {(() => {
+                const missedHistory = getMissedHistory(diarySlotForm.email, diarySlotForm.phone);
+                if (missedHistory.length === 0) return null;
+                return (
+                  <div className="mb-4 p-4 bg-red-50 border-2 border-red-200 rounded-xl">
+                    <p className="text-sm font-bold text-red-800 mb-1">⚠ Missed appointment on record</p>
+                    {missedHistory.map((a) => (
+                      <p key={a.id} className="text-xs text-red-700">{a.dogname} — {a.missed_reason}</p>
+                    ))}
+                  </div>
+                );
+              })()}
+
               <div className="mb-4">
                 <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Find an existing customer</label>
                 <input
@@ -4066,6 +4127,18 @@ const AdminDashboard: React.FC = () => {
               <h3 className="text-xl font-black text-slate-800">Add New Booking</h3>
               <button onClick={() => setShowAddModal(false)} className="text-slate-400 hover:text-slate-600 text-2xl font-bold">×</button>
             </div>
+            {(() => {
+              const missedHistory = getMissedHistory(addForm.email, addForm.phone);
+              if (missedHistory.length === 0) return null;
+              return (
+                <div className="mb-4 p-4 bg-red-50 border-2 border-red-200 rounded-xl">
+                  <p className="text-sm font-bold text-red-800 mb-1">⚠ Missed appointment on record</p>
+                  {missedHistory.map((a) => (
+                    <p key={a.id} className="text-xs text-red-700">{a.dogname} — {a.missed_reason}</p>
+                  ))}
+                </div>
+              );
+            })()}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <input value={addForm.ownername} onChange={(e) => setAddForm({ ...addForm, ownername: e.target.value })} placeholder="Owner name" className="px-4 py-3 border rounded-lg" />
               <input value={addForm.dogname} onChange={(e) => setAddForm({ ...addForm, dogname: e.target.value })} placeholder="Dog name" className="px-4 py-3 border rounded-lg" />
