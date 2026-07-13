@@ -179,6 +179,7 @@ const AdminDashboard: React.FC = () => {
     deposit_notes: "",
     deposit_paid_at: null as string | null,
     actual_price: "" as string | number,
+    estimated_price: "" as string | number,
   });
 
   const [addForm, setAddForm] = useState({
@@ -739,6 +740,7 @@ const AdminDashboard: React.FC = () => {
       deposit_notes: booking.deposit_notes || "",
       deposit_paid_at: booking.deposit_paid_at || null,
       actual_price: booking.actual_price ?? "",
+      estimated_price: booking.estimated_price ?? getServiceBasePrice(booking.serviceid) * (booking.number_of_dogs || 1),
     });
     setNewPhotoType("before");
     setActiveBookingPhotos([]);
@@ -837,6 +839,7 @@ const AdminDashboard: React.FC = () => {
         deposit_paid_at: editForm.deposit_paid ? new Date().toISOString() : null,
         deposit_notes: editForm.deposit_notes,
         actual_price: editForm.actual_price === "" ? null : Number(editForm.actual_price),
+        estimated_price: editForm.estimated_price === "" ? null : Number(editForm.estimated_price),
       });
       await loadData();
       alert("Booking updated.");
@@ -2297,8 +2300,19 @@ const AdminDashboard: React.FC = () => {
 
             <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
               <h4 className="text-sm font-bold text-blue-900 mb-1">Estimated Price</h4>
-              <p className="text-lg font-black text-blue-800">£{getServiceBasePrice(editForm.serviceid) * editForm.number_of_dogs}</p>
-              <p className="text-xs text-blue-700">Based on the selected service × number of dogs. Fill in the actual price below once known.</p>
+              <p className="text-xs text-blue-700 mb-3">Defaults to the selected service × number of dogs, but you can change it — e.g. to quote the customer something different up front.</p>
+              <div className="flex items-center gap-2">
+                <span className="text-blue-700 font-bold">£</span>
+                <input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={editForm.estimated_price}
+                  onChange={(e) => setEditForm({ ...editForm, estimated_price: e.target.value })}
+                  placeholder={`${getServiceBasePrice(editForm.serviceid) * editForm.number_of_dogs}`}
+                  className="px-4 py-2 border border-blue-200 rounded-lg w-40"
+                />
+              </div>
             </div>
 
             <div className="mt-4 p-4 bg-slate-50 border border-slate-200 rounded-lg">
