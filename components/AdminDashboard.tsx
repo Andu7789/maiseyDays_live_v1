@@ -438,6 +438,16 @@ const AdminDashboard: React.FC = () => {
 
   const bookingsForCustomer = (customer: Customer) => appointments.filter((a) => a.customer_id === customer.id || (customer.email && a.email && a.email.toLowerCase() === customer.email.toLowerCase()));
 
+  // Cancelled bookings that took a deposit which hasn't been marked refunded/handled yet
+  const pendingDepositRefunds = (customerBookings: Appointment[]) =>
+    customerBookings.filter((a) => a.booking_status === "cancelled" && a.deposit_paid && !a.deposit_refunded_at);
+
+  const handleMarkDepositRefunded = async (booking: Appointment) => {
+    if (!booking.id) return;
+    await updateAppointment(booking.id, { deposit_refunded_at: new Date().toISOString() });
+    await loadData();
+  };
+
   const servicePriceFor = getServiceBasePrice;
 
   const handleAddCustomer = async () => {
@@ -1108,6 +1118,9 @@ const AdminDashboard: React.FC = () => {
       await updateAppointment(booking.id, { status: "cancelled", booking_status: "cancelled" });
       await loadData();
       closeUpdateModal();
+      if (booking.deposit_paid) {
+        alert(`⚠️ Heads up — ${booking.dogname}'s cancelled booking had a £${booking.deposit_amount || (booking.number_of_dogs || 1) * 20} deposit paid.\n\nIt'll show as "Deposit owed" on ${booking.ownername}'s customer record until you mark it refunded/handled.`);
+      }
     } catch (error: any) {
       alert(error.message || "Could not cancel the booking.");
     } finally {
@@ -3077,7 +3090,8 @@ const AdminDashboard: React.FC = () => {
             if (apt.booking_status === "completed" && apt.completed_at && (!lastVisit || apt.completed_at > lastVisit)) lastVisit = apt.completed_at;
             if (apt.booking_status === "confirmed" && apt.confirmed_date && (!nextVisit || apt.confirmed_date < nextVisit)) nextVisit = apt.confirmed_date;
           });
-          return { customer, bookings, dogNames: Array.from(dogNameSet), totalSpent, lastVisit, nextVisit };
+          const owedRefunds = pendingDepositRefunds(bookings);
+          return { customer, bookings, dogNames: Array.from(dogNameSet), totalSpent, lastVisit, nextVisit, owedRefunds };
         });
 
         const search = customerSearch.toLowerCase();
@@ -3195,7 +3209,7 @@ const AdminDashboard: React.FC = () => {
                 </div>
               )}
 
-              {filteredCustomers.map(({ customer, bookings, dogNames, totalSpent, lastVisit, nextVisit }) => (
+              {filteredCustomers.map(({ customer, bookings, dogNames, totalSpent, lastVisit, nextVisit, owedRefunds }) => (
                 <div
                   key={customer.id}
                   className="p-6 bg-slate-50 hover:bg-slate-100 rounded-2xl border border-slate-200 transition-colors cursor-pointer"
@@ -3224,6 +3238,11 @@ const AdminDashboard: React.FC = () => {
                         {statusChip(customer.intake_status)}
                         {customer.matting_required && !customer.matting_signed_at && (
                           <span className="px-3 py-1 bg-orange-100 text-orange-700 text-xs font-bold rounded-full whitespace-nowrap">Matting form needed</span>
+                        )}
+                        {owedRefunds.length > 0 && (
+                          <span className="px-3 py-1 bg-rose-100 text-rose-700 text-xs font-bold rounded-full whitespace-nowrap">
+                            ⚠️ Deposit owed £{owedRefunds.reduce((sum, a) => sum + (a.deposit_amount || (a.number_of_dogs || 1) * 20), 0)}
+                          </span>
                         )}
                         <span className="px-3 py-1 bg-emerald-100 text-emerald-700 text-xs font-bold rounded-full">
                           {bookings.length} booking{bookings.length !== 1 ? 's' : ''}
@@ -3274,6 +3293,7 @@ const AdminDashboard: React.FC = () => {
         customerData.forEach((apt) => apt.dogname && dogNameSet.add(apt.dogname));
         const dogs = Array.from(dogNameSet);
         const totalSpent = customerData.reduce((sum, apt) => sum + getBookingRevenue(apt).amount, 0);
+        const owedRefunds = pendingDepositRefunds(customerData);
 
         // Count service preferences
         const serviceCount = customerData.reduce((acc, apt) => {
@@ -3432,6 +3452,25 @@ const AdminDashboard: React.FC = () => {
                   </div>
                 )}
               </div>
+
+              {/* Deposit refunds owed */}
+              {owedRefunds.length > 0 && (
+                <div className="mb-8 p-5 bg-rose-50 border-2 border-rose-200 rounded-2xl">
+                  <h4 className="text-sm font-bold text-rose-800 mb-3">⚠️ Deposit refund owed</h4>
+                  <div className="space-y-2">
+                    {owedRefunds.map((apt) => (
+                      <div key={apt.id} className="flex items-center justify-between gap-3 bg-white border border-rose-200 rounded-xl px-4 py-3">
+                        <div className="text-sm text-rose-900">
+                          <span className="font-bold">{apt.dogname}</span> — cancelled booking, £{apt.deposit_amount || (apt.number_of_dogs || 1) * 20} deposit paid
+                        </div>
+                        <button onClick={() => handleMarkDepositRefunded(apt)} className="bg-rose-600 hover:bg-rose-700 text-white px-4 py-2 rounded-lg text-xs font-bold whitespace-nowrap">
+                          Mark Refunded/Handled
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Stats Grid */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">

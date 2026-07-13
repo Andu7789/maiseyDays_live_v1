@@ -110,6 +110,7 @@ export interface Appointment {
   deposit_amount?: number;
   deposit_paid_at?: string | null;
   deposit_notes?: string;
+  deposit_refunded_at?: string | null;
   customer_id?: string | null;
   number_of_dogs?: number;
   actual_price?: number | null;
