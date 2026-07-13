@@ -411,6 +411,7 @@ export const confirmAppointmentBooking = async (
     // Still update the booking details but skip SMS
     await updateAppointment(appointment.id, {
       status: "confirmed",
+      booking_status: "confirmed",
       is_confirmed: true,
       confirmed_date: confirmation.confirmedDate,
       confirmed_time: confirmation.confirmedTime,
@@ -437,6 +438,7 @@ export const confirmAppointmentBooking = async (
 
   await updateAppointment(appointment.id, {
     status: "confirmed",
+    booking_status: "confirmed",
     is_confirmed: true,
     confirmed_date: confirmation.confirmedDate,
     confirmed_time: confirmation.confirmedTime,
