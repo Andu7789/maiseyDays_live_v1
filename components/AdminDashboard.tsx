@@ -120,6 +120,7 @@ const AdminDashboard: React.FC = () => {
   const [customersList, setCustomersList] = useState<Customer[]>([]);
   const [intakeFilter, setIntakeFilter] = useState<"all" | IntakeStatus>("all");
   const [showOnlyMattingDue, setShowOnlyMattingDue] = useState(false);
+  const [showOnlyDepositOwed, setShowOnlyDepositOwed] = useState(false);
   type BookingStatusFilter = "all" | "pending" | "confirmed" | "completed" | "due_for_rebook" | "cancelled" | "deposit_unpaid" | "needs_time";
   const [bookingsStatusFilter, setBookingsStatusFilter] = useState<BookingStatusFilter>("all");
   const [legacyTimeDrafts, setLegacyTimeDrafts] = useState<Record<string, { date: string; time: string }>>({});
@@ -2292,7 +2293,17 @@ const AdminDashboard: React.FC = () => {
                   className="px-4 py-3 border rounded-lg w-full"
                 />
               </div>
-              <textarea value={editForm.notes} onChange={(e) => setEditForm({ ...editForm, notes: e.target.value })} placeholder="Notes" className="md:col-span-2 px-4 py-3 border rounded-lg min-h-24" />
+            </div>
+
+            <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+              <h4 className="text-sm font-bold text-blue-900 mb-1">Estimated Price</h4>
+              <p className="text-lg font-black text-blue-800">£{getServiceBasePrice(editForm.serviceid) * editForm.number_of_dogs}</p>
+              <p className="text-xs text-blue-700">Based on the selected service × number of dogs. Fill in the actual price below once known.</p>
+            </div>
+
+            <div className="mt-4 p-4 bg-slate-50 border border-slate-200 rounded-lg">
+              <h4 className="text-sm font-bold text-slate-700 mb-2">Notes</h4>
+              <textarea value={editForm.notes} onChange={(e) => setEditForm({ ...editForm, notes: e.target.value })} placeholder="Notes" className="w-full px-4 py-3 border rounded-lg min-h-24" />
             </div>
 
             <div className="mt-4 p-4 bg-amber-50 border border-amber-200 rounded-lg">
@@ -3095,9 +3106,10 @@ const AdminDashboard: React.FC = () => {
         });
 
         const search = customerSearch.toLowerCase();
-        const filteredCustomers = enriched.filter(({ customer, dogNames }) => {
+        const filteredCustomers = enriched.filter(({ customer, dogNames, owedRefunds }) => {
           if (intakeFilter !== "all" && customer.intake_status !== intakeFilter) return false;
           if (showOnlyMattingDue && !(customer.matting_required && !customer.matting_signed_at)) return false;
+          if (showOnlyDepositOwed && owedRefunds.length === 0) return false;
           if (!search) return true;
           return (
             customer.ownername.toLowerCase().includes(search) ||
@@ -3177,6 +3189,12 @@ const AdminDashboard: React.FC = () => {
               >
                 ⚠️ Matting Due ({customersList.filter((c) => c.matting_required && !c.matting_signed_at).length})
               </button>
+              <button
+                onClick={() => setShowOnlyDepositOwed((prev) => !prev)}
+                className={`px-4 py-2 rounded-xl text-sm font-bold transition-all ${showOnlyDepositOwed ? "bg-rose-600 text-white shadow" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}
+              >
+                ⚠️ Deposit Owed ({enriched.filter((c) => c.owedRefunds.length > 0).length})
+              </button>
             </div>
 
             {/* Stats Summary */}
@@ -3205,7 +3223,7 @@ const AdminDashboard: React.FC = () => {
             <div className="space-y-3">
               {filteredCustomers.length === 0 && (
                 <div className="text-center py-12 text-slate-400">
-                  {customerSearch || intakeFilter !== "all" ? "No customers found matching your search" : "No customers yet — add one or wait for a web booking to come in"}
+                  {customerSearch || intakeFilter !== "all" || showOnlyMattingDue || showOnlyDepositOwed ? "No customers found matching your search" : "No customers yet — add one or wait for a web booking to come in"}
                 </div>
               )}
 
