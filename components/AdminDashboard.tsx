@@ -242,6 +242,25 @@ const AdminDashboard: React.FC = () => {
     });
   };
 
+  // For the Add Booking form: how many weeks ago was this contact's most recent
+  // past booking (matched by email or phone), so the admin can spot a lapsed
+  // customer at a glance. Returns null if no prior booking is found.
+  const getLastBookingWeeksAgo = (email: string, phone: string): number | null => {
+    const normEmail = email.trim().toLowerCase();
+    const normPhone = phone.replace(/\D/g, "");
+    if (!normEmail && !normPhone) return null;
+    const todayStr = new Date().toISOString().split("T")[0];
+    const pastDates = appointments
+      .filter((a) => (normEmail && a.email && a.email.toLowerCase() === normEmail) || (normPhone && a.phone && a.phone.replace(/\D/g, "") === normPhone))
+      .map((a) => getEffectiveSchedule(a))
+      .filter((s): s is NonNullable<typeof s> => Boolean(s) && s!.date < todayStr)
+      .map((s) => s!.date)
+      .sort()
+      .reverse();
+    if (pastDates.length === 0) return null;
+    return Math.floor((Date.now() - new Date(pastDates[0]).getTime()) / (1000 * 60 * 60 * 24 * 7));
+  };
+
   // Filter, sort, and paginate appointments
   const filteredAppointments = useMemo(() => {
     const search = bookingsSearch.trim().toLowerCase();
@@ -317,6 +336,16 @@ const AdminDashboard: React.FC = () => {
       loadData();
     }
   }, [isAuthorized, selectedLocation]);
+
+  // Keep the Diary screen live: bookings added from another device/tab (or by a
+  // customer online) show up without needing a manual page refresh.
+  useEffect(() => {
+    if (!isAuthorized || view !== "diary") return;
+    const interval = setInterval(() => {
+      loadData();
+    }, 30000);
+    return () => clearInterval(interval);
+  }, [isAuthorized, view, selectedLocation]);
 
   // Keep the Add Booking modal's time slot options in sync with real availability
   // (admin can still see/select an already-picked slot, but not a newly-clashing one)
@@ -1116,8 +1145,8 @@ const AdminDashboard: React.FC = () => {
   };
 
   const handleAddBooking = async (hold: boolean = false) => {
-    if (!addForm.ownername || !addForm.dogname || !addForm.email || !addForm.phone) {
-      alert("Please fill owner name, dog name, email and phone.");
+    if (!addForm.ownername || !addForm.dogname || (!addForm.email && !addForm.phone)) {
+      alert("Please fill in owner name, dog name, and at least an email or phone number.");
       return;
     }
 
@@ -2187,6 +2216,7 @@ const AdminDashboard: React.FC = () => {
           <div className="bg-white rounded-2xl p-6 w-full max-w-3xl max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-xl font-black text-slate-800">Update Booking</h3>
+              <button onClick={closeUpdateModal} className="text-slate-400 hover:text-slate-600 text-2xl font-bold">×</button>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -2396,7 +2426,8 @@ const AdminDashboard: React.FC = () => {
 
       {showDepositModal && (
         <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center p-4 z-[60]">
-          <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-2xl">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-2xl relative">
+            <button onClick={() => setShowDepositModal(false)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 text-2xl font-bold">×</button>
             <div className="text-center mb-6">
               <div className="w-16 h-16 bg-amber-100 rounded-full flex items-center justify-center mx-auto mb-4">
                 <span className="text-3xl">💰</span>
@@ -2460,7 +2491,8 @@ const AdminDashboard: React.FC = () => {
 
       {completingBooking && (
         <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center p-4 z-[60]">
-          <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-2xl">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-2xl relative">
+            <button onClick={() => setCompletingBooking(null)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 text-2xl font-bold">×</button>
             <div className="text-center mb-6">
               <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
                 <span className="text-3xl">✂️</span>
@@ -3931,7 +3963,10 @@ const AdminDashboard: React.FC = () => {
       {showAddCustomerModal && (
         <div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl p-6 w-full max-w-lg">
-            <h3 className="text-xl font-black text-slate-800 mb-1">Add New Customer</h3>
+            <div className="flex justify-between items-center mb-1">
+              <h3 className="text-xl font-black text-slate-800">Add New Customer</h3>
+              <button onClick={() => setShowAddCustomerModal(false)} className="text-slate-400 hover:text-slate-600 text-2xl font-bold">×</button>
+            </div>
             <p className="text-sm text-slate-500 mb-4">Create the record now, then send them the intake form to fill in the rest.</p>
             <div className="space-y-3">
               <input value={addCustomerForm.ownername} onChange={(e) => setAddCustomerForm({ ...addCustomerForm, ownername: e.target.value })} placeholder="Owner name *" className="w-full px-4 py-3 border rounded-lg" />
@@ -3955,6 +3990,7 @@ const AdminDashboard: React.FC = () => {
           <div className="bg-white rounded-2xl p-6 w-full max-w-3xl max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-xl font-black text-slate-800">Add New Booking</h3>
+              <button onClick={() => setShowAddModal(false)} className="text-slate-400 hover:text-slate-600 text-2xl font-bold">×</button>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <input value={addForm.ownername} onChange={(e) => setAddForm({ ...addForm, ownername: e.target.value })} placeholder="Owner name" className="px-4 py-3 border rounded-lg" />
@@ -3985,7 +4021,7 @@ const AdminDashboard: React.FC = () => {
                   </option>
                 ))}
               </select>
-              <div className="flex items-center gap-2 md:col-span-2">
+              <div className="flex items-center gap-2 md:col-span-2 flex-wrap">
                 <label className="text-xs font-bold text-slate-500 whitespace-nowrap">Or exact time</label>
                 <input type="time" value={addForm.confirmed_time} onChange={(e) => setAddForm({ ...addForm, confirmed_time: e.target.value })} className="px-4 py-3 border rounded-lg" />
                 <label className="text-xs font-bold text-slate-500 whitespace-nowrap">for</label>
@@ -3998,6 +4034,15 @@ const AdminDashboard: React.FC = () => {
                   className="px-4 py-3 border rounded-lg w-24"
                 />
                 <label className="text-xs font-bold text-slate-500 whitespace-nowrap">mins</label>
+                {(() => {
+                  const weeksAgo = getLastBookingWeeksAgo(addForm.email, addForm.phone);
+                  if (weeksAgo === null) return null;
+                  return (
+                    <span className="text-xs font-black text-rose-600 whitespace-nowrap">
+                      ⚠ Last booked {weeksAgo} week{weeksAgo === 1 ? "" : "s"} ago
+                    </span>
+                  );
+                })()}
               </div>
               <div className="flex items-center gap-2">
                 <label className="text-xs font-bold text-slate-500 whitespace-nowrap">Number of dogs</label>

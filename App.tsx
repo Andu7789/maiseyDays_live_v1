@@ -714,7 +714,7 @@ Message: ${enquiryData.message}
                         })}
                       </div>
                       {formData.date && Object.keys(availableSlots).length > 0 && Object.values(availableSlots).every((free) => !free) && (
-                        <p className="text-xs text-rose-500 font-bold mt-3">This day is fully booked — please pick another date.</p>
+                        <p className="text-xs text-rose-500 font-bold mt-3">Rachel @ Maisey Days is fully booked on this day — please pick another date.</p>
                       )}
                       {!formData.date && <p className="text-xs text-slate-400 mt-3">Pick a date to see which slots are free.</p>}
                     </div>
