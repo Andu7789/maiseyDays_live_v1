@@ -275,7 +275,11 @@ const AdminDashboard: React.FC = () => {
       if (a.booking_status !== "confirmed") return a;
       const schedule = getEffectiveSchedule(a);
       if (!schedule || schedule.date >= todayStr) return a;
-      const updated: Appointment = { ...a, booking_status: "completed", completed_at: a.completed_at || new Date().toISOString() };
+      // Use the appointment's own date (not "now") so the 28-day rebook reminder
+      // — a separate server-side cron that matches completed_at against a fixed
+      // day window — counts from when the groom actually happened, not from
+      // whenever this admin session happened to notice the date had passed.
+      const updated: Appointment = { ...a, booking_status: "completed", completed_at: a.completed_at || `${schedule.date}T12:00:00.000Z` };
       toPersist.push(updated);
       return updated;
     });
@@ -1094,7 +1098,7 @@ const AdminDashboard: React.FC = () => {
     try {
       const updates = { confirmed_date: draft.date, confirmed_time: draft.time, confirmed_duration_minutes: apt.confirmed_duration_minutes || 120 };
       if (alsoMarkCompleted) {
-        await updateAppointment(apt.id, { ...updates, booking_status: "completed", completed_at: apt.completed_at || new Date().toISOString() });
+        await updateAppointment(apt.id, { ...updates, booking_status: "completed", completed_at: apt.completed_at || `${draft.date}T12:00:00.000Z` });
       } else {
         await updateAppointment(apt.id, updates);
       }
