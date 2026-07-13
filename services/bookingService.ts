@@ -239,14 +239,22 @@ const ensureCustomerForAppointment = async (app: Appointment, appointmentId: str
   const phone = (app.phone || "").trim();
   if (!email && !phone) return;
   try {
-    let customerId: string | undefined;
+    // Match against ALL customers, including soft-deleted ones — the email unique
+    // index doesn't exempt deleted rows, so missing this would try to insert a
+    // duplicate and fail. If the match is soft-deleted, restore it: a new booking
+    // means they're an active customer again.
+    let customer: { id: string; deleted_at: string | null } | undefined;
     if (email) {
-      const { data } = await supabase.from("customers").select("id").ilike("email", email).is("deleted_at", null).limit(1);
-      customerId = data?.[0]?.id;
+      const { data } = await supabase.from("customers").select("id, deleted_at").ilike("email", email).limit(1);
+      customer = data?.[0];
     }
-    if (!customerId && phone) {
-      const { data } = await supabase.from("customers").select("id").eq("phone", phone).is("deleted_at", null).limit(1);
-      customerId = data?.[0]?.id;
+    if (!customer && phone) {
+      const { data } = await supabase.from("customers").select("id, deleted_at").eq("phone", phone).limit(1);
+      customer = data?.[0];
+    }
+    let customerId = customer?.id;
+    if (customer?.deleted_at) {
+      await supabase.from("customers").update({ deleted_at: null }).eq("id", customer.id);
     }
     if (!customerId) {
       const payload: Record<string, unknown> = { ownername: app.ownername, source: app.booking_source === "manual" ? "manual" : "web" };
@@ -380,6 +388,12 @@ export const getBookingRevenue = (apt: Appointment): { amount: number; isActual:
   // e.g. 0.1 + 0.2 = 0.30000000000000004) never leaks into revenue totals.
   if (apt.actual_price !== null && apt.actual_price !== undefined) {
     return { amount: Math.round(apt.actual_price * 100) / 100, isActual: true };
+  }
+  // A missed appointment (no-show) auto-completes like any other, but nothing was
+  // actually charged — don't let it inflate revenue reports with the estimate.
+  // If a no-show fee was charged, entering an actual_price above still takes precedence.
+  if (apt.missed) {
+    return { amount: 0, isActual: true };
   }
   return { amount: getServiceBasePrice(apt.serviceid) * (apt.number_of_dogs || 1), isActual: false };
 };

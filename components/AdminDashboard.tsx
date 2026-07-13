@@ -1532,7 +1532,7 @@ const AdminDashboard: React.FC = () => {
         const rebookIntervalDays = reminderSettings.days_interval || 28;
         const dueForNudge = scoped.filter(isDueForNudge).sort((a, b) => (a.completed_at || "").localeCompare(b.completed_at || ""));
         const missingPrice = scoped
-          .filter((a) => isCompleted(a) && (a.actual_price === null || a.actual_price === undefined))
+          .filter((a) => isCompleted(a) && !a.missed && (a.actual_price === null || a.actual_price === undefined))
           .sort((a, b) => (b.completed_at || "").localeCompare(a.completed_at || ""));
 
         const formsNotSent = customersList.filter((c) => c.intake_status === "not_sent").length;
@@ -2416,7 +2416,9 @@ const AdminDashboard: React.FC = () => {
             <div className="mt-4 p-4 bg-emerald-50 border border-emerald-200 rounded-lg">
               <h4 className="text-sm font-bold text-emerald-900 mb-1">Actual Price Charged</h4>
               <p className="text-xs text-emerald-700 mb-3">
-                Leave blank to use the estimated price (£{getServiceBasePrice(editForm.serviceid) * editForm.number_of_dogs}) in revenue reports. Fill this in once you know what was actually charged (matting, extras, etc.).
+                {activeBooking?.missed
+                  ? "This was flagged as a missed appointment, so it counts as £0 in revenue reports unless you enter a no-show fee here."
+                  : `Leave blank to use the estimated price (£${getServiceBasePrice(editForm.serviceid) * editForm.number_of_dogs}) in revenue reports. Fill this in once you know what was actually charged (matting, extras, etc.).`}
               </p>
               <div className="flex items-center gap-2">
                 <span className="text-emerald-700 font-bold">£</span>
