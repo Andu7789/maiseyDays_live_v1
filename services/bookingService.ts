@@ -225,6 +225,48 @@ const stripEnhancedBookingColumns = (payload: Record<string, unknown>) => {
   return fallback;
 };
 
+/**
+ * Every booking (web or manual) used to leave the shared `customers` table
+ * untouched, so a brand-new contact's booking would never show up when
+ * searching the Customer Database — only "+ Add Customer" or the intake
+ * flow created a customer row. This finds (by email, else phone) or creates
+ * a matching customer and links the new appointment to it. Best-effort: any
+ * failure here is logged, not thrown, since the appointment itself already
+ * saved successfully.
+ */
+const ensureCustomerForAppointment = async (app: Appointment, appointmentId: string) => {
+  const email = (app.email || "").trim().toLowerCase();
+  const phone = (app.phone || "").trim();
+  if (!email && !phone) return;
+  try {
+    let customerId: string | undefined;
+    if (email) {
+      const { data } = await supabase.from("customers").select("id").ilike("email", email).is("deleted_at", null).limit(1);
+      customerId = data?.[0]?.id;
+    }
+    if (!customerId && phone) {
+      const { data } = await supabase.from("customers").select("id").eq("phone", phone).is("deleted_at", null).limit(1);
+      customerId = data?.[0]?.id;
+    }
+    if (!customerId) {
+      const payload: Record<string, unknown> = { ownername: app.ownername, source: app.booking_source === "manual" ? "manual" : "web" };
+      if (email) payload.email = email;
+      if (phone) payload.phone = phone;
+      const { data: created, error: createErr } = await supabase.from("customers").insert([payload]).select();
+      if (createErr) {
+        console.error("Could not auto-create customer for new booking:", createErr);
+        return;
+      }
+      customerId = created?.[0]?.id;
+    }
+    if (customerId) {
+      await supabase.from("appointments").update({ customer_id: customerId }).eq("id", appointmentId);
+    }
+  } catch (err) {
+    console.error("ensureCustomerForAppointment failed:", err);
+  }
+};
+
 export const saveAppointment = async (app: Appointment) => {
   // Remove phone if empty to avoid DB schema errors
   const appointmentData: any = { ...app };
@@ -244,13 +286,17 @@ export const saveAppointment = async (app: Appointment) => {
     delete appointmentData.phone;
   }
   const { data, error } = await supabase.from("appointments").insert([appointmentData]).select();
-  if (!error) return data;
+  if (!error) {
+    if (!app.customer_id && data?.[0]?.id) await ensureCustomerForAppointment(app, data[0].id);
+    return data;
+  }
 
   if (isSchemaColumnCacheError(error)) {
     const fallbackPayload = stripEnhancedBookingColumns(appointmentData);
     const fallbackResult = await supabase.from("appointments").insert([fallbackPayload]).select();
     if (!fallbackResult.error) {
       console.warn("Inserted appointment using legacy schema fallback.");
+      if (!app.customer_id && fallbackResult.data?.[0]?.id) await ensureCustomerForAppointment(app, fallbackResult.data[0].id);
       return fallbackResult.data;
     }
     console.error("Supabase Save Fallback Error:", fallbackResult.error);

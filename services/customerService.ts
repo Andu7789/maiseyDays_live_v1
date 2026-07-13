@@ -94,6 +94,16 @@ export const restoreCustomer = async (id: string) => {
   if (error) throw new Error(error.message);
 };
 
+/**
+ * Permanently deletes a customer record — irreversible, unlike deleteCustomer's
+ * soft-delete. Their dogs are removed too (DB cascade); their past appointments
+ * are kept but lose the customer_id link (DB sets it null).
+ */
+export const permanentlyDeleteCustomer = async (id: string) => {
+  const { error } = await supabase.from("customers").delete().eq("id", id);
+  if (error) throw new Error(error.message);
+};
+
 /** Inserts a new dog or updates an existing one (matched by dog.id). */
 export const saveDog = async (customerId: string, dog: Dog) => {
   const payload: Record<string, unknown> = {

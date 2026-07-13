@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { addBookingPhoto, BookingPhoto, buildCancellationMessage, buildConfirmationMessage, buildRebookNudgeMessage, checkAuthStatus, confirmAppointmentBooking, createManualAppointment, deleteAppointment, deleteBookingPhoto, exportAppointmentsToExcel, findBookingClash, getAppointments, getAvailableSlotTimes, getBookingPhotos, getBookingRevenue, getCurrentUser, getEffectiveSchedule, getReminderSettings, getServiceBasePrice, getUnavailableDays, getUnavailableWeekdays, removeUnavailableDay, removeUnavailableWeekday, saveUnavailableDay, saveUnavailableWeekday, sendCustomEmail, sendCustomerCancellationSms, sendCustomerConfirmationSms, signInAdmin, signOutAdmin, updateAppointment, updateReminderSettings, getHolidaySettings, updateHolidaySettings, updateAdvertSettings, updateWeekendBookingsEnabled, getDogNotes, getAllDogNotes, upsertDogNote } from "../services/bookingService";
-import { buildIntakeLink, buildIntakeMessage, buildWhatsAppLink, createCustomer, deleteCustomer, deleteDog, ensureIntakeToken, getCustomers, getDeletedCustomers, markIntakeSent, restoreCustomer, saveDog, sendIntakeEmail, sendIntakeSms, updateCustomer } from "../services/customerService";
+import { buildIntakeLink, buildIntakeMessage, buildWhatsAppLink, createCustomer, deleteCustomer, deleteDog, ensureIntakeToken, getCustomers, getDeletedCustomers, markIntakeSent, permanentlyDeleteCustomer, restoreCustomer, saveDog, sendIntakeEmail, sendIntakeSms, updateCustomer } from "../services/customerService";
 import { Appointment, Customer, Dog, IntakeStatus, Service } from "../types";
 import { INTAKE_TERMS, LOCATIONS, MATTING_BULLETS, MATTING_CLOSING, MATTING_TERMS, SERVICES, SLOT_TIMES } from "../constants";
 
@@ -570,6 +570,16 @@ const AdminDashboard: React.FC = () => {
       setDeletedCustomersList((prev) => prev.filter((c) => c.id !== customer.id));
     } catch (err: any) {
       alert(`Could not restore customer: ${err.message}`);
+    }
+  };
+
+  const handlePermanentlyDeleteCustomer = async (customer: Customer) => {
+    if (!window.confirm(`Permanently delete ${customer.ownername}? This cannot be undone — their record and dogs will be gone for good. Past bookings are kept but will no longer be linked to a customer profile.`)) return;
+    try {
+      await permanentlyDeleteCustomer(customer.id);
+      setDeletedCustomersList((prev) => prev.filter((c) => c.id !== customer.id));
+    } catch (err: any) {
+      alert(`Could not permanently delete customer: ${err.message}`);
     }
   };
 
@@ -4083,9 +4093,14 @@ const AdminDashboard: React.FC = () => {
                         {customer.deleted_at && ` · Deleted ${new Date(customer.deleted_at).toLocaleDateString("en-GB")}`}
                       </div>
                     </div>
-                    <button onClick={() => handleRestoreCustomer(customer)} className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-bold">
-                      Restore
-                    </button>
+                    <div className="flex gap-2">
+                      <button onClick={() => handleRestoreCustomer(customer)} className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-bold">
+                        Restore
+                      </button>
+                      <button onClick={() => handlePermanentlyDeleteCustomer(customer)} className="bg-rose-600 hover:bg-rose-700 text-white px-4 py-2 rounded-lg text-sm font-bold">
+                        Delete Permanently
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
