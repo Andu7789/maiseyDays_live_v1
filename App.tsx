@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Page, Appointment } from "./types";
 import Header from "./components/Header";
 import Footer from "./components/Footer";
@@ -6,11 +6,23 @@ import AdminDashboard from "./components/AdminDashboard";
 import IntakeForm from "./components/IntakeForm";
 import { CalendarPicker } from "./components/CalendarPicker";
 import { SERVICES, LOCATIONS, SLOT_TIMES, EMAIL_ENDPOINT } from "./constants";
-import { getAvailableSlotTimes, saveAppointment, sendBookingEmail, sendConfirmationEmail, isDateAvailable, getUnavailableDays, getUnavailableWeekdays, sendHolidayEnquiryConfirmation, getHolidaySettings } from "./services/bookingService";
+import { getAvailableSlotTimes, saveAppointment, sendBookingEmail, sendConfirmationEmail, isDateAvailable, getUnavailableDays, getUnavailableWeekdays, sendHolidayEnquiryConfirmation, getHolidaySettings, signOutAdmin } from "./services/bookingService";
 
 
 const App: React.FC = () => {
   const [currentPage, setCurrentPage] = useState<Page>("home");
+  // Leaving the admin section — by any route (the Exit Manager button, the
+  // regular header nav, etc.) — signs out entirely rather than just navigating
+  // away. Otherwise the underlying Supabase session (already elevated past 2FA)
+  // would still be sitting there ready to let someone straight back into the
+  // dashboard next time, with no code required.
+  const prevPageRef = useRef<Page>("home");
+  useEffect(() => {
+    if (prevPageRef.current === "admin" && currentPage !== "admin") {
+      signOutAdmin().catch(() => {});
+    }
+    prevPageRef.current = currentPage;
+  }, [currentPage]);
   const [intakeToken, setIntakeToken] = useState<string | null>(null);
   const [bookingStep, setBookingStep] = useState(1);
   const [showSuccess, setShowSuccess] = useState(false);
