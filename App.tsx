@@ -5,8 +5,10 @@ import Footer from "./components/Footer";
 import AdminDashboard from "./components/AdminDashboard";
 import IntakeForm from "./components/IntakeForm";
 import { CalendarPicker } from "./components/CalendarPicker";
+import { Service } from "./types";
 import { SERVICES, LOCATIONS, SLOT_TIMES, EMAIL_ENDPOINT } from "./constants";
 import { getAvailableSlotTimes, saveAppointment, sendBookingEmail, sendConfirmationEmail, isDateAvailable, getUnavailableDays, getUnavailableWeekdays, sendHolidayEnquiryConfirmation, getHolidaySettings, signOutAdmin } from "./services/bookingService";
+import { getServiceCatalog } from "./services/serviceCatalogService";
 
 
 const App: React.FC = () => {
@@ -22,6 +24,12 @@ const App: React.FC = () => {
       signOutAdmin().catch(() => {});
     }
     prevPageRef.current = currentPage;
+  }, [currentPage]);
+  // Show the "not a confirmed booking yet" notice every time someone lands on
+  // the booking page, so it can't be missed however they got there (header
+  // nav, hero button, service card, etc.) — but not on every step within it.
+  useEffect(() => {
+    if (currentPage === "booking") setShowBookingNotice(true);
   }, [currentPage]);
   const [intakeToken, setIntakeToken] = useState<string | null>(null);
   const [bookingStep, setBookingStep] = useState(1);
@@ -44,6 +52,7 @@ const App: React.FC = () => {
   const [agreedToTerms, setAgreedToTerms] = useState(false);
   const [marketingConsent, setMarketingConsent] = useState<"yes" | "no" | "">("");
   const [showAgreement, setShowAgreement] = useState(false);
+  const [showBookingNotice, setShowBookingNotice] = useState(false);
   const [enquiryData, setEnquiryData] = useState({
     name: "",
     email: "",
@@ -59,8 +68,9 @@ const App: React.FC = () => {
   const [advertText, setAdvertText] = useState<string | null>(null);
   const [advertColor, setAdvertColor] = useState<string>("#16a34a");
   const [weekendsEnabled, setWeekendsEnabled] = useState(true);
+  const [services, setServices] = useState<Service[]>(SERVICES);
 
-  const selectedService = SERVICES.find((service) => service.id === formData.serviceid);
+  const selectedService = services.find((service) => service.id === formData.serviceid);
   const isHomeGroom = Boolean(selectedService && (selectedService.id.toLowerCase().includes("home") || selectedService.name.toLowerCase().includes("home") || selectedService.id.toLowerCase().includes("mobile") || selectedService.name.toLowerCase().includes("mobile")));
 
   const today = new Date().toISOString().split("T")[0];
@@ -111,6 +121,14 @@ const App: React.FC = () => {
         if (advert_color) setAdvertColor(advert_color);
         setWeekendsEnabled(weekends_enabled ?? true);
       })
+      .catch(() => {});
+  }, []);
+
+  // Load the live service catalog (admin-managed) on mount, falling back to
+  // the built-in list already showing while this resolves.
+  useEffect(() => {
+    getServiceCatalog()
+      .then(setServices)
       .catch(() => {});
   }, []);
 
@@ -343,16 +361,16 @@ Message: ${enquiryData.message}
             {/* Hero Section */}
             <section className="relative h-[85vh] min-h-[600px] flex items-center overflow-hidden">
               <div className="absolute inset-0 z-0">
-                <img src="https://images.unsplash.com/photo-1516734212186-a967f81ad0d7?auto=format&fit=crop&q=80&w=2000" alt="Happy dog being groomed" className="w-full h-full object-cover object-[center_20%] brightness-[0.75]" />
+                <img src="https://images.unsplash.com/photo-1516734212186-a967f81ad0d7?auto=format&fit=crop&q=80&w=2000" alt="Happy dog being groomed at Dirty Dawg Grooming (Maisey Days), dog groomer in Caister-on-Sea and Winterton, Norfolk" className="w-full h-full object-cover object-[center_20%] brightness-[0.75]" />
               </div>
               <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-white w-full">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
                   <div className="text-left">
-                    <p className="text-3xl md:text-4xl lg:text-5xl font-extrabold leading-tight">
+                    <h1 className="text-3xl md:text-4xl lg:text-5xl font-extrabold leading-tight">
                       <span className="block text-[calc(2rem)] md:text-[calc(3.5rem)] lg:text-[calc(5rem)]">Where every dog is a VIP</span>
                       <span className="block mt-3">(Very Important Pup)</span>
-                    </p>
-                    <p className="mt-3 text-xl md:text-2xl text-slate-100">Grooming with care and trust in Winterton on Sea, Caister or in the comfort of your own home.</p>
+                    </h1>
+                    <p className="mt-3 text-xl md:text-2xl text-slate-100">Dirty Dawg Grooming (Maisey Days) — dog groomer in Winterton-on-Sea, Caister-on-Sea and Great Yarmouth.</p>
                     <div className="mt-6 flex flex-col sm:flex-row gap-4">
                       <button onClick={() => setCurrentPage("booking")} className="bg-emerald-600 hover:bg-emerald-700 text-white px-8 py-4 rounded-3xl font-black text-lg transition-all transform hover:scale-105 shadow-xl shadow-emerald-900/40">BOOK NOW</button>
                       <button onClick={() => setCurrentPage("services")} className="bg-emerald-600 hover:bg-emerald-700 text-white px-8 py-4 rounded-3xl font-black text-lg transition-all transform hover:scale-105 shadow-xl shadow-emerald-900/40">SERVICES</button>
@@ -365,7 +383,7 @@ Message: ${enquiryData.message}
 
             {/* Features */}
             <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
                 {[
                   {
                     title: "Premium Products",
@@ -376,6 +394,11 @@ Message: ${enquiryData.message}
                     title: "Safety First",
                     desc: "Fully qualified level 3 dog groomer with 7 years experience, insured and DBS checked.",
                     icon: "🛡️",
+                  },
+                  {
+                    title: "Teeth Cleaning",
+                    desc: "No scraping, noise or vibration, so it's stress-free even for nervous dogs.",
+                    icon: "🦷",
                   },
                 ].map((item, idx) => (
                   <div key={idx} className="bg-white p-10 rounded-[2.5rem] shadow-sm border border-slate-100 hover:shadow-xl transition-all duration-500 group">
@@ -499,10 +522,13 @@ Message: ${enquiryData.message}
               <h1 className="text-6xl font-black text-center mb-4 text-slate-800 tracking-tighter">OUR SERVICES</h1>
               <p className="text-slate-500 text-center mb-16 text-lg max-w-2xl mx-auto">From quick tidy-ups to full transformations, we have the perfect package for your pup.</p>
               <div className="max-w-4xl mx-auto grid grid-cols-1 gap-10">
-                {SERVICES.map((s) => (
+                {services.map((s) => (
                   <div key={s.id} className="bg-white rounded-[3rem] overflow-hidden shadow-sm border border-slate-100 flex flex-col lg:flex-row group hover:shadow-2xl transition-all duration-500">
-                    <div className="lg:w-2/5 overflow-hidden">
+                    <div className="lg:w-2/5 overflow-hidden relative">
                       <img src={s.image} alt={s.name} className="w-full h-64 lg:h-full object-cover group-hover:scale-110 transition-transform duration-700" />
+                      {s.id === "teeth-cleaning" && (
+                        <span className="absolute bottom-2 right-3 text-[8px] text-white/80">Photo by Brian Brxtn</span>
+                      )}
                     </div>
                     <div className="p-10 flex flex-col justify-between lg:w-3/5">
                       <div>
@@ -682,7 +708,7 @@ Message: ${enquiryData.message}
                     <div>
                       <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-3">{formData.serviceid === "puppy-intro" ? "Options" : "Service"}</label>
                       <select value={formData.serviceid} onChange={(e) => setFormData({ ...formData, serviceid: e.target.value })} className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-emerald-500 transition-all font-bold">
-                        {SERVICES.map((s) => (
+                        {services.map((s) => (
                           <option key={s.id} value={s.id}>
                             {s.name} ({s.price})
                           </option>
@@ -898,6 +924,25 @@ Message: ${enquiryData.message}
     }
   };
 
+  // Booking Notice Modal — shown on arrival at the booking page
+  const BookingNoticeModal = () => (
+    <>
+      {showBookingNotice && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-md w-full shadow-2xl p-8 text-center">
+            <p className="text-2xl font-black mb-4">🐶 🐾 A Quick Note</p>
+            <p className="text-red-600 font-bold text-lg leading-relaxed mb-6">
+              Selecting a date and time is not a confirmed booking. Once submitted, we'll double-check our diary and get back to you within 48 hours to confirm your appointment or find another date and time that works for you.
+            </p>
+            <button onClick={() => setShowBookingNotice(false)} className="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-4 rounded-2xl font-bold transition-all">
+              Got It
+            </button>
+          </div>
+        </div>
+      )}
+    </>
+  );
+
   // Agreement Modal
   const AgreementModal = () => (
     <>
@@ -980,6 +1025,7 @@ Message: ${enquiryData.message}
       <main className="flex-grow">{renderPage()}</main>
       <Footer setPage={setCurrentPage} />
       <AgreementModal />
+      <BookingNoticeModal />
       <div className="fixed bottom-4 left-4 z-40">
         <button onClick={() => setCurrentPage(currentPage === "admin" ? "home" : "admin")} className="text-[9px] text-slate-300 hover:text-slate-600 font-black uppercase tracking-[0.2em] transition-colors">
           {currentPage === "admin" ? "Exit Manager" : "Admin Login"}

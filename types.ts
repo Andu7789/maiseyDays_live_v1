@@ -46,6 +46,8 @@ export interface Customer {
   matting_signed_at?: string | null;
   matting_signed_via?: string | null;
   matting_signature?: string | null;
+  review_link_sent_at?: string | null;
+  review_link_sent_via?: string | null;
   source?: string;
   created_at?: string;
   updated_at?: string;
@@ -97,6 +99,7 @@ export interface Appointment {
   confirmed_at?: string | null;
   confirmation_sent_at?: string | null;
   booking_source?: "web" | "manual";
+  created_at?: string;
   calendar_event_id?: string | null;
   calendar_sync_status?: "not_synced" | "synced" | "error";
   calendar_last_synced_at?: string | null;

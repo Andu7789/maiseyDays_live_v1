@@ -48,18 +48,20 @@ serve(async (req: Request) => {
       const date = String(body.date || "");
       const serviceName = String(body.serviceName || "");
       const locationName = String(body.locationName || "");
-      subject = `Booking Request Received - ${dogName}`;
+      subject = `APPOINTMENT PENDING - ${dogName}`;
       html = wrapHtml(`
-        <p>Hello ${firstName},</p>
-        <p>Thank you for requesting a booking with Maisey Days @ Dirty Dawg! We have received your booking request for <strong>${dogName}</strong>.</p>
-        <p>We will review your request and be in touch within the next 48 hours to confirm your appointment or discuss any details.</p>
+        <p>Hi ${firstName},</p>
+        <p>Thanks for requesting a pamper session for <strong>${dogName}</strong>! 🐶</p>
+        <p><strong style="font-size: 16px; color: red;">🛑 PLEASE NOTE: THIS IS NOT A CONFIRMED BOOKING YET.</strong></p>
+        <p>We're just checking our diary and will get back to you within 48 hours to either confirm your appointment or discuss alternative dates and times that work for you.</p>
         <p><strong>Booking Details:</strong><br>
         Dog: ${dogName}<br>
         Requested Date: ${date}<br>
         Service: ${serviceName}<br>
         Location: ${locationName}</p>
-        <p>If you have any questions in the meantime, please don't hesitate to contact us.</p>
-        <p>Best regards,<br>Maisey Days @ Dirty Dawg 🐾</p>
+        <p>If you have any questions in the meantime, please do not hesitate to contact us on 07368 465966.</p>
+        <p>We look forward to seeing you soon!</p>
+        <p>Warm regards,<br>Rachel<br>Maisey Days @ Dirty Dawg 🐾</p>
       `);
     } else if (template === "holiday-enquiry") {
       subject = "Thanks for your enquiry - Maisey Days @ Dirty Dawg";

@@ -79,6 +79,14 @@ export const SERVICES: Service[] = [
     image: "/image0.png",
   },
   {
+    id: "teeth-cleaning",
+    name: "Teeth Cleaning",
+    price: "From £30",
+    duration: "+15 Mins",
+    description: "Gentle ultrasonic teeth cleaning — no scraping, noise or vibration, so it's stress-free even for nervous dogs. Removes plaque and tartar buildup and freshens breath. Option extra alongside any groom.",
+    image: "https://images.unsplash.com/photo-1534526238597-9187ddf131d7?auto=format&fit=crop&q=80&w=800",
+  },
+  {
     id: "nail-clipping",
     name: "Nail Clipping",
     price: "From £12",

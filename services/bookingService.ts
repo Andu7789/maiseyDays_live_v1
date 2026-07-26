@@ -1,6 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { Appointment, AvailabilitySlot, WeeklyTemplate } from "../types";
 import { EMAIL_ENDPOINT, LOCATIONS, SERVICES, SUPABASE_URL, SUPABASE_ANON_KEY, STANDARD_HOURS, SLOT_TIMES, SLOT_DURATION_MINUTES, BOOKABLE_WEEKDAYS } from "../constants";
+import { getServiceNameSync } from "./serviceCatalogService";
 
 // Validation for the user's convenience
 if (SUPABASE_ANON_KEY && !SUPABASE_ANON_KEY.startsWith("eyJ")) {
@@ -403,7 +404,7 @@ const formatHumanDate = (dateStr: string) => {
 };
 
 const getLocationName = (locationId: string) => LOCATIONS.find((loc) => loc.id === locationId)?.name || locationId;
-const getServiceName = (serviceId: string) => SERVICES.find((service) => service.id === serviceId)?.name || serviceId;
+const getServiceName = (serviceId: string) => getServiceNameSync(serviceId);
 
 // Starting/estimate prices per service (the "From £X" advertised price) — used
 // as a fallback for revenue reporting until the groomer records what was
@@ -414,6 +415,7 @@ const SERVICE_BASE_PRICE: Record<string, number> = {
   "puppy-intro": 15,
   "nail-clipping": 12,
   "home-grooming": 45,
+  "teeth-cleaning": 30,
 };
 export const getServiceBasePrice = (serviceid: string) => SERVICE_BASE_PRICE[serviceid] ?? 0;
 
@@ -441,13 +443,14 @@ export const getBookingRevenue = (apt: Appointment): { amount: number; isActual:
 export const buildConfirmationMessage = (appointment: Appointment) => {
   const confirmedDate = appointment.confirmed_date || appointment.date;
   const confirmedTime = appointment.confirmed_time || "TBC";
-  return `Hi ${appointment.ownername}, ${appointment.dogname} is booked for a ${getServiceName(appointment.serviceid)} at Maisey Days (${getLocationName(appointment.locationid)}) on ${formatHumanDate(confirmedDate)} at ${confirmedTime}. Please reply YES to confirm or call us if you need changes. Thank you 🐾`;
+  const dayName = confirmedDate ? new Date(`${confirmedDate}T00:00:00`).toLocaleDateString("en-GB", { weekday: "long" }) : "";
+  return `Thank you for booking ${appointment.dogname} in for a pamper with Rachel on ${dayName}, ${formatHumanDate(confirmedDate)} at ${confirmedTime} at Maisey Days (${getLocationName(appointment.locationid)}). To confirm please reply YES or message Rachel on 07368465966 if you have any queries.`;
 };
 
 export const buildCancellationMessage = (appointment: Appointment) => {
   const bookedDate = appointment.confirmed_date || appointment.date;
   const bookedTime = appointment.confirmed_time || "";
-  return `Hi ${appointment.ownername}, unfortunately your ${getServiceName(appointment.serviceid)} appointment for ${appointment.dogname} at Maisey Days (${getLocationName(appointment.locationid)}) on ${formatHumanDate(bookedDate)}${bookedTime ? ` at ${bookedTime}` : ""} has been cancelled. Please contact us if you have any questions. Thank you 🐾`;
+  return `Hi ${appointment.ownername}, due to unforeseen circumstances, your ${getServiceName(appointment.serviceid)} appointment for ${appointment.dogname} at Maisey Days (${getLocationName(appointment.locationid)}) on ${formatHumanDate(bookedDate)}${bookedTime ? ` at ${bookedTime}` : ""} has been cancelled. We will be in contact with you to re-arrange. Apologies for the inconvenience.`;
 };
 
 export const buildRebookNudgeMessage = (appointment: Appointment) => {
@@ -619,7 +622,7 @@ export const isSlotAvailable = async (locationId: string, date: string, time: st
 export const sendBookingEmail = async (appointment: Appointment, photo?: File | null) => {
   try {
     const locationName = LOCATIONS.find((l) => l.id === appointment.locationid)?.name || appointment.locationid;
-    const serviceName = SERVICES.find((s) => s.id === appointment.serviceid)?.name || appointment.serviceid;
+    const serviceName = getServiceNameSync(appointment.serviceid);
     let photoLink: string | null = null;
     if (photo) {
       try {
@@ -686,7 +689,7 @@ export const sendConfirmationEmail = async (appointment: Appointment) => {
       template: "booking-received",
       dogName: appointment.dogname,
       date: appointment.date,
-      serviceName: SERVICES.find((s) => s.id === appointment.serviceid)?.name || appointment.serviceid,
+      serviceName: getServiceNameSync(appointment.serviceid),
       locationName: LOCATIONS.find((l) => l.id === appointment.locationid)?.name || appointment.locationid,
     });
     return Boolean((result as any)?.success);
@@ -1081,14 +1084,23 @@ export const getHolidaySettings = async (): Promise<{
   advert_text: string | null;
   advert_color: string | null;
   weekends_enabled: boolean;
+  google_review_link: string | null;
 }> => {
   const { data, error } = await supabase
     .from("holiday_settings")
-    .select("holiday_start, holiday_end, advert_start, advert_end, advert_text, advert_color, weekends_enabled")
+    .select("holiday_start, holiday_end, advert_start, advert_end, advert_text, advert_color, weekends_enabled, google_review_link")
     .eq("id", 1)
     .single();
   if (error) throw new Error(error.message);
   return { ...data, weekends_enabled: data.weekends_enabled ?? true };
+};
+
+export const updateGoogleReviewLink = async (link: string | null) => {
+  const { error } = await supabase
+    .from("holiday_settings")
+    .update({ google_review_link: link || null, updated_at: new Date().toISOString() })
+    .eq("id", 1);
+  if (error) throw new Error(error.message);
 };
 
 export const updateHolidaySettings = async (holidayStart: string | null, holidayEnd: string | null) => {

@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { addBookingPhoto, BookingPhoto, buildCancellationMessage, buildConfirmationMessage, buildRebookNudgeMessage, checkAuthStatus, confirmAppointmentBooking, createManualAppointment, deleteAppointment, deleteBookingPhoto, enrollMfaTotp, exportAppointmentsToExcel, findBookingClash, getAppointments, getAvailableSlotTimes, getBookingPhotos, getBookingRevenue, getCurrentUser, getEffectiveSchedule, getMfaAssuranceLevel, getReminderSettings, getServiceBasePrice, getUnavailableDays, getUnavailableWeekdays, listMfaFactors, removeUnavailableDay, removeUnavailableWeekday, saveUnavailableDay, saveUnavailableWeekday, sendCustomEmail, sendCustomerCancellationSms, sendCustomerConfirmationSms, signInAdmin, signOutAdmin, unenrollMfaFactor, updateAppointment, updateReminderSettings, getHolidaySettings, updateHolidaySettings, updateAdvertSettings, updateWeekendBookingsEnabled, verifyMfaCode, getDogNotes, getAllDogNotes, upsertDogNote } from "../services/bookingService";
-import { buildIntakeLink, buildIntakeMessage, buildWhatsAppLink, createCustomer, deleteCustomer, deleteDog, ensureIntakeToken, getCustomers, getDeletedCustomers, markIntakeSent, permanentlyDeleteCustomer, restoreCustomer, saveDog, sendIntakeEmail, sendIntakeSms, updateCustomer } from "../services/customerService";
+import { addBookingPhoto, BookingPhoto, buildCancellationMessage, buildConfirmationMessage, buildRebookNudgeMessage, checkAuthStatus, confirmAppointmentBooking, createManualAppointment, deleteAppointment, deleteBookingPhoto, enrollMfaTotp, exportAppointmentsToExcel, findBookingClash, getAppointments, getAvailableSlotTimes, getBookingPhotos, getBookingRevenue, getCurrentUser, getEffectiveSchedule, getMfaAssuranceLevel, getReminderSettings, getServiceBasePrice, getUnavailableDays, getUnavailableWeekdays, listMfaFactors, removeUnavailableDay, removeUnavailableWeekday, saveUnavailableDay, saveUnavailableWeekday, sendCustomEmail, sendCustomerCancellationSms, sendCustomerConfirmationSms, signInAdmin, signOutAdmin, unenrollMfaFactor, updateAppointment, updateReminderSettings, getHolidaySettings, updateHolidaySettings, updateAdvertSettings, updateWeekendBookingsEnabled, updateGoogleReviewLink, verifyMfaCode, getDogNotes, getAllDogNotes, upsertDogNote } from "../services/bookingService";
+import { buildIntakeLink, buildIntakeMessage, buildReviewMessage, buildWhatsAppLink, createCustomer, deleteCustomer, deleteDog, ensureIntakeToken, getCustomers, getDeletedCustomers, markIntakeSent, markReviewLinkSent, permanentlyDeleteCustomer, restoreCustomer, saveDog, sendIntakeEmail, sendIntakeSms, updateCustomer } from "../services/customerService";
 import { Appointment, Customer, Dog, IntakeStatus, Service } from "../types";
 import { INTAKE_TERMS, LOCATIONS, MATTING_BULLETS, MATTING_CLOSING, MATTING_TERMS, SERVICES, SLOT_TIMES } from "../constants";
+import { createServiceCatalogEntry, deleteServiceCatalogEntry, getServiceCatalog, updateServiceCatalogEntry, uploadServicePhoto } from "../services/serviceCatalogService";
 
 const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const ALL_LOCATIONS = "__all__";
@@ -16,6 +17,8 @@ const getMonday = (source: Date) => {
 };
 
 const toDateString = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+const slugifyServiceName = (name: string) => name.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || `service-${Date.now()}`;
 
 // Compact Yes/No toggle for the agreement editor (third click state = unanswered stays as-is)
 const TriYesNo: React.FC<{ label: string; value: boolean | null | undefined; onChange: (v: boolean) => void }> = ({ label, value, onChange }) => (
@@ -60,6 +63,9 @@ const AdminDashboard: React.FC = () => {
   const [services, setServices] = useState<Service[]>(SERVICES);
   const [editingService, setEditingService] = useState<Service | null>(null);
   const [newService, setNewService] = useState<Partial<Service>>({});
+  const [serviceSaving, setServiceSaving] = useState(false);
+  const [serviceError, setServiceError] = useState("");
+  const [uploadingServicePhoto, setUploadingServicePhoto] = useState(false);
 
   const [showUpdateModal, setShowUpdateModal] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
@@ -82,6 +88,7 @@ const AdminDashboard: React.FC = () => {
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [newPhotoType, setNewPhotoType] = useState<"before" | "after" | "other">("before");
   const nudgePanelRef = useRef<HTMLDivElement>(null);
+  const serviceEditSectionRef = useRef<HTMLDivElement>(null);
   const [pendingConfirmChannel, setPendingConfirmChannel] = useState<"sms" | "whatsapp" | "none">("sms");
   const [diaryWeekStart, setDiaryWeekStart] = useState<Date>(() => getMonday(new Date()));
   const [diarySearch, setDiarySearch] = useState("");
@@ -127,6 +134,11 @@ const AdminDashboard: React.FC = () => {
   const [advertStatus, setAdvertStatus] = useState<"idle" | "saved" | "error">("idle");
   const [advertError, setAdvertError] = useState<string>("");
 
+  const [reviewLinkForm, setReviewLinkForm] = useState("");
+  const [reviewLinkSaving, setReviewLinkSaving] = useState(false);
+  const [reviewLinkStatus, setReviewLinkStatus] = useState<"idle" | "saved" | "error">("idle");
+  const [sendingReviewLinkTo, setSendingReviewLinkTo] = useState<string | null>(null);
+
   const [customerSearch, setCustomerSearch] = useState("");
   const [selectedCustomer, setSelectedCustomer] = useState<string | null>(null);
   const [showCustomerModal, setShowCustomerModal] = useState(false);
@@ -134,6 +146,7 @@ const AdminDashboard: React.FC = () => {
   const [intakeFilter, setIntakeFilter] = useState<"all" | IntakeStatus>("all");
   const [showOnlyMattingDue, setShowOnlyMattingDue] = useState(false);
   const [showOnlyDepositOwed, setShowOnlyDepositOwed] = useState(false);
+  const [showOnlyReviewAsked, setShowOnlyReviewAsked] = useState(false);
   type BookingStatusFilter = "all" | "pending" | "confirmed" | "completed" | "due_for_rebook" | "cancelled" | "deposit_unpaid" | "needs_time";
   const [bookingsStatusFilter, setBookingsStatusFilter] = useState<BookingStatusFilter>("all");
   const [legacyTimeDrafts, setLegacyTimeDrafts] = useState<Record<string, { date: string; time: string }>>({});
@@ -255,6 +268,18 @@ const AdminDashboard: React.FC = () => {
       const bSchedule = getEffectiveSchedule(b);
       return Boolean(bSchedule && bSchedule.date > apt.completed_at!.slice(0, 10));
     });
+  };
+
+  // A web booking request that's been sitting in "pending" for over 24 hours
+  // with no response yet (confirmed or cancelled both count as "responded to").
+  // Manual/admin-created bookings are excluded — there's no customer waiting
+  // on a reply for those.
+  const OVERDUE_RESPONSE_HOURS = 24;
+  const isOverdueResponse = (apt: Appointment): boolean => {
+    if (apt.booking_source !== "web") return false;
+    if ((apt.booking_status || apt.status) !== "pending") return false;
+    if (!apt.created_at) return false;
+    return Date.now() - new Date(apt.created_at).getTime() > OVERDUE_RESPONSE_HOURS * 60 * 60 * 1000;
   };
 
   // For the Add Booking form: how many weeks ago was this contact's most recent
@@ -433,16 +458,18 @@ const AdminDashboard: React.FC = () => {
   const loadData = async () => {
     setIsLoading(true);
     try {
-      const [apps, unavail, unavailWeekdays, remSettings, holSettings, custs] = await Promise.all([
+      const [apps, unavail, unavailWeekdays, remSettings, holSettings, custs, serviceCatalog] = await Promise.all([
         getAppointments(),
         getUnavailableDays(selectedLocation),
         getUnavailableWeekdays(),
         getReminderSettings().catch(() => null),
         getHolidaySettings().catch(() => null),
         getCustomers().catch(() => [] as Customer[]),
+        getServiceCatalog().catch(() => SERVICES),
       ]);
       setAppointments(autoCompletePastBookings(apps));
       setCustomersList(custs);
+      setServices(serviceCatalog);
       setUnavailableDays(unavail);
       setUnavailableWeekdays(unavailWeekdays);
       if (remSettings) {
@@ -460,6 +487,7 @@ const AdminDashboard: React.FC = () => {
           advert_color: holSettings.advert_color ?? "#EAB308",
         });
         setWeekendsEnabled(holSettings.weekends_enabled ?? true);
+        setReviewLinkForm(holSettings.google_review_link ?? "");
       }
       setDbStatus("connected");
     } catch (err) {
@@ -639,12 +667,12 @@ const AdminDashboard: React.FC = () => {
     }
   };
 
-  const handleSendIntake = async (customer: Customer, channel: "whatsapp" | "sms" | "email") => {
+  const handleSendIntake = async (customer: Customer, channel: "whatsapp" | "sms" | "email", appointment?: Appointment) => {
     setSendingIntake(channel);
     try {
       const token = await ensureIntakeToken(customer);
       const link = buildIntakeLink(token);
-      const message = buildIntakeMessage(customer, link);
+      const message = buildIntakeMessage(customer, link, appointment);
 
       if (channel === "whatsapp") {
         if (!customer.phone) throw new Error("No phone number on record.");
@@ -1701,6 +1729,7 @@ const AdminDashboard: React.FC = () => {
         const depositsOwedTotal = depositsOwed.reduce((sum, a) => sum + (a.deposit_amount || (a.number_of_dogs || 1) * 20), 0);
 
         const pendingRequests = scoped.filter((a) => (a.booking_status || a.status) === "pending" && a.status !== "cancelled");
+        const overdueResponses = scoped.filter(isOverdueResponse).sort((a, b) => (a.created_at || "").localeCompare(b.created_at || ""));
 
         // Same live "due a rebook nudge" rule used by the Bookings tab filter (isDueForNudge),
         // so the two never disagree.
@@ -1735,7 +1764,7 @@ const AdminDashboard: React.FC = () => {
         }
         const maxWeekly = Math.max(1, ...weeklyRevenue.map((w) => w.amount));
 
-        const serviceStats = SERVICES.map((s) => {
+        const serviceStats = services.map((s) => {
           const bookingsForService = completedThisMonth.filter((a) => a.serviceid === s.id);
           return { service: s, count: bookingsForService.length, revenue: bookingsForService.reduce((sum, a) => sum + getBookingRevenue(a).amount, 0) };
         })
@@ -1793,7 +1822,20 @@ const AdminDashboard: React.FC = () => {
             {/* Needs your attention */}
             <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-6">
               <h3 className="text-lg font-black text-slate-800 mb-4">🔔 Needs Your Attention</h3>
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-7 gap-3">
+                {overdueResponses.length > 0 && (
+                  <button
+                    onClick={() => {
+                      setBookingsStatusFilter("pending");
+                      setBookingsSearch("");
+                      setView("bookings");
+                    }}
+                    className="text-left p-4 bg-rose-50 hover:bg-rose-100 border border-rose-300 rounded-xl transition-colors"
+                  >
+                    <div className="text-2xl font-black text-rose-700">{overdueResponses.length}</div>
+                    <div className="text-xs font-bold text-rose-600">⚠ Overdue &gt;24h, no reply</div>
+                  </button>
+                )}
                 <button
                   onClick={() => {
                     setBookingsStatusFilter("pending");
@@ -1883,7 +1925,7 @@ const AdminDashboard: React.FC = () => {
                             🐕 {apt.dogname} <span className="font-medium text-slate-500">— {apt.ownername}</span>
                           </div>
                           <div className="text-xs text-slate-500 truncate">
-                            {SERVICES.find((s) => s.id === apt.serviceid)?.name || apt.serviceid}
+                            {services.find((s) => s.id === apt.serviceid)?.name || apt.serviceid}
                             {selectedLocation === ALL_LOCATIONS ? ` · ${LOCATIONS.find((l) => l.id === apt.locationid)?.name || ""}` : ""}
                           </div>
                         </div>
@@ -1934,7 +1976,7 @@ const AdminDashboard: React.FC = () => {
                             🐕 {apt.dogname} <span className="font-medium text-slate-500">— {apt.ownername}</span>
                           </div>
                           <div className="text-xs text-slate-500">
-                            Last groom: {SERVICES.find((s) => s.id === apt.serviceid)?.name || apt.serviceid} on {new Date(apt.completed_at!).toLocaleDateString("en-GB")} ·{" "}
+                            Last groom: {services.find((s) => s.id === apt.serviceid)?.name || apt.serviceid} on {new Date(apt.completed_at!).toLocaleDateString("en-GB")} ·{" "}
                             <span className="font-bold text-purple-700">{daysSince} days ago</span>
                           </div>
                         </div>
@@ -2133,7 +2175,7 @@ const AdminDashboard: React.FC = () => {
                           Originally booked {apt.date} ·{" "}
                           <span className="px-2 py-0.5 bg-amber-100 text-amber-700 rounded-full font-bold">{apt.requested_time_preference || apt.time || "no preference"}</span>
                           {" · "}
-                          {SERVICES.find((s) => s.id === apt.serviceid)?.name || apt.serviceid}
+                          {services.find((s) => s.id === apt.serviceid)?.name || apt.serviceid}
                           {selectedLocation === ALL_LOCATIONS ? ` · ${LOCATIONS.find((l) => l.id === apt.locationid)?.name || ""}` : ""}
                         </div>
                       </div>
@@ -2187,7 +2229,7 @@ const AdminDashboard: React.FC = () => {
                 <tbody>
                   {paginatedAppointments.map((app) => {
                     const isConfirmed = Boolean(app.is_confirmed || app.status === "confirmed");
-                    const serviceName = SERVICES.find((s) => s.id === app.serviceid)?.name || app.serviceid;
+                    const serviceName = services.find((s) => s.id === app.serviceid)?.name || app.serviceid;
 
                     // Color-code rows based on booking_status
                     let rowClass = "bg-orange-50 hover:bg-orange-100"; // Default: pending
@@ -2202,6 +2244,8 @@ const AdminDashboard: React.FC = () => {
                     } else if (isConfirmed) {
                       rowClass = "bg-emerald-50 hover:bg-emerald-100"; // Green: legacy confirmed
                     }
+                    const overdue = isOverdueResponse(app);
+                    if (overdue) rowClass = "bg-rose-50 hover:bg-rose-100 ring-1 ring-inset ring-rose-300"; // Red: overdue web request, takes priority over the pending color
 
                     // Check if the appointment's date has fully passed (eligible to flag as missed)
                     const todayStr = new Date().toISOString().split("T")[0];
@@ -2236,7 +2280,7 @@ const AdminDashboard: React.FC = () => {
                             <span className="px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider bg-slate-200 text-slate-600">Cancelled</span>
                           )}
                           {(!app.booking_status || app.booking_status === "pending") && (
-                            <span className="px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider bg-orange-100 text-orange-700">Pending</span>
+                            <span className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider whitespace-nowrap ${overdue ? "bg-rose-600 text-white" : "bg-orange-100 text-orange-700"}`}>{overdue ? "⚠ Overdue" : "Pending"}</span>
                           )}
                           {app.missed && (
                             <span className="block mt-1 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider bg-red-600 text-white" title={app.missed_reason || ""}>
@@ -2365,7 +2409,7 @@ const AdminDashboard: React.FC = () => {
       )}
 
       {view === "services" && (
-        <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-8">
+        <div ref={serviceEditSectionRef} className="bg-white rounded-3xl shadow-sm border border-slate-100 p-8">
           <h2 className="text-2xl font-black mb-6 text-slate-800">Manage Services</h2>
 
           {editingService ? (
@@ -2375,20 +2419,64 @@ const AdminDashboard: React.FC = () => {
                 <input type="text" placeholder="Service Name" value={editingService.name || ""} onChange={(e) => setEditingService({ ...editingService, name: e.target.value })} className="px-6 py-3 bg-white border border-emerald-200 rounded-lg outline-none focus:ring-2 focus:ring-emerald-500 font-bold" />
                 <input type="text" placeholder="Price (e.g., From $65)" value={editingService.price || ""} onChange={(e) => setEditingService({ ...editingService, price: e.target.value })} className="px-6 py-3 bg-white border border-emerald-200 rounded-lg outline-none focus:ring-2 focus:ring-emerald-500 font-bold" />
                 <input type="text" placeholder="Duration (e.g., 2-3 Hours)" value={editingService.duration || ""} onChange={(e) => setEditingService({ ...editingService, duration: e.target.value })} className="px-6 py-3 bg-white border border-emerald-200 rounded-lg outline-none focus:ring-2 focus:ring-emerald-500 font-bold" />
-                <input type="text" placeholder="Image URL" value={editingService.image || ""} onChange={(e) => setEditingService({ ...editingService, image: e.target.value })} className="px-6 py-3 bg-white border border-emerald-200 rounded-lg outline-none focus:ring-2 focus:ring-emerald-500 font-bold" />
+                <div className="flex items-center gap-2">
+                  <input type="text" placeholder="Image URL" value={editingService.image || ""} onChange={(e) => setEditingService({ ...editingService, image: e.target.value })} className="flex-1 px-6 py-3 bg-white border border-emerald-200 rounded-lg outline-none focus:ring-2 focus:ring-emerald-500 font-bold" />
+                  <label className="shrink-0 bg-white border border-emerald-200 hover:bg-emerald-50 text-emerald-700 px-4 py-3 rounded-lg font-bold text-sm cursor-pointer whitespace-nowrap">
+                    {uploadingServicePhoto ? "Uploading…" : "📷 Upload"}
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      disabled={uploadingServicePhoto}
+                      onChange={async (e) => {
+                        const file = e.target.files?.[0];
+                        e.target.value = "";
+                        if (!file || !editingService) return;
+                        setUploadingServicePhoto(true);
+                        try {
+                          const url = await uploadServicePhoto(editingService.id, file);
+                          setEditingService((prev) => (prev ? { ...prev, image: url } : prev));
+                        } catch (err: any) {
+                          alert(err?.message || "Photo upload failed.");
+                        } finally {
+                          setUploadingServicePhoto(false);
+                        }
+                      }}
+                    />
+                  </label>
+                </div>
                 <textarea placeholder="Description" value={editingService.description || ""} onChange={(e) => setEditingService({ ...editingService, description: e.target.value })} className="col-span-1 md:col-span-2 px-6 py-3 bg-white border border-emerald-200 rounded-lg outline-none focus:ring-2 focus:ring-emerald-500 font-bold min-h-24" />
               </div>
+              {editingService.image && <img src={editingService.image} alt="" className="mt-4 h-32 rounded-lg object-cover border border-emerald-200" />}
+              {serviceError && <p className="text-rose-600 text-sm font-bold mt-4">{serviceError}</p>}
               <div className="flex gap-4 mt-6">
                 <button
-                  onClick={() => {
-                    setServices(services.map((s) => (s.id === editingService.id ? editingService : s)));
-                    setEditingService(null);
+                  disabled={serviceSaving}
+                  onClick={async () => {
+                    if (!editingService) return;
+                    setServiceSaving(true);
+                    setServiceError("");
+                    try {
+                      await updateServiceCatalogEntry(editingService.id, {
+                        name: editingService.name,
+                        price: editingService.price,
+                        duration: editingService.duration,
+                        description: editingService.description,
+                        image: editingService.image,
+                      });
+                      setServices(await getServiceCatalog());
+                      setEditingService(null);
+                    } catch (err: any) {
+                      setServiceError(err?.message || "Could not save.");
+                    } finally {
+                      setServiceSaving(false);
+                    }
                   }}
-                  className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white px-8 py-3 rounded-lg font-bold transition-all"
+                  className="flex-1 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white px-8 py-3 rounded-lg font-bold transition-all"
                 >
-                  Save Changes
+                  {serviceSaving ? "Saving…" : "Save Changes"}
                 </button>
-                <button onClick={() => setEditingService(null)} className="flex-1 bg-slate-300 hover:bg-slate-400 text-slate-700 px-8 py-3 rounded-lg font-bold transition-all">
+                <button onClick={() => { setEditingService(null); setServiceError(""); }} className="flex-1 bg-slate-300 hover:bg-slate-400 text-slate-700 px-8 py-3 rounded-lg font-bold transition-all">
                   Cancel
                 </button>
               </div>
@@ -2400,32 +2488,74 @@ const AdminDashboard: React.FC = () => {
                 <input type="text" placeholder="Service Name" value={newService.name || ""} onChange={(e) => setNewService({ ...newService, name: e.target.value })} className="px-6 py-3 bg-white border border-emerald-200 rounded-lg outline-none focus:ring-2 focus:ring-emerald-500 font-bold" />
                 <input type="text" placeholder="Price (e.g., From $65)" value={newService.price || ""} onChange={(e) => setNewService({ ...newService, price: e.target.value })} className="px-6 py-3 bg-white border border-emerald-200 rounded-lg outline-none focus:ring-2 focus:ring-emerald-500 font-bold" />
                 <input type="text" placeholder="Duration (e.g., 2-3 Hours)" value={newService.duration || ""} onChange={(e) => setNewService({ ...newService, duration: e.target.value })} className="px-6 py-3 bg-white border border-emerald-200 rounded-lg outline-none focus:ring-2 focus:ring-emerald-500 font-bold" />
-                <input type="text" placeholder="Image URL" value={newService.image || ""} onChange={(e) => setNewService({ ...newService, image: e.target.value })} className="px-6 py-3 bg-white border border-emerald-200 rounded-lg outline-none focus:ring-2 focus:ring-emerald-500 font-bold" />
+                <div className="flex items-center gap-2">
+                  <input type="text" placeholder="Image URL" value={newService.image || ""} onChange={(e) => setNewService({ ...newService, image: e.target.value })} className="flex-1 px-6 py-3 bg-white border border-emerald-200 rounded-lg outline-none focus:ring-2 focus:ring-emerald-500 font-bold" />
+                  <label className="shrink-0 bg-white border border-emerald-200 hover:bg-emerald-50 text-emerald-700 px-4 py-3 rounded-lg font-bold text-sm cursor-pointer whitespace-nowrap">
+                    {uploadingServicePhoto ? "Uploading…" : "📷 Upload"}
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      disabled={uploadingServicePhoto}
+                      onChange={async (e) => {
+                        const file = e.target.files?.[0];
+                        e.target.value = "";
+                        if (!file) return;
+                        setUploadingServicePhoto(true);
+                        try {
+                          const tempId = slugifyServiceName(newService.name || "new-service");
+                          const url = await uploadServicePhoto(tempId, file);
+                          setNewService((prev) => ({ ...prev, image: url }));
+                        } catch (err: any) {
+                          alert(err?.message || "Photo upload failed.");
+                        } finally {
+                          setUploadingServicePhoto(false);
+                        }
+                      }}
+                    />
+                  </label>
+                </div>
                 <textarea placeholder="Description" value={newService.description || ""} onChange={(e) => setNewService({ ...newService, description: e.target.value })} className="col-span-1 md:col-span-2 px-6 py-3 bg-white border border-emerald-200 rounded-lg outline-none focus:ring-2 focus:ring-emerald-500 font-bold min-h-24" />
               </div>
+              {newService.image && <img src={newService.image} alt="" className="mt-4 h-32 rounded-lg object-cover border border-emerald-200" />}
+              {serviceError && <p className="text-rose-600 text-sm font-bold mt-4">{serviceError}</p>}
               <button
-                onClick={() => {
-                  if (newService.name && newService.price) {
-                    const serviceId = `service-${Date.now()}`;
-                    setServices([
-                      ...services,
+                disabled={serviceSaving}
+                onClick={async () => {
+                  if (!newService.name || !newService.price) {
+                    alert("Please fill in at least Name and Price");
+                    return;
+                  }
+                  const id = slugifyServiceName(newService.name);
+                  if (services.some((s) => s.id === id)) {
+                    setServiceError("A service with a very similar name already exists — please use a different name.");
+                    return;
+                  }
+                  setServiceSaving(true);
+                  setServiceError("");
+                  try {
+                    await createServiceCatalogEntry(
                       {
-                        id: serviceId,
+                        id,
                         name: newService.name,
                         price: newService.price,
                         duration: newService.duration || "",
                         description: newService.description || "",
                         image: newService.image || "https://images.unsplash.com/photo-1516734212186-a967f81ad0d7?auto=format&fit=crop&q=80&w=800",
-                      } as Service,
-                    ]);
+                      },
+                      services.length,
+                    );
+                    setServices(await getServiceCatalog());
                     setNewService({});
-                  } else {
-                    alert("Please fill in at least Name and Price");
+                  } catch (err: any) {
+                    setServiceError(err?.message || "Could not save.");
+                  } finally {
+                    setServiceSaving(false);
                   }
                 }}
-                className="w-full bg-emerald-600 hover:bg-emerald-700 text-white px-8 py-3 rounded-lg font-bold transition-all mt-6"
+                className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white px-8 py-3 rounded-lg font-bold transition-all mt-6"
               >
-                Add Service
+                {serviceSaving ? "Saving…" : "Add Service"}
               </button>
             </div>
           )}
@@ -2443,10 +2573,28 @@ const AdminDashboard: React.FC = () => {
                 </div>
                 <p className="text-sm text-slate-600 mb-4">{service.description}</p>
                 <div className="flex gap-2">
-                  <button onClick={() => setEditingService(service)} className="flex-1 bg-slate-200 hover:bg-slate-300 text-slate-700 px-4 py-2 rounded-lg font-bold text-sm transition-all">
+                  <button
+                    onClick={() => {
+                      setEditingService(service);
+                      setServiceError("");
+                      serviceEditSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+                    }}
+                    className="flex-1 bg-slate-200 hover:bg-slate-300 text-slate-700 px-4 py-2 rounded-lg font-bold text-sm transition-all"
+                  >
                     Edit
                   </button>
-                  <button onClick={() => setServices(services.filter((s) => s.id !== service.id))} className="flex-1 bg-rose-100 hover:bg-rose-200 text-rose-700 px-4 py-2 rounded-lg font-bold text-sm transition-all">
+                  <button
+                    onClick={async () => {
+                      if (!window.confirm(`Delete "${service.name}"? Past bookings keep their record, but customers won't be able to select it anymore.`)) return;
+                      try {
+                        await deleteServiceCatalogEntry(service.id);
+                        setServices(await getServiceCatalog());
+                      } catch (err: any) {
+                        alert(err?.message || "Could not delete.");
+                      }
+                    }}
+                    className="flex-1 bg-rose-100 hover:bg-rose-200 text-rose-700 px-4 py-2 rounded-lg font-bold text-sm transition-all"
+                  >
                     Delete
                   </button>
                 </div>
@@ -2483,7 +2631,7 @@ const AdminDashboard: React.FC = () => {
               <input value={editForm.phone} onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })} placeholder="Phone" className="px-4 py-3 border rounded-lg" />
               <input value={editForm.dogbreed} onChange={(e) => setEditForm({ ...editForm, dogbreed: e.target.value })} placeholder="Dog breed" className="px-4 py-3 border rounded-lg" />
               <select value={editForm.serviceid} onChange={(e) => setEditForm({ ...editForm, serviceid: e.target.value })} className="px-4 py-3 border rounded-lg">
-                {SERVICES.map((service) => (
+                {services.map((service) => (
                   <option key={service.id} value={service.id}>
                     {service.name}
                   </option>
@@ -2513,14 +2661,22 @@ const AdminDashboard: React.FC = () => {
                 <label className="text-xs font-bold text-slate-500 whitespace-nowrap">Or exact time</label>
                 <input type="time" value={editForm.confirmed_time} onChange={(e) => setEditForm({ ...editForm, confirmed_time: e.target.value })} className="px-4 py-3 border rounded-lg" />
                 <label className="text-xs font-bold text-slate-500 whitespace-nowrap">for</label>
-                <input
-                  type="number"
-                  min={15}
-                  step={15}
-                  value={editForm.confirmed_duration_minutes}
-                  onChange={(e) => setEditForm({ ...editForm, confirmed_duration_minutes: Math.max(15, Number(e.target.value) || 120) })}
-                  className="px-4 py-3 border rounded-lg w-24"
-                />
+                <div className="flex items-center gap-1">
+                  <button type="button" onClick={() => setEditForm({ ...editForm, confirmed_duration_minutes: Math.max(15, (Number(editForm.confirmed_duration_minutes) || 120) - 15) })} className="w-10 h-11 flex items-center justify-center border rounded-lg font-black text-slate-600 hover:bg-slate-100 active:bg-slate-200">
+                    −
+                  </button>
+                  <input
+                    type="number"
+                    min={15}
+                    step={15}
+                    value={editForm.confirmed_duration_minutes}
+                    onChange={(e) => setEditForm({ ...editForm, confirmed_duration_minutes: Math.max(15, Number(e.target.value) || 120) })}
+                    className="px-2 py-3 border rounded-lg w-16 text-center"
+                  />
+                  <button type="button" onClick={() => setEditForm({ ...editForm, confirmed_duration_minutes: (Number(editForm.confirmed_duration_minutes) || 120) + 15 })} className="w-10 h-11 flex items-center justify-center border rounded-lg font-black text-slate-600 hover:bg-slate-100 active:bg-slate-200">
+                    +
+                  </button>
+                </div>
                 <label className="text-xs font-bold text-slate-500 whitespace-nowrap">mins</label>
               </div>
               <div className="flex items-center gap-2">
@@ -3112,6 +3268,46 @@ const AdminDashboard: React.FC = () => {
               </div>
             </div>
 
+            {/* Google Review Link */}
+            <div className="p-6 bg-amber-50 border-2 border-amber-300 rounded-2xl">
+              <h3 className="text-xl font-bold text-slate-800 mb-1">Google Review Link</h3>
+              <p className="text-slate-500 text-sm mb-4">
+                Paste your Google review link here (Google Business Profile → "Ask for reviews" → copy link). Once set, you can send it to any customer who's had a completed booking from their entry in the Customer Database — those you haven't asked yet are highlighted.
+              </p>
+              <div className="mb-4">
+                <label className="block text-sm font-bold text-slate-700 mb-2">Review Link</label>
+                <input
+                  type="text"
+                  placeholder="https://g.page/r/.../review"
+                  value={reviewLinkForm}
+                  onChange={(e) => setReviewLinkForm(e.target.value)}
+                  className="w-full px-4 py-2 border rounded-lg"
+                />
+              </div>
+              <div className="flex items-center gap-4">
+                <button
+                  disabled={reviewLinkSaving}
+                  onClick={async () => {
+                    setReviewLinkSaving(true);
+                    setReviewLinkStatus("idle");
+                    try {
+                      await updateGoogleReviewLink(reviewLinkForm.trim() || null);
+                      setReviewLinkStatus("saved");
+                    } catch {
+                      setReviewLinkStatus("error");
+                    } finally {
+                      setReviewLinkSaving(false);
+                    }
+                  }}
+                  className="bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white px-6 py-3 rounded-lg font-bold"
+                >
+                  {reviewLinkSaving ? "Saving…" : "Save Review Link"}
+                </button>
+                {reviewLinkStatus === "saved" && <span className="text-emerald-600 text-sm font-bold">Saved!</span>}
+                {reviewLinkStatus === "error" && <span className="text-rose-600 text-sm font-bold">Failed to save.</span>}
+              </div>
+            </div>
+
             {/* Two-Factor Authentication */}
             <div className="p-6 bg-slate-50 border-2 border-slate-200 rounded-2xl">
               <h3 className="text-xl font-bold text-slate-800 mb-1">Two-Factor Authentication</h3>
@@ -3223,7 +3419,9 @@ const AdminDashboard: React.FC = () => {
         const slotStartMinutes = (slot: string) => Number(slot.slice(0, 2)) * 60 + Number(slot.slice(3, 5));
         const bookingsFor = (date: string, slot: string) => {
           const start = slotStartMinutes(slot);
-          return scheduled.filter(({ schedule }) => schedule.date === date && schedule.startMinutes >= start && schedule.startMinutes < start + 120);
+          return scheduled
+            .filter(({ schedule }) => schedule.date === date && schedule.startMinutes >= start && schedule.startMinutes < start + 120)
+            .sort((a, b) => a.schedule.startMinutes - b.schedule.startMinutes);
         };
         // Custom-time bookings can land in the same display row without actually
         // overlapping (e.g. 12:00-13:00 and 13:15-14:00 both show under "12:00"),
@@ -3254,6 +3452,7 @@ const AdminDashboard: React.FC = () => {
           if (status === "confirmed") return "bg-emerald-50 border-emerald-300 text-emerald-800";
           if (status === "cancelled") return "bg-slate-100 border-slate-200 text-slate-400 line-through";
           if (status === "due_for_rebook") return "bg-purple-50 border-purple-200 text-purple-800";
+          if (isOverdueResponse(apt)) return "bg-rose-100 border-rose-400 text-rose-800";
           return "bg-amber-50 border-amber-300 text-amber-800";
         };
 
@@ -3318,6 +3517,7 @@ const AdminDashboard: React.FC = () => {
 
             <div className="flex flex-wrap gap-3 mb-4 text-xs font-bold">
               <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-amber-200 border border-amber-300"></span> Pending request (holds slot)</span>
+              <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-rose-200 border border-rose-400"></span> ⚠ Overdue &gt;24h, no reply</span>
               <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-emerald-200 border border-emerald-300"></span> Confirmed</span>
               <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-blue-200 border border-blue-300"></span> Completed</span>
               <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-red-200 border border-red-300"></span> Closed day</span>
@@ -3373,7 +3573,7 @@ const AdminDashboard: React.FC = () => {
                                 <span className="block break-words whitespace-normal leading-snug">🐕 {apt.dogname}</span>
                                 <span className="block break-words whitespace-normal font-medium opacity-75 leading-snug">
                                   {!isStandardSlot ? `⏰ ${schedule.timeLabel}–${endLabel} · ` : ""}
-                                  {SERVICES.find((s) => s.id === apt.serviceid)?.name?.split(" ")[0] || apt.serviceid}
+                                  {services.find((s) => s.id === apt.serviceid)?.name?.split(" ")[0] || apt.serviceid}
                                   {selectedLocation === ALL_LOCATIONS ? ` · ${LOCATIONS.find((l) => l.id === apt.locationid)?.name?.split(" ")[0] || ""}` : ""}
                                 </span>
                               </button>
@@ -3415,6 +3615,7 @@ const AdminDashboard: React.FC = () => {
           if (intakeFilter !== "all" && customer.intake_status !== intakeFilter) return false;
           if (showOnlyMattingDue && !(customer.matting_required && !customer.matting_signed_at)) return false;
           if (showOnlyDepositOwed && owedRefunds.length === 0) return false;
+          if (showOnlyReviewAsked && !customer.review_link_sent_at) return false;
           if (!search) return true;
           return (
             customer.ownername.toLowerCase().includes(search) ||
@@ -3500,6 +3701,12 @@ const AdminDashboard: React.FC = () => {
               >
                 ⚠️ Deposit Owed ({enriched.filter((c) => c.owedRefunds.length > 0).length})
               </button>
+              <button
+                onClick={() => setShowOnlyReviewAsked((prev) => !prev)}
+                className={`px-4 py-2 rounded-xl text-sm font-bold transition-all ${showOnlyReviewAsked ? "bg-emerald-600 text-white shadow" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}
+              >
+                ⭐ Review Asked ({customersList.filter((c) => c.review_link_sent_at).length})
+              </button>
             </div>
 
             {/* Stats Summary */}
@@ -3528,11 +3735,14 @@ const AdminDashboard: React.FC = () => {
             <div className="space-y-3">
               {filteredCustomers.length === 0 && (
                 <div className="text-center py-12 text-slate-400">
-                  {customerSearch || intakeFilter !== "all" || showOnlyMattingDue || showOnlyDepositOwed ? "No customers found matching your search" : "No customers yet — add one or wait for a web booking to come in"}
+                  {customerSearch || intakeFilter !== "all" || showOnlyMattingDue || showOnlyDepositOwed || showOnlyReviewAsked ? "No customers found matching your search" : "No customers yet — add one or wait for a web booking to come in"}
                 </div>
               )}
 
-              {filteredCustomers.map(({ customer, bookings, dogNames, totalSpent, lastVisit, nextVisit, owedRefunds }) => (
+              {filteredCustomers.map(({ customer, bookings, dogNames, totalSpent, lastVisit, nextVisit, owedRefunds }) => {
+                const hasCompletedBooking = bookings.some((b) => b.booking_status === "completed");
+                const reviewNotSent = hasCompletedBooking && !customer.review_link_sent_at;
+                return (
                 <div
                   key={customer.id}
                   className="p-6 bg-slate-50 hover:bg-slate-100 rounded-2xl border border-slate-200 transition-colors cursor-pointer"
@@ -3570,6 +3780,9 @@ const AdminDashboard: React.FC = () => {
                         <span className="px-3 py-1 bg-emerald-100 text-emerald-700 text-xs font-bold rounded-full">
                           {bookings.length} booking{bookings.length !== 1 ? 's' : ''}
                         </span>
+                        {reviewNotSent && (
+                          <span className="px-3 py-1 bg-amber-100 text-amber-700 text-xs font-bold rounded-full whitespace-nowrap">⭐ Review not asked</span>
+                        )}
                       </div>
                       <div className="text-sm text-slate-600 space-y-1">
                         <div className="flex flex-wrap gap-1.5 items-center">
@@ -3597,10 +3810,35 @@ const AdminDashboard: React.FC = () => {
                           Next: {new Date(nextVisit).toLocaleDateString('en-GB')}
                         </div>
                       )}
+                      {hasCompletedBooking && (
+                        <button
+                          disabled={sendingReviewLinkTo === customer.id}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (!reviewLinkForm) {
+                              alert("Add your Google review link in Settings first.");
+                              return;
+                            }
+                            if (!customer.phone) {
+                              alert("This customer has no phone number on file, so a WhatsApp message can't be sent.");
+                              return;
+                            }
+                            setSendingReviewLinkTo(customer.id);
+                            window.open(buildWhatsAppLink(customer.phone, buildReviewMessage(customer, reviewLinkForm, dogNames)), "_blank");
+                            markReviewLinkSent(customer.id, "whatsapp")
+                              .then(() => refreshCustomers())
+                              .catch((err: any) => alert(err?.message || "Could not update the customer record."))
+                              .finally(() => setSendingReviewLinkTo(null));
+                          }}
+                          className={`mt-2 px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap disabled:opacity-50 ${reviewNotSent ? "bg-amber-500 hover:bg-amber-600 text-white" : "bg-slate-100 hover:bg-slate-200 text-slate-600"}`}
+                        >
+                          {sendingReviewLinkTo === customer.id ? "Opening…" : reviewNotSent ? "⭐ Ask for review" : "⭐ Ask again"}
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>
-              ))}
+              );})}
             </div>
           </div>
         );
@@ -3612,6 +3850,10 @@ const AdminDashboard: React.FC = () => {
         if (!customer) return null;
 
         const customerData = bookingsForCustomer(customer);
+        const todayStr = new Date().toISOString().split("T")[0];
+        const upcomingAppointment = customerData
+          .filter((apt) => apt.status !== "cancelled" && (apt.confirmed_date || apt.date) >= todayStr)
+          .sort((a, b) => (a.confirmed_date || a.date || "").localeCompare(b.confirmed_date || b.date || ""))[0];
         const dogNameSet = new Set<string>((customer.dogs || []).map((d) => d.name));
         customerData.forEach((apt) => apt.dogname && dogNameSet.add(apt.dogname));
         const dogs = Array.from(dogNameSet);
@@ -3695,10 +3937,10 @@ const AdminDashboard: React.FC = () => {
                   {customer.intake_status === "completed" ? "The customer has completed and signed the agreement." : "Send the customer their personal link to fill in the grooming agreement and sign it on their phone."}
                 </p>
                 <div className="flex flex-wrap gap-2">
-                  <button disabled={busy || !customer.phone} title={!customer.phone ? "No phone number on record" : "Opens WhatsApp with the message ready to send (free)"} onClick={() => handleSendIntake(customer, "whatsapp")} className="bg-green-500 hover:bg-green-600 disabled:opacity-40 text-white px-4 py-2 rounded-lg text-sm font-bold">
+                  <button disabled={busy || !customer.phone} title={!customer.phone ? "No phone number on record" : "Opens WhatsApp with the message ready to send (free)"} onClick={() => handleSendIntake(customer, "whatsapp", upcomingAppointment)} className="bg-green-500 hover:bg-green-600 disabled:opacity-40 text-white px-4 py-2 rounded-lg text-sm font-bold">
                     {sendingIntake === "whatsapp" ? "Opening..." : "📱 WhatsApp"}
                   </button>
-                  <button disabled={busy || !customer.phone} title={!customer.phone ? "No phone number on record" : "Sends a text message (~4p)"} onClick={() => handleSendIntake(customer, "sms")} className="bg-blue-500 hover:bg-blue-600 disabled:opacity-40 text-white px-4 py-2 rounded-lg text-sm font-bold">
+                  <button disabled={busy || !customer.phone} title={!customer.phone ? "No phone number on record" : "Sends a text message (~4p)"} onClick={() => handleSendIntake(customer, "sms", upcomingAppointment)} className="bg-blue-500 hover:bg-blue-600 disabled:opacity-40 text-white px-4 py-2 rounded-lg text-sm font-bold">
                     {sendingIntake === "sms" ? "Sending..." : "💬 SMS"}
                   </button>
                   <button disabled={busy || !customer.email} title={!customer.email ? "No email on record" : "Sends an email (free)"} onClick={() => handleSendIntake(customer, "email")} className="bg-slate-600 hover:bg-slate-700 disabled:opacity-40 text-white px-4 py-2 rounded-lg text-sm font-bold">
@@ -3810,7 +4052,7 @@ const AdminDashboard: React.FC = () => {
                   <div className="text-xs font-bold text-purple-600">Dog{dogs.length !== 1 ? 's' : ''}</div>
                 </div>
                 <div className="bg-amber-50 p-4 rounded-xl text-center">
-                  <div className="text-sm font-black text-amber-700">{(preferredService && SERVICES.find(s => s.id === preferredService[0])?.name) || '-'}</div>
+                  <div className="text-sm font-black text-amber-700">{(preferredService && services.find(s => s.id === preferredService[0])?.name) || '-'}</div>
                   <div className="text-xs font-bold text-amber-600">Preferred Service</div>
                 </div>
               </div>
@@ -3908,7 +4150,7 @@ const AdminDashboard: React.FC = () => {
                         <div>
                           <div className="font-bold text-slate-800">{apt.dogname}</div>
                           <div className="text-sm text-slate-600">
-                            {SERVICES.find(s => s.id === apt.serviceid)?.name || apt.serviceid}
+                            {services.find(s => s.id === apt.serviceid)?.name || apt.serviceid}
                           </div>
                           <div className="text-xs text-slate-500 mt-1">
                             {apt.confirmed_date || apt.date} {apt.confirmed_time && `at ${apt.confirmed_time}`}
@@ -4180,7 +4422,15 @@ const AdminDashboard: React.FC = () => {
                 <label className="text-xs font-bold text-slate-500 whitespace-nowrap">Time</label>
                 <input type="time" value={diarySlotTime} onChange={(e) => setDiarySlotTime(e.target.value)} className="px-3 py-2 border rounded-lg text-sm" />
                 <label className="text-xs font-bold text-slate-500 whitespace-nowrap">for</label>
-                <input type="number" min={15} step={15} value={diarySlotDuration} onChange={(e) => setDiarySlotDuration(Math.max(15, Number(e.target.value) || 120))} className="px-3 py-2 border rounded-lg text-sm w-20" />
+                <div className="flex items-center gap-1">
+                  <button type="button" onClick={() => setDiarySlotDuration((d) => Math.max(15, d - 15))} className="w-9 h-9 flex items-center justify-center border rounded-lg font-black text-slate-600 hover:bg-slate-100 active:bg-slate-200">
+                    −
+                  </button>
+                  <input type="number" min={15} step={15} value={diarySlotDuration} onChange={(e) => setDiarySlotDuration(Math.max(15, Number(e.target.value) || 120))} className="px-2 py-2 border rounded-lg text-sm w-14 text-center" />
+                  <button type="button" onClick={() => setDiarySlotDuration((d) => d + 15)} className="w-9 h-9 flex items-center justify-center border rounded-lg font-black text-slate-600 hover:bg-slate-100 active:bg-slate-200">
+                    +
+                  </button>
+                </div>
                 <label className="text-xs font-bold text-slate-500 whitespace-nowrap">mins</label>
               </div>
 
@@ -4231,7 +4481,7 @@ const AdminDashboard: React.FC = () => {
                 <input value={diarySlotForm.phone} onChange={(e) => setDiarySlotForm({ ...diarySlotForm, phone: e.target.value })} placeholder="Phone" className="px-4 py-3 border rounded-lg" />
                 <input value={diarySlotForm.dogbreed} onChange={(e) => setDiarySlotForm({ ...diarySlotForm, dogbreed: e.target.value })} placeholder="Dog breed" className="px-4 py-3 border rounded-lg" />
                 <select value={diarySlotForm.serviceid} onChange={(e) => setDiarySlotForm({ ...diarySlotForm, serviceid: e.target.value })} className="px-4 py-3 border rounded-lg">
-                  {SERVICES.map((service) => (
+                  {services.map((service) => (
                     <option key={service.id} value={service.id}>
                       {service.name}
                     </option>
@@ -4394,7 +4644,7 @@ const AdminDashboard: React.FC = () => {
               <input value={addForm.phone} onChange={(e) => setAddForm({ ...addForm, phone: e.target.value })} placeholder="Phone" className="px-4 py-3 border rounded-lg" />
               <input value={addForm.dogbreed} onChange={(e) => setAddForm({ ...addForm, dogbreed: e.target.value })} placeholder="Dog breed" className="px-4 py-3 border rounded-lg" />
               <select value={addForm.serviceid} onChange={(e) => setAddForm({ ...addForm, serviceid: e.target.value })} className="px-4 py-3 border rounded-lg">
-                {SERVICES.map((service) => (
+                {services.map((service) => (
                   <option key={service.id} value={service.id}>
                     {service.name}
                   </option>
@@ -4420,14 +4670,22 @@ const AdminDashboard: React.FC = () => {
                 <label className="text-xs font-bold text-slate-500 whitespace-nowrap">Or exact time</label>
                 <input type="time" value={addForm.confirmed_time} onChange={(e) => setAddForm({ ...addForm, confirmed_time: e.target.value })} className="px-4 py-3 border rounded-lg" />
                 <label className="text-xs font-bold text-slate-500 whitespace-nowrap">for</label>
-                <input
-                  type="number"
-                  min={15}
-                  step={15}
-                  value={addForm.confirmed_duration_minutes}
-                  onChange={(e) => setAddForm({ ...addForm, confirmed_duration_minutes: Math.max(15, Number(e.target.value) || 120) })}
-                  className="px-4 py-3 border rounded-lg w-24"
-                />
+                <div className="flex items-center gap-1">
+                  <button type="button" onClick={() => setAddForm({ ...addForm, confirmed_duration_minutes: Math.max(15, (Number(addForm.confirmed_duration_minutes) || 120) - 15) })} className="w-10 h-11 flex items-center justify-center border rounded-lg font-black text-slate-600 hover:bg-slate-100 active:bg-slate-200">
+                    −
+                  </button>
+                  <input
+                    type="number"
+                    min={15}
+                    step={15}
+                    value={addForm.confirmed_duration_minutes}
+                    onChange={(e) => setAddForm({ ...addForm, confirmed_duration_minutes: Math.max(15, Number(e.target.value) || 120) })}
+                    className="px-2 py-3 border rounded-lg w-16 text-center"
+                  />
+                  <button type="button" onClick={() => setAddForm({ ...addForm, confirmed_duration_minutes: (Number(addForm.confirmed_duration_minutes) || 120) + 15 })} className="w-10 h-11 flex items-center justify-center border rounded-lg font-black text-slate-600 hover:bg-slate-100 active:bg-slate-200">
+                    +
+                  </button>
+                </div>
                 <label className="text-xs font-bold text-slate-500 whitespace-nowrap">mins</label>
                 {(() => {
                   const weeksAgo = getLastBookingWeeksAgo(addForm.email, addForm.phone);
