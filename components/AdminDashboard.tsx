@@ -1,12 +1,12 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { addBookingPhoto, BookingPhoto, buildCancellationMessage, buildConfirmationMessage, buildRebookNudgeMessage, checkAuthStatus, confirmAppointmentBooking, createManualAppointment, deleteAppointment, deleteBookingPhoto, enrollMfaTotp, exportAppointmentsToExcel, findBookingClash, getAppointments, getAvailableSlotTimes, getBookingPhotos, getBookingRevenue, getCurrentUser, getEffectiveSchedule, getMfaAssuranceLevel, getReminderSettings, getServiceBasePrice, getUnavailableDays, getUnavailableWeekdays, listMfaFactors, removeUnavailableDay, removeUnavailableWeekday, saveUnavailableDay, saveUnavailableWeekday, sendCustomEmail, sendCustomerCancellationSms, sendCustomerConfirmationSms, signInAdmin, signOutAdmin, unenrollMfaFactor, updateAppointment, updateReminderSettings, getHolidaySettings, updateHolidaySettings, updateAdvertSettings, updateWeekendBookingsEnabled, updateGoogleReviewLink, verifyMfaCode, getDogNotes, getAllDogNotes, upsertDogNote } from "../services/bookingService";
+import { addBookingPhoto, BookingPhoto, buildCancellationMessage, buildConfirmationMessage, buildRebookNudgeMessage, checkAuthStatus, confirmAppointmentBooking, createManualAppointment, deleteAppointment, deleteBookingPhoto, enrollMfaTotp, exportAppointmentsToExcel, findBookingClash, getAppointments, getAvailableSlotTimes, getBookingPhotos, getBookingRevenue, getCurrentUser, getEffectiveSchedule, getMfaAssuranceLevel, getReminderSettings, getServiceBasePrice, getUnavailableDays, getUnavailableDayEntries, getUnavailableWeekdays, getUnavailableWeekdayEntries, listMfaFactors, removeUnavailableEntry, saveUnavailableDay, saveUnavailableWeekday, sendCustomEmail, sendCustomerCancellationSms, sendCustomerConfirmationSms, signInAdmin, signOutAdmin, unenrollMfaFactor, updateAppointment, updateReminderSettings, getHolidaySettings, updateHolidaySettings, updateAdvertSettings, updateWeekendBookingsEnabled, updateGoogleReviewLink, verifyMfaCode, getDogNotes, getAllDogNotes, upsertDogNote, UnavailabilityEntry } from "../services/bookingService";
 import { buildIntakeLink, buildIntakeMessage, buildReviewMessage, buildWhatsAppLink, createCustomer, deleteCustomer, deleteDog, ensureIntakeToken, getCustomers, getDeletedCustomers, markIntakeSent, markReviewLinkSent, permanentlyDeleteCustomer, restoreCustomer, saveDog, sendIntakeEmail, sendIntakeSms, updateCustomer } from "../services/customerService";
 import { Appointment, Customer, Dog, IntakeStatus, Service } from "../types";
-import { INTAKE_TERMS, LOCATIONS, MATTING_BULLETS, MATTING_CLOSING, MATTING_TERMS, SERVICES, SLOT_TIMES } from "../constants";
+import { ALL_LOCATIONS, INTAKE_TERMS, LOCATIONS, MATTING_BULLETS, MATTING_CLOSING, MATTING_TERMS, SERVICES, SLOT_TIMES } from "../constants";
 import { createServiceCatalogEntry, deleteServiceCatalogEntry, getServiceCatalog, updateServiceCatalogEntry, uploadServicePhoto } from "../services/serviceCatalogService";
+import { RoundTimePicker } from "./RoundTimePicker";
 
 const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-const ALL_LOCATIONS = "__all__";
 const EMAIL_CUSTOMER_REPLY_TO = "hello@dirtydawggrooming.co.uk";
 
 const getMonday = (source: Date) => {
@@ -60,6 +60,10 @@ const AdminDashboard: React.FC = () => {
   const [dbStatus, setDbStatus] = useState<"connecting" | "connected" | "error">("connecting");
   const [unavailableDays, setUnavailableDays] = useState<string[]>([]);
   const [unavailableWeekdays, setUnavailableWeekdays] = useState<number[]>([]);
+  const [unavailableDayEntries, setUnavailableDayEntries] = useState<UnavailabilityEntry[]>([]);
+  const [unavailableWeekdayEntries, setUnavailableWeekdayEntries] = useState<UnavailabilityEntry[]>([]);
+  const [newDateLocationScope, setNewDateLocationScope] = useState<string>("");
+  const [recurringLocationScope, setRecurringLocationScope] = useState<string>("");
   const [services, setServices] = useState<Service[]>(SERVICES);
   const [editingService, setEditingService] = useState<Service | null>(null);
   const [newService, setNewService] = useState<Partial<Service>>({});
@@ -458,10 +462,12 @@ const AdminDashboard: React.FC = () => {
   const loadData = async () => {
     setIsLoading(true);
     try {
-      const [apps, unavail, unavailWeekdays, remSettings, holSettings, custs, serviceCatalog] = await Promise.all([
+      const [apps, unavail, unavailWeekdays, dayEntries, weekdayEntries, remSettings, holSettings, custs, serviceCatalog] = await Promise.all([
         getAppointments(),
         getUnavailableDays(selectedLocation),
-        getUnavailableWeekdays(),
+        getUnavailableWeekdays(selectedLocation),
+        getUnavailableDayEntries(),
+        getUnavailableWeekdayEntries(),
         getReminderSettings().catch(() => null),
         getHolidaySettings().catch(() => null),
         getCustomers().catch(() => [] as Customer[]),
@@ -472,6 +478,8 @@ const AdminDashboard: React.FC = () => {
       setServices(serviceCatalog);
       setUnavailableDays(unavail);
       setUnavailableWeekdays(unavailWeekdays);
+      setUnavailableDayEntries(dayEntries);
+      setUnavailableWeekdayEntries(weekdayEntries);
       if (remSettings) {
         setReminderSettings(remSettings);
       }
@@ -2331,22 +2339,38 @@ const AdminDashboard: React.FC = () => {
         </div>
       )}
 
-      {view === "unavailable" && (
+      {view === "unavailable" && (() => {
+        const locationLabel = (id: string | null) => (id ? LOCATIONS.find((l) => l.id === id)?.name || id : "Both Locations");
+        const sortedDayEntries = [...unavailableDayEntries].sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+        const weekdayLabelFor = (idx: number) => {
+          const entries = unavailableWeekdayEntries.filter((e) => e.day_of_week === idx);
+          if (entries.length === 0) return null;
+          return entries.map((e) => locationLabel(e.locationid)).join(", ");
+        };
+        return (
         <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-8">
           <h2 className="text-2xl font-black mb-6 text-slate-800">Closed Dates</h2>
           <p className="text-slate-600 mb-8">Mark specific dates as unavailable. Customers won't be able to book on these dates.</p>
 
           <div className="mb-8">
             <label className="block text-sm font-bold text-slate-700 mb-3">Add a Closed Date</label>
-            <div className="flex gap-4">
-              <input type="date" id="newDate" className="flex-1 px-6 py-3 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-teal-500" />
-              <input type="text" placeholder="Reason (e.g., Holiday, Renovation)" id="newReason" className="flex-1 px-6 py-3 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-teal-500" />
+            <div className="flex flex-wrap gap-4">
+              <input type="date" id="newDate" className="flex-1 min-w-[160px] px-6 py-3 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-teal-500" />
+              <input type="text" placeholder="Reason (e.g., Holiday, Renovation)" id="newReason" className="flex-1 min-w-[200px] px-6 py-3 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-teal-500" />
+              <select value={newDateLocationScope} onChange={(e) => setNewDateLocationScope(e.target.value)} className="px-6 py-3 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-teal-500 font-bold">
+                <option value="">Both Locations</option>
+                {LOCATIONS.map((l) => (
+                  <option key={l.id} value={l.id}>
+                    {l.name}
+                  </option>
+                ))}
+              </select>
               <button
                 onClick={() => {
                   const dateInput = document.getElementById("newDate") as HTMLInputElement;
                   const reasonInput = document.getElementById("newReason") as HTMLInputElement;
                   if (dateInput.value) {
-                    saveUnavailableDay(dateInput.value, reasonInput.value).then(() => {
+                    saveUnavailableDay(dateInput.value, reasonInput.value, newDateLocationScope || null).then(() => {
                       loadData();
                       dateInput.value = "";
                       reasonInput.value = "";
@@ -2362,12 +2386,15 @@ const AdminDashboard: React.FC = () => {
 
           <div>
             <h3 className="text-lg font-bold text-slate-800 mb-4">Unavailable Dates</h3>
-            {unavailableDays.length > 0 ? (
+            {sortedDayEntries.length > 0 ? (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {unavailableDays.map((date) => (
-                  <div key={date} className="bg-rose-50 border border-rose-200 p-4 rounded-lg flex justify-between items-center">
-                    <span className="font-bold text-slate-800">{date}</span>
-                    <button onClick={() => removeUnavailableDay(date).then(() => loadData())} className="text-rose-600 hover:text-rose-700 font-bold">
+                {sortedDayEntries.map((entry) => (
+                  <div key={entry.id} className="bg-rose-50 border border-rose-200 p-4 rounded-lg flex justify-between items-center">
+                    <span>
+                      <span className="font-bold text-slate-800">{entry.date}</span>
+                      <span className="block text-xs text-rose-600 font-bold">{locationLabel(entry.locationid)}</span>
+                    </span>
+                    <button onClick={() => removeUnavailableEntry(entry.id).then(() => loadData())} className="text-rose-600 hover:text-rose-700 font-bold">
                       Remove
                     </button>
                   </div>
@@ -2380,33 +2407,49 @@ const AdminDashboard: React.FC = () => {
 
           <div className="border-t pt-8 mt-8">
             <h3 className="text-lg font-bold text-slate-800 mb-4">Recurring Unavailable Days</h3>
-            <p className="text-slate-600 mb-6">Select days of the week that are permanently closed</p>
+            <p className="text-slate-600 mb-4">Select days of the week that are permanently closed. Choose which location this applies to before toggling a day.</p>
+            <div className="mb-6">
+              <select value={recurringLocationScope} onChange={(e) => setRecurringLocationScope(e.target.value)} className="px-6 py-3 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-teal-500 font-bold">
+                <option value="">Both Locations</option>
+                {LOCATIONS.map((l) => (
+                  <option key={l.id} value={l.id}>
+                    {l.name}
+                  </option>
+                ))}
+              </select>
+            </div>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-              {DAYS.map((day, idx) => (
-                <button
-                  key={idx}
-                  onClick={async () => {
-                    try {
-                      if (unavailableWeekdays.includes(idx)) {
-                        await removeUnavailableWeekday(idx);
-                      } else {
-                        await saveUnavailableWeekday(idx, "Closed on " + day);
+              {DAYS.map((day, idx) => {
+                const matchingEntry = unavailableWeekdayEntries.find((e) => e.day_of_week === idx && (e.locationid || "") === recurringLocationScope);
+                const closedLabel = weekdayLabelFor(idx);
+                return (
+                  <button
+                    key={idx}
+                    onClick={async () => {
+                      try {
+                        if (matchingEntry) {
+                          await removeUnavailableEntry(matchingEntry.id);
+                        } else {
+                          await saveUnavailableWeekday(idx, "Closed on " + day, recurringLocationScope || null);
+                        }
+                        await loadData();
+                      } catch (err) {
+                        console.error("Error:", err);
+                        alert("Error saving. Please try again.");
                       }
-                      await loadData();
-                    } catch (err) {
-                      console.error("Error:", err);
-                      alert("Error saving. Please try again.");
-                    }
-                  }}
-                  className={`p-4 rounded-lg font-bold text-sm transition-all border-2 ${unavailableWeekdays.includes(idx) ? "bg-rose-100 border-rose-500 text-rose-700" : "bg-slate-50 border-slate-200 text-slate-600 hover:border-slate-300"}`}
-                >
-                  {day}
-                </button>
-              ))}
+                    }}
+                    className={`p-4 rounded-lg font-bold text-sm transition-all border-2 ${matchingEntry ? "bg-rose-100 border-rose-500 text-rose-700" : "bg-slate-50 border-slate-200 text-slate-600 hover:border-slate-300"}`}
+                  >
+                    {day}
+                    {closedLabel && <span className="block text-[10px] font-bold opacity-70 mt-1">Closed: {closedLabel}</span>}
+                  </button>
+                );
+              })}
             </div>
           </div>
         </div>
-      )}
+        );
+      })()}
 
       {view === "services" && (
         <div ref={serviceEditSectionRef} className="bg-white rounded-3xl shadow-sm border border-slate-100 p-8">
@@ -2659,7 +2702,7 @@ const AdminDashboard: React.FC = () => {
               </select>
               <div className="flex items-center gap-2 md:col-span-2">
                 <label className="text-xs font-bold text-slate-500 whitespace-nowrap">Or exact time</label>
-                <input type="time" value={editForm.confirmed_time} onChange={(e) => setEditForm({ ...editForm, confirmed_time: e.target.value })} className="px-4 py-3 border rounded-lg" />
+                <RoundTimePicker value={editForm.confirmed_time} onChange={(v) => setEditForm({ ...editForm, confirmed_time: v })} />
                 <label className="text-xs font-bold text-slate-500 whitespace-nowrap">for</label>
                 <div className="flex items-center gap-1">
                   <button type="button" onClick={() => setEditForm({ ...editForm, confirmed_duration_minutes: Math.max(15, (Number(editForm.confirmed_duration_minutes) || 120) - 15) })} className="w-10 h-11 flex items-center justify-center border rounded-lg font-black text-slate-600 hover:bg-slate-100 active:bg-slate-200">
@@ -3035,12 +3078,7 @@ const AdminDashboard: React.FC = () => {
                 </label>
                 <div>
                   <label className="block text-sm font-bold text-slate-700 mb-2">Send Time (24-hour format)</label>
-                  <input
-                    type="time"
-                    value={reminderSettings.next_day_time}
-                    onChange={(e) => setReminderSettings({ ...reminderSettings, next_day_time: e.target.value })}
-                    className="px-4 py-2 border rounded-lg"
-                  />
+                  <RoundTimePicker value={reminderSettings.next_day_time} onChange={(v) => setReminderSettings({ ...reminderSettings, next_day_time: v })} />
                   <p className="text-xs text-slate-500 mt-1">Currently set to {reminderSettings.next_day_time}</p>
                 </div>
               </div>
@@ -4420,7 +4458,7 @@ const AdminDashboard: React.FC = () => {
               </div>
               <div className="flex items-center gap-2 mb-4">
                 <label className="text-xs font-bold text-slate-500 whitespace-nowrap">Time</label>
-                <input type="time" value={diarySlotTime} onChange={(e) => setDiarySlotTime(e.target.value)} className="px-3 py-2 border rounded-lg text-sm" />
+                <RoundTimePicker value={diarySlotTime} onChange={setDiarySlotTime} />
                 <label className="text-xs font-bold text-slate-500 whitespace-nowrap">for</label>
                 <div className="flex items-center gap-1">
                   <button type="button" onClick={() => setDiarySlotDuration((d) => Math.max(15, d - 15))} className="w-9 h-9 flex items-center justify-center border rounded-lg font-black text-slate-600 hover:bg-slate-100 active:bg-slate-200">
@@ -4668,7 +4706,7 @@ const AdminDashboard: React.FC = () => {
               </select>
               <div className="flex items-center gap-2 md:col-span-2 flex-wrap">
                 <label className="text-xs font-bold text-slate-500 whitespace-nowrap">Or exact time</label>
-                <input type="time" value={addForm.confirmed_time} onChange={(e) => setAddForm({ ...addForm, confirmed_time: e.target.value })} className="px-4 py-3 border rounded-lg" />
+                <RoundTimePicker value={addForm.confirmed_time} onChange={(v) => setAddForm({ ...addForm, confirmed_time: v })} />
                 <label className="text-xs font-bold text-slate-500 whitespace-nowrap">for</label>
                 <div className="flex items-center gap-1">
                   <button type="button" onClick={() => setAddForm({ ...addForm, confirmed_duration_minutes: Math.max(15, (Number(addForm.confirmed_duration_minutes) || 120) - 15) })} className="w-10 h-11 flex items-center justify-center border rounded-lg font-black text-slate-600 hover:bg-slate-100 active:bg-slate-200">

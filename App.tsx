@@ -180,7 +180,7 @@ const App: React.FC = () => {
   useEffect(() => {
     if (bookingStep === 2) {
       import("./services/bookingService").then(({ getUnavailableDays, getUnavailableWeekdays }) => {
-        Promise.all([getUnavailableDays(formData.locationid || ""), getUnavailableWeekdays()]).then(([dates, weekdays]) => {
+        Promise.all([getUnavailableDays(formData.locationid || ""), getUnavailableWeekdays(formData.locationid || "")]).then(([dates, weekdays]) => {
           // Combine specific dates and recurring weekdays into one list for this month.
           // Today is never bookable (minimum notice = tomorrow from midday onwards).
           const today = new Date();
@@ -695,6 +695,16 @@ Message: ${enquiryData.message}
 
                 {bookingStep === 1 && (
                   <div className="space-y-8 animate-fade-in">
+                    <div>
+                      <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-3">Select Salon</label>
+                      <select value={formData.locationid} onChange={(e) => setFormData({ ...formData, locationid: e.target.value })} disabled={isHomeGroom} className={`w-full px-6 py-4 border border-slate-200 rounded-2xl outline-none transition-all font-bold ${isHomeGroom ? "bg-slate-100 text-slate-400 cursor-not-allowed" : "bg-slate-50 focus:ring-2 focus:ring-emerald-500"}`}>
+                        {LOCATIONS.map((l) => (
+                          <option key={l.id} value={l.id}>
+                            {l.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-8">
                       <div>
                         <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-3">Dog's Name</label>
@@ -711,16 +721,6 @@ Message: ${enquiryData.message}
                         {services.map((s) => (
                           <option key={s.id} value={s.id}>
                             {s.name} ({s.price})
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-3">Select Salon</label>
-                      <select value={formData.locationid} onChange={(e) => setFormData({ ...formData, locationid: e.target.value })} disabled={isHomeGroom} className={`w-full px-6 py-4 border border-slate-200 rounded-2xl outline-none transition-all font-bold ${isHomeGroom ? "bg-slate-100 text-slate-400 cursor-not-allowed" : "bg-slate-50 focus:ring-2 focus:ring-emerald-500"}`}>
-                        {LOCATIONS.map((l) => (
-                          <option key={l.id} value={l.id}>
-                            {l.name}
                           </option>
                         ))}
                       </select>

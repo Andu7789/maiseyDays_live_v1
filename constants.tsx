@@ -104,6 +104,8 @@ export const SERVICES: Service[] = [
   },
 ];
 
+export const ALL_LOCATIONS = "__all__";
+
 export const LOCATIONS: Location[] = [
   {
     id: "caister",

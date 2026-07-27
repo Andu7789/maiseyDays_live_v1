@@ -1,6 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { Appointment, AvailabilitySlot, WeeklyTemplate } from "../types";
-import { EMAIL_ENDPOINT, LOCATIONS, SERVICES, SUPABASE_URL, SUPABASE_ANON_KEY, STANDARD_HOURS, SLOT_TIMES, SLOT_DURATION_MINUTES, BOOKABLE_WEEKDAYS } from "../constants";
+import { ALL_LOCATIONS, EMAIL_ENDPOINT, LOCATIONS, SERVICES, SUPABASE_URL, SUPABASE_ANON_KEY, STANDARD_HOURS, SLOT_TIMES, SLOT_DURATION_MINUTES, BOOKABLE_WEEKDAYS } from "../constants";
 import { getServiceNameSync } from "./serviceCatalogService";
 
 // Validation for the user's convenience
@@ -732,17 +732,27 @@ export const sendCustomEmail = async (to: string, name: string, subject: string,
   }
 };
 
-export const getUnavailableDays = async (locationId: string): Promise<string[]> => {
+// A row's locationid of null means "both locations". Matching rules:
+//  - locationId === ALL_LOCATIONS: every row counts, regardless of location (admin viewing "All Locations")
+//  - locationId is a specific id: rows for that location, plus "both locations" rows
+//  - locationId is falsy (not passed): only "both locations" rows — a conservative default for
+//    general/site-wide use (e.g. the footer's open-days text) that isn't tied to one booking's location
+const matchesLocationScope = (rowLocationId: string | null, locationId?: string) => {
+  if (locationId === ALL_LOCATIONS) return true;
+  if (!locationId) return rowLocationId === null;
+  return rowLocationId === null || rowLocationId === locationId;
+};
+
+export const getUnavailableDays = async (locationId?: string): Promise<string[]> => {
   try {
-    const { data, error } = await supabase.from("availabilities").select("date, day_of_week").eq("isAvailable", false);
+    const { data, error } = await supabase.from("availabilities").select("date, day_of_week, locationid").eq("isAvailable", false);
 
     if (error) {
       console.error("Error fetching unavailable dates:", error);
       return [];
     }
 
-    const dates = data?.filter((d) => d.date !== null && d.day_of_week === null).map((d) => d.date) || [];
-    console.log("Unavailable dates:", dates);
+    const dates = (data || []).filter((d) => d.date !== null && d.day_of_week === null && matchesLocationScope(d.locationid, locationId)).map((d) => d.date);
     return dates;
   } catch (err) {
     console.error("Error in getUnavailableDays:", err);
@@ -750,17 +760,16 @@ export const getUnavailableDays = async (locationId: string): Promise<string[]> 
   }
 };
 
-export const getUnavailableWeekdays = async (): Promise<number[]> => {
+export const getUnavailableWeekdays = async (locationId?: string): Promise<number[]> => {
   try {
-    const { data, error } = await supabase.from("availabilities").select("day_of_week, date").eq("isAvailable", false);
+    const { data, error } = await supabase.from("availabilities").select("day_of_week, date, locationid").eq("isAvailable", false);
 
     if (error) {
       console.error("Error fetching unavailable weekdays:", error);
       return [];
     }
 
-    const weekdays = data?.filter((d) => d.day_of_week !== null && d.date === null).map((d) => d.day_of_week) || [];
-    console.log("Unavailable weekdays:", weekdays);
+    const weekdays = (data || []).filter((d) => d.day_of_week !== null && d.date === null && matchesLocationScope(d.locationid, locationId)).map((d) => d.day_of_week);
     return weekdays;
   } catch (err) {
     console.error("Error in getUnavailableWeekdays:", err);
@@ -768,34 +777,58 @@ export const getUnavailableWeekdays = async (): Promise<number[]> => {
   }
 };
 
-export const saveUnavailableDay = async (date: string, reason: string) => {
-  try {
-    console.log("Saving unavailable date:", date, reason);
-    const { data, error } = await supabase.from("availabilities").insert([{ date, isAvailable: false, reason }]);
+export interface UnavailabilityEntry {
+  id: string;
+  date: string | null;
+  day_of_week: number | null;
+  locationid: string | null;
+  reason: string;
+}
 
+/** Every individual closed date, unfiltered — for the admin Closed Dates management list. */
+export const getUnavailableDayEntries = async (): Promise<UnavailabilityEntry[]> => {
+  const { data, error } = await supabase.from("availabilities").select("id, date, day_of_week, locationid, reason").eq("isAvailable", false).not("date", "is", null);
+  if (error) {
+    console.error("Error fetching unavailable day entries:", error);
+    return [];
+  }
+  return data || [];
+};
+
+/** Every recurring weekday closure, unfiltered — for the admin Closed Dates management list. */
+export const getUnavailableWeekdayEntries = async (): Promise<UnavailabilityEntry[]> => {
+  const { data, error } = await supabase.from("availabilities").select("id, date, day_of_week, locationid, reason").eq("isAvailable", false).not("day_of_week", "is", null);
+  if (error) {
+    console.error("Error fetching unavailable weekday entries:", error);
+    return [];
+  }
+  return data || [];
+};
+
+/** locationId null/omitted = closes it for both locations. */
+export const saveUnavailableDay = async (date: string, reason: string, locationId?: string | null) => {
+  try {
+    const { error } = await supabase.from("availabilities").insert([{ date, isAvailable: false, reason, locationid: locationId || null }]);
     if (error) {
       console.error("Error saving unavailable day:", error);
       throw error;
     }
-    console.log("Successfully saved unavailable date");
   } catch (err) {
     console.error("Catch error in saveUnavailableDay:", err);
     throw err;
   }
 };
 
-export const removeUnavailableDay = async (date: string) => {
+/** Removes a single closed-date or recurring-weekday row by its own id (shared table, so one remove works for both). */
+export const removeUnavailableEntry = async (id: string) => {
   try {
-    console.log("Removing unavailable date:", date);
-    const { error } = await supabase.from("availabilities").delete().eq("date", date);
-
+    const { error } = await supabase.from("availabilities").delete().eq("id", id);
     if (error) {
-      console.error("Error removing unavailable day:", error);
+      console.error("Error removing unavailability entry:", error);
       throw error;
     }
-    console.log("Successfully removed unavailable date");
   } catch (err) {
-    console.error("Catch error in removeUnavailableDay:", err);
+    console.error("Catch error in removeUnavailableEntry:", err);
     throw err;
   }
 };
@@ -828,38 +861,22 @@ export const saveUnavailableDateRange = async (startDate: string, endDate: strin
   }
 };
 
-export const saveUnavailableWeekday = async (dayOfWeek: number, reason: string) => {
+/** locationId null/omitted = closes it for both locations. Only replaces an existing entry for the same day + same location scope, leaving other locations' closures for that weekday untouched. */
+export const saveUnavailableWeekday = async (dayOfWeek: number, reason: string, locationId?: string | null) => {
   try {
-    console.log("Saving unavailable weekday:", dayOfWeek, reason);
-    // First delete any existing record for this day of week
-    await supabase.from("availabilities").delete().eq("day_of_week", dayOfWeek);
+    let deleteQuery = supabase.from("availabilities").delete().eq("day_of_week", dayOfWeek);
+    deleteQuery = locationId ? deleteQuery.eq("locationid", locationId) : deleteQuery.is("locationid", null);
+    await deleteQuery;
 
-    // Then insert the new record - omit date field entirely so it stays null
-    const { data, error } = await supabase.from("availabilities").insert([{ day_of_week: dayOfWeek, isAvailable: false, reason }]);
+    // Omit date field entirely so it stays null
+    const { error } = await supabase.from("availabilities").insert([{ day_of_week: dayOfWeek, isAvailable: false, reason, locationid: locationId || null }]);
 
     if (error) {
       console.error("Error saving unavailable weekday:", error);
       throw error;
     }
-    console.log("Successfully saved unavailable weekday");
   } catch (err) {
     console.error("Catch error in saveUnavailableWeekday:", err);
-    throw err;
-  }
-};
-
-export const removeUnavailableWeekday = async (dayOfWeek: number) => {
-  try {
-    console.log("Removing unavailable weekday:", dayOfWeek);
-    const { error } = await supabase.from("availabilities").delete().eq("day_of_week", dayOfWeek);
-
-    if (error) {
-      console.error("Error removing unavailable weekday:", error);
-      throw error;
-    }
-    console.log("Successfully removed unavailable weekday");
-  } catch (err) {
-    console.error("Catch error in removeUnavailableWeekday:", err);
     throw err;
   }
 };
@@ -1025,7 +1042,7 @@ export const isDateAvailable = async (locationId: string, date: string): Promise
     const dateObj = new Date(year, month - 1, day);
     const dayOfWeek = dateObj.getDay();
 
-    const unavailableWeekdays = await getUnavailableWeekdays();
+    const unavailableWeekdays = await getUnavailableWeekdays(locationId);
     if (unavailableWeekdays.includes(dayOfWeek)) return false;
 
     return true;
