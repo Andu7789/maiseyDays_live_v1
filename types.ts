@@ -125,6 +125,33 @@ export interface Appointment {
   rebook_closed_at?: string | null;
 }
 
+export type PlatformStatus = "pending" | "posted" | "failed" | "skipped" | "not_implemented";
+
+export interface StarPost {
+  id: string;
+  before_photo_url: string;
+  after_photo_url: string;
+  one_liner: string;
+  dog_name: string;
+  breed: string;
+  area: string;
+  hashtags: string[];
+  facebook_status: PlatformStatus;
+  facebook_error?: string | null;
+  facebook_posted_at?: string | null;
+  instagram_status: PlatformStatus;
+  instagram_error?: string | null;
+  instagram_posted_at?: string | null;
+  instagram_reels_status: PlatformStatus;
+  instagram_reels_error?: string | null;
+  instagram_reels_posted_at?: string | null;
+  google_business_status: PlatformStatus;
+  google_business_error?: string | null;
+  google_business_posted_at?: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
 export interface AvailabilitySlot {
   locationId: string;
   date: string;

@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { addBookingPhoto, BookingPhoto, buildCancellationMessage, buildConfirmationMessage, buildRebookNudgeMessage, checkAuthStatus, confirmAppointmentBooking, createManualAppointment, deleteAppointment, deleteBookingPhoto, enrollMfaTotp, exportAppointmentsToExcel, findBookingClash, getAppointments, getAvailableSlotTimes, getBookingPhotos, getBookingRevenue, getCurrentUser, getEffectiveSchedule, getMfaAssuranceLevel, getReminderSettings, getServiceBasePrice, getUnavailableDays, getUnavailableDayEntries, getUnavailableWeekdays, getUnavailableWeekdayEntries, listMfaFactors, removeUnavailableEntry, saveUnavailableDay, saveUnavailableWeekday, sendCustomEmail, sendCustomerCancellationSms, sendCustomerConfirmationSms, signInAdmin, signOutAdmin, unenrollMfaFactor, updateAppointment, updateReminderSettings, getHolidaySettings, updateHolidaySettings, updateAdvertSettings, updateWeekendBookingsEnabled, updateGoogleReviewLink, verifyMfaCode, getDogNotes, getAllDogNotes, upsertDogNote, UnavailabilityEntry } from "../services/bookingService";
 import { buildIntakeLink, buildIntakeMessage, buildReviewMessage, buildWhatsAppLink, createCustomer, deleteCustomer, deleteDog, ensureIntakeToken, getCustomers, getDeletedCustomers, markIntakeSent, markReviewLinkSent, permanentlyDeleteCustomer, restoreCustomer, saveDog, sendIntakeEmail, sendIntakeSms, updateCustomer } from "../services/customerService";
-import { Appointment, Customer, Dog, IntakeStatus, Service } from "../types";
+import { Appointment, Customer, Dog, IntakeStatus, Service, StarPost } from "../types";
 import { ALL_LOCATIONS, INTAKE_TERMS, LOCATIONS, MATTING_BULLETS, MATTING_CLOSING, MATTING_TERMS, SERVICES, SLOT_TIMES } from "../constants";
 import { createServiceCatalogEntry, deleteServiceCatalogEntry, getServiceCatalog, updateServiceCatalogEntry, uploadServicePhoto } from "../services/serviceCatalogService";
+import { createStarPost, deleteStarPost, getStarPosts, publishStarPost, uploadStarPhoto } from "../services/starPostService";
 import { RoundTimePicker } from "./RoundTimePicker";
 
 const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
@@ -54,7 +55,7 @@ const AdminDashboard: React.FC = () => {
   const [mfaEnrollError, setMfaEnrollError] = useState("");
   const [mfaBusy, setMfaBusy] = useState(false);
   const [appointments, setAppointments] = useState<Appointment[]>([]);
-  const [view, setView] = useState<"dashboard" | "bookings" | "diary" | "unavailable" | "services" | "settings" | "customers">("dashboard");
+  const [view, setView] = useState<"dashboard" | "bookings" | "diary" | "unavailable" | "services" | "settings" | "customers" | "stars">("dashboard");
   const [selectedLocation, setSelectedLocation] = useState(ALL_LOCATIONS);
   const [isLoading, setIsLoading] = useState(true);
   const [dbStatus, setDbStatus] = useState<"connecting" | "connected" | "error">("connecting");
@@ -67,6 +68,12 @@ const AdminDashboard: React.FC = () => {
   const [services, setServices] = useState<Service[]>(SERVICES);
   const [editingService, setEditingService] = useState<Service | null>(null);
   const [newService, setNewService] = useState<Partial<Service>>({});
+  const [starPosts, setStarPosts] = useState<StarPost[]>([]);
+  const [newStarPost, setNewStarPost] = useState<{ one_liner: string; dog_name: string; breed: string; area: string; before_photo_url: string; after_photo_url: string }>({ one_liner: "", dog_name: "", breed: "", area: "", before_photo_url: "", after_photo_url: "" });
+  const [uploadingStarPhoto, setUploadingStarPhoto] = useState<"before" | "after" | null>(null);
+  const [starPostSaving, setStarPostSaving] = useState(false);
+  const [starPostError, setStarPostError] = useState("");
+  const [retryingStarPlatform, setRetryingStarPlatform] = useState<string | null>(null);
   const [serviceSaving, setServiceSaving] = useState(false);
   const [serviceError, setServiceError] = useState("");
   const [uploadingServicePhoto, setUploadingServicePhoto] = useState(false);
@@ -1684,6 +1691,9 @@ const AdminDashboard: React.FC = () => {
           <button onClick={() => setView("services")} className={`px-4 py-2 rounded-lg font-bold transition-all ${view === "services" ? "bg-white shadow-sm text-emerald-600" : "text-slate-600"}`}>
             Services
           </button>
+          <button onClick={() => { setView("stars"); getStarPosts().then(setStarPosts).catch(() => {}); }} className={`px-4 py-2 rounded-lg font-bold transition-all ${view === "stars" ? "bg-white shadow-sm text-emerald-600" : "text-slate-600"}`}>
+            Stars ⭐
+          </button>
           <button onClick={() => { setView("settings"); refreshMfaFactors(); }} className={`px-4 py-2 rounded-lg font-bold transition-all ${view === "settings" ? "bg-white shadow-sm text-emerald-600" : "text-slate-600"}`}>
             Settings
           </button>
@@ -2643,6 +2653,179 @@ const AdminDashboard: React.FC = () => {
                 </div>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {view === "stars" && (
+        <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-8">
+          <h2 className="text-2xl font-black mb-6 text-slate-800">Star of the Week</h2>
+
+          <div className="bg-emerald-50 border-2 border-emerald-200 p-8 rounded-2xl mb-8">
+            <h3 className="text-xl font-bold text-slate-800 mb-6">New Star Post</h3>
+            <p className="text-sm text-slate-600 mb-6">Submitting posts to the site and attempts Facebook, Instagram and Google Business Profile automatically. Any platform without credentials configured yet is simply skipped — you can retry it later from the list below once tokens are added.</p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <input type="text" placeholder="Dog Name" value={newStarPost.dog_name} onChange={(e) => setNewStarPost({ ...newStarPost, dog_name: e.target.value })} className="px-6 py-3 bg-white border border-emerald-200 rounded-lg outline-none focus:ring-2 focus:ring-emerald-500 font-bold" />
+              <input type="text" placeholder="Breed (e.g. Cockapoo)" value={newStarPost.breed} onChange={(e) => setNewStarPost({ ...newStarPost, breed: e.target.value })} className="px-6 py-3 bg-white border border-emerald-200 rounded-lg outline-none focus:ring-2 focus:ring-emerald-500 font-bold" />
+              <input type="text" placeholder="Area / Town (e.g. Great Yarmouth)" value={newStarPost.area} onChange={(e) => setNewStarPost({ ...newStarPost, area: e.target.value })} className="col-span-1 md:col-span-2 px-6 py-3 bg-white border border-emerald-200 rounded-lg outline-none focus:ring-2 focus:ring-emerald-500 font-bold" />
+              <textarea placeholder="One-line description" value={newStarPost.one_liner} onChange={(e) => setNewStarPost({ ...newStarPost, one_liner: e.target.value })} className="col-span-1 md:col-span-2 px-6 py-3 bg-white border border-emerald-200 rounded-lg outline-none focus:ring-2 focus:ring-emerald-500 font-bold min-h-20" />
+
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Before Photo</label>
+                <label className="flex items-center justify-center bg-white border border-emerald-200 hover:bg-emerald-50 text-emerald-700 px-4 py-3 rounded-lg font-bold text-sm cursor-pointer w-full">
+                  {uploadingStarPhoto === "before" ? "Uploading…" : newStarPost.before_photo_url ? "✓ Change photo" : "📷 Upload"}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    disabled={uploadingStarPhoto !== null}
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      e.target.value = "";
+                      if (!file) return;
+                      setUploadingStarPhoto("before");
+                      try {
+                        const url = await uploadStarPhoto(`star-${Date.now()}`, "before", file);
+                        setNewStarPost((prev) => ({ ...prev, before_photo_url: url }));
+                      } catch (err: any) {
+                        alert(err?.message || "Photo upload failed.");
+                      } finally {
+                        setUploadingStarPhoto(null);
+                      }
+                    }}
+                  />
+                </label>
+                {newStarPost.before_photo_url && <img src={newStarPost.before_photo_url} alt="" className="mt-3 h-32 w-full rounded-lg object-cover border border-emerald-200" />}
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">After Photo</label>
+                <label className="flex items-center justify-center bg-white border border-emerald-200 hover:bg-emerald-50 text-emerald-700 px-4 py-3 rounded-lg font-bold text-sm cursor-pointer w-full">
+                  {uploadingStarPhoto === "after" ? "Uploading…" : newStarPost.after_photo_url ? "✓ Change photo" : "📷 Upload"}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    disabled={uploadingStarPhoto !== null}
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      e.target.value = "";
+                      if (!file) return;
+                      setUploadingStarPhoto("after");
+                      try {
+                        const url = await uploadStarPhoto(`star-${Date.now()}`, "after", file);
+                        setNewStarPost((prev) => ({ ...prev, after_photo_url: url }));
+                      } catch (err: any) {
+                        alert(err?.message || "Photo upload failed.");
+                      } finally {
+                        setUploadingStarPhoto(null);
+                      }
+                    }}
+                  />
+                </label>
+                {newStarPost.after_photo_url && <img src={newStarPost.after_photo_url} alt="" className="mt-3 h-32 w-full rounded-lg object-cover border border-emerald-200" />}
+              </div>
+            </div>
+
+            {starPostError && <p className="text-rose-600 text-sm font-bold mt-4">{starPostError}</p>}
+
+            <button
+              disabled={starPostSaving}
+              onClick={async () => {
+                if (!newStarPost.dog_name || !newStarPost.breed || !newStarPost.area || !newStarPost.one_liner || !newStarPost.before_photo_url || !newStarPost.after_photo_url) {
+                  setStarPostError("Please fill in every field and upload both photos.");
+                  return;
+                }
+                setStarPostSaving(true);
+                setStarPostError("");
+                try {
+                  await createStarPost(newStarPost);
+                  setNewStarPost({ one_liner: "", dog_name: "", breed: "", area: "", before_photo_url: "", after_photo_url: "" });
+                  setStarPosts(await getStarPosts());
+                } catch (err: any) {
+                  setStarPostError(err?.message || "Could not save.");
+                } finally {
+                  setStarPostSaving(false);
+                }
+              }}
+              className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white px-8 py-3 rounded-lg font-bold transition-all mt-6"
+            >
+              {starPostSaving ? "Posting…" : "Post Star of the Week"}
+            </button>
+          </div>
+
+          <h3 className="text-xl font-bold text-slate-800 mb-4">Recent Posts</h3>
+          <div className="space-y-4">
+            {starPosts.length === 0 && <p className="text-slate-500 text-sm">No Star of the Week posts yet.</p>}
+            {starPosts.map((post) => {
+              const platforms: { key: string; label: string; status: string; error?: string | null }[] = [
+                { key: "facebook", label: "Facebook", status: post.facebook_status, error: post.facebook_error },
+                { key: "instagram", label: "Instagram", status: post.instagram_status, error: post.instagram_error },
+                { key: "google_business", label: "Google Business", status: post.google_business_status, error: post.google_business_error },
+                { key: "instagram_reels", label: "Reels", status: post.instagram_reels_status, error: post.instagram_reels_error },
+              ];
+              const badgeClass = (status: string) =>
+                status === "posted" ? "bg-emerald-100 text-emerald-700" : status === "failed" ? "bg-rose-100 text-rose-700" : status === "skipped" ? "bg-amber-100 text-amber-700" : status === "not_implemented" ? "bg-slate-200 text-slate-500" : "bg-slate-100 text-slate-500";
+              return (
+                <div key={post.id} className="bg-slate-50 border border-slate-200 p-6 rounded-xl">
+                  <div className="flex flex-col md:flex-row gap-4">
+                    <div className="flex gap-2 shrink-0">
+                      <img src={post.before_photo_url} alt="Before" className="w-24 h-24 rounded-lg object-cover border border-slate-200" />
+                      <img src={post.after_photo_url} alt="After" className="w-24 h-24 rounded-lg object-cover border border-slate-200" />
+                    </div>
+                    <div className="flex-1">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <h4 className="font-bold text-slate-800 text-lg">{post.dog_name} — {post.breed}</h4>
+                          <p className="text-sm text-slate-500">{post.area} · {post.created_at ? new Date(post.created_at).toLocaleDateString() : ""}</p>
+                        </div>
+                        <button
+                          onClick={async () => {
+                            if (!window.confirm("Delete this Star of the Week post? This won't retract anything already posted to social platforms.")) return;
+                            try {
+                              await deleteStarPost(post);
+                              setStarPosts(await getStarPosts());
+                            } catch (err: any) {
+                              alert(err?.message || "Could not delete.");
+                            }
+                          }}
+                          className="text-xs font-bold text-rose-500 hover:text-rose-700 shrink-0"
+                        >
+                          Delete
+                        </button>
+                      </div>
+                      <p className="text-sm text-slate-700 mt-2">{post.one_liner}</p>
+                      {post.hashtags?.length > 0 && <p className="text-xs text-slate-400 mt-2">{post.hashtags.join(" ")}</p>}
+                      <div className="flex flex-wrap gap-2 mt-3">
+                        {platforms.map((p) => (
+                          <div key={p.key} className={`flex items-center gap-2 px-3 py-1 rounded-full text-xs font-bold ${badgeClass(p.status)}`} title={p.error || undefined}>
+                            <span>{p.label}: {p.status.replace(/_/g, " ")}</span>
+                            {(p.status === "failed" || p.status === "skipped") && p.key !== "instagram_reels" && (
+                              <button
+                                disabled={retryingStarPlatform === post.id}
+                                onClick={async () => {
+                                  setRetryingStarPlatform(post.id);
+                                  try {
+                                    await publishStarPost(post.id);
+                                    setStarPosts(await getStarPosts());
+                                  } catch (err: any) {
+                                    alert(err?.message || "Retry failed.");
+                                  } finally {
+                                    setRetryingStarPlatform(null);
+                                  }
+                                }}
+                                className="underline hover:no-underline disabled:opacity-50"
+                              >
+                                {retryingStarPlatform === post.id ? "…" : "Retry"}
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}

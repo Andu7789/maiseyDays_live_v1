@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { Page, Appointment } from "./types";
+import { Page, Appointment, StarPost } from "./types";
 import Header from "./components/Header";
 import Footer from "./components/Footer";
 import AdminDashboard from "./components/AdminDashboard";
@@ -9,6 +9,7 @@ import { Service } from "./types";
 import { SERVICES, LOCATIONS, SLOT_TIMES, EMAIL_ENDPOINT } from "./constants";
 import { getAvailableSlotTimes, saveAppointment, sendBookingEmail, sendConfirmationEmail, isDateAvailable, getUnavailableDays, getUnavailableWeekdays, sendHolidayEnquiryConfirmation, getHolidaySettings, signOutAdmin } from "./services/bookingService";
 import { getServiceCatalog } from "./services/serviceCatalogService";
+import { getPublicStarPosts } from "./services/starPostService";
 
 
 const App: React.FC = () => {
@@ -69,6 +70,7 @@ const App: React.FC = () => {
   const [advertColor, setAdvertColor] = useState<string>("#16a34a");
   const [weekendsEnabled, setWeekendsEnabled] = useState(true);
   const [services, setServices] = useState<Service[]>(SERVICES);
+  const [starPosts, setStarPosts] = useState<StarPost[]>([]);
 
   const selectedService = services.find((service) => service.id === formData.serviceid);
   const isHomeGroom = Boolean(selectedService && (selectedService.id.toLowerCase().includes("home") || selectedService.name.toLowerCase().includes("home") || selectedService.id.toLowerCase().includes("mobile") || selectedService.name.toLowerCase().includes("mobile")));
@@ -129,6 +131,13 @@ const App: React.FC = () => {
   useEffect(() => {
     getServiceCatalog()
       .then(setServices)
+      .catch(() => {});
+  }, []);
+
+  // Load Star of the Week posts for the public homepage section, most recent first.
+  useEffect(() => {
+    getPublicStarPosts()
+      .then(setStarPosts)
       .catch(() => {});
   }, []);
 
@@ -497,6 +506,30 @@ Message: ${enquiryData.message}
                 }
               `}</style>
             </section>
+
+            {/* Stars of the Week */}
+            {starPosts.length > 0 && (
+              <section className="py-8">
+                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                  <h2 className="text-5xl font-black text-center mb-16 tracking-tight">STARS OF THE WEEK</h2>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+                    {starPosts.slice(0, 6).map((post) => (
+                      <div key={post.id} className="bg-white rounded-[2rem] shadow-sm border border-slate-200 hover:shadow-lg transition-shadow overflow-hidden">
+                        <div className="grid grid-cols-2">
+                          <img src={post.before_photo_url} alt={`${post.dog_name} before grooming`} className="w-full h-40 object-cover" />
+                          <img src={post.after_photo_url} alt={`${post.dog_name} after grooming`} className="w-full h-40 object-cover" />
+                        </div>
+                        <div className="p-6">
+                          <h3 className="font-bold text-slate-900 text-lg">{post.dog_name}</h3>
+                          <p className="text-emerald-600 text-xs font-bold uppercase tracking-widest mb-3">{post.breed} · {post.area}</p>
+                          <p className="text-slate-600 text-sm">{post.one_liner}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </section>
+            )}
 
             {/* CTA Section */}
             <section className="bg-emerald-600 rounded-[3rem] mx-auto my-20 p-16 max-w-4xl">
