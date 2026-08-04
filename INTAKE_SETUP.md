@@ -46,7 +46,7 @@ server-side, so nobody can read or write anyone else's record).
 3. Set the secrets:
 ```
 supabase secrets set RESEND_API_KEY=re_xxxxxxxx
-supabase secrets set INTAKE_FROM_EMAIL="Maisey Days @ Dirty Dawg <bookings@yourdomain.co.uk>"
+supabase secrets set INTAKE_FROM_EMAIL="Maisey Days Dog Grooming <bookings@yourdomain.co.uk>"
 ```
 Until this is done, the Email button will show a friendly "not configured" message —
 WhatsApp, SMS and Copy Link all work without it.
