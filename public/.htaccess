@@ -1,6 +1,10 @@
 <IfModule mod_rewrite.c>
   RewriteEngine On
-  
+
+  # 301 redirect from the old domain to the new one, preserving the full path and query string
+  RewriteCond %{HTTP_HOST} ^(www\.)?dirtydawggrooming\.co\.uk$ [NC]
+  RewriteRule ^(.*)$ https://maiseydaysdoggrooming.co.uk%{REQUEST_URI} [L,R=301]
+
   # Redirect HTTP to HTTPS
   RewriteCond %{HTTPS} off
   RewriteRule ^(.*)$ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]

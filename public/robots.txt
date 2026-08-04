@@ -6,4 +6,4 @@ Allow: /
 Disallow: /admin
 
 # Sitemap location
-Sitemap: https://dirtydawggrooming.co.uk/sitemap.xml
+Sitemap: https://maiseydaysdoggrooming.co.uk/sitemap.xml

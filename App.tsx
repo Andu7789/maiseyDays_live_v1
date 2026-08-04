@@ -379,7 +379,7 @@ Message: ${enquiryData.message}
                       <span className="block text-[calc(2rem)] md:text-[calc(3.5rem)] lg:text-[calc(5rem)]">Where every dog is a VIP</span>
                       <span className="block mt-3">(Very Important Pup)</span>
                     </h1>
-                    <p className="mt-3 text-xl md:text-2xl text-slate-100">Dirty Dawg Grooming (Maisey Days) — dog groomer in Winterton-on-Sea, Caister-on-Sea and Great Yarmouth.</p>
+                    <p className="mt-3 text-xl md:text-2xl text-slate-100">Fully qualified dog groomer with 8 years experience. Rachel specialises in working with nervous and anxious dogs, applying consent based grooming techniques to build trust and confidence.</p>
                     <div className="mt-6 flex flex-col sm:flex-row gap-4">
                       <button onClick={() => setCurrentPage("booking")} className="bg-emerald-600 hover:bg-emerald-700 text-white px-8 py-4 rounded-3xl font-black text-lg transition-all transform hover:scale-105 shadow-xl shadow-emerald-900/40">BOOK NOW</button>
                       <button onClick={() => setCurrentPage("services")} className="bg-emerald-600 hover:bg-emerald-700 text-white px-8 py-4 rounded-3xl font-black text-lg transition-all transform hover:scale-105 shadow-xl shadow-emerald-900/40">SERVICES</button>

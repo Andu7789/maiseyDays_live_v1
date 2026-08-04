@@ -95,7 +95,7 @@ const Footer: React.FC<FooterProps> = ({ setPage }) => {
               </div>
               <div className="border-t border-slate-700 pt-4 text-sm">
                 <p className="font-semibold text-white mb-2">Email</p>
-                <p className="mb-4">hello@dirtydawggrooming.co.uk</p>
+                <p className="mb-4">hello@maiseydaysdoggrooming.co.uk</p>
               </div>
               <div className="border-t border-slate-700 pt-4 text-center text-sm">
                 <p className="font-semibold text-white">{openDays}</p>

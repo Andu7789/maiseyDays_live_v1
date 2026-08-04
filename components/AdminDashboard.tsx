@@ -8,7 +8,7 @@ import { createStarPost, deleteStarPost, getStarPosts, publishStarPost, uploadSt
 import { RoundTimePicker } from "./RoundTimePicker";
 
 const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-const EMAIL_CUSTOMER_REPLY_TO = "hello@dirtydawggrooming.co.uk";
+const EMAIL_CUSTOMER_REPLY_TO = "hello@maiseydaysdoggrooming.co.uk";
 
 const getMonday = (source: Date) => {
   const copy = new Date(source);
