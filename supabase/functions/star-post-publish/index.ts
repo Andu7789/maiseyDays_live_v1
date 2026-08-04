@@ -39,7 +39,7 @@ const buildRuleBasedHashtags = (breed: string, area: string): string[] => {
   const tags: string[] = [];
   if (breedTag) tags.push(`#${breedTag}`, `#${breedTag}Grooming`);
   if (areaTag) tags.push(`#${areaTag}`, `#${areaTag}DogGrooming`);
-  tags.push("#DogGrooming", "#DirtyDawgGrooming");
+  tags.push("#DogGrooming", "#MaiseyDaysDogGrooming");
   return Array.from(new Set(tags));
 };
 

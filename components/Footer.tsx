@@ -49,7 +49,7 @@ const Footer: React.FC<FooterProps> = ({ setPage }) => {
           <div className="col-span-1 md:col-span-2">
             <div className="flex items-center mb-6">
               <span className="text-white text-2xl">🐾</span>
-              <span className="text-2xl font-black text-white ml-2">Maisey Days @ Dirty Dawg</span>
+              <span className="text-2xl font-black text-white ml-2">Maisey Days Dog Grooming</span>
             </div>
             <p className="text-slate-400 max-w-sm">Grooming with care since 2018, treating every dog with patience, kindness and sensitivity</p>
           </div>
@@ -104,7 +104,7 @@ const Footer: React.FC<FooterProps> = ({ setPage }) => {
             </div>
           </div>
         </div>
-        <div className="mt-12 pt-8 border-t border-slate-800 text-center text-xs text-slate-500">&copy; {new Date().getFullYear()} Maisey Days @ Dirty Dawg Dog Grooming. All rights reserved.</div>
+        <div className="mt-12 pt-8 border-t border-slate-800 text-center text-xs text-slate-500">&copy; {new Date().getFullYear()} Maisey Days Dog Grooming. All rights reserved.</div>
       </div>
     </footer>
   );

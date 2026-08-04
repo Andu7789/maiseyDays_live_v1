@@ -163,9 +163,9 @@ export const buildIntakeMessage = (customer: Customer, link: string, appointment
     const date = appointment.confirmed_date || appointment.date;
     const dateLabel = date ? new Date(`${date}T00:00:00`).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "your upcoming visit";
     const time = appointment.confirmed_time || appointment.time || "TBC";
-    return `Hi ${firstName}, thanks for booking with Maisey Days @ Dirty Dawg on ${dateLabel} at ${time} with Rachel! 🐾 Please can you complete our short grooming agreement before you arrive for ${appointment.dogname}'s appointment - it only takes a couple of minutes:\n\n${link}\n\nThank you.`;
+    return `Hi ${firstName}, thanks for booking with Maisey Days Dog Grooming on ${dateLabel} at ${time} with Rachel! 🐾 Please can you complete our short grooming agreement before you arrive for ${appointment.dogname}'s appointment - it only takes a couple of minutes:\n\n${link}\n\nThank you.`;
   }
-  return `Hi ${firstName}, thanks for booking with Maisey Days @ Dirty Dawg! 🐾 Please fill in our quick grooming agreement form before your appointment - it only takes a couple of minutes:\n\n${link}`;
+  return `Hi ${firstName}, thanks for booking with Maisey Days Dog Grooming! 🐾 Please fill in our quick grooming agreement form before your appointment - it only takes a couple of minutes:\n\n${link}`;
 };
 
 const normalizeUkPhoneDigits = (raw: string) => {
@@ -216,7 +216,7 @@ export const sendIntakeEmail = async (customer: Customer, link: string) => {
 export const buildReviewMessage = (customer: Customer, reviewLink: string, dogNames: string[] = []) => {
   const firstName = (customer.ownername || "").trim().split(/\s+/)[0] || "there";
   const dogLabel = dogNames.length === 0 ? "your dog" : dogNames.length === 1 ? dogNames[0] : `${dogNames.slice(0, -1).join(", ")} and ${dogNames[dogNames.length - 1]}`;
-  return `Hi ${firstName}, thanks so much for bringing ${dogLabel} to Maisey Days @ Dirty Dawg today! 🐶🐾\n\nIf you and ${dogLabel} had a great experience, we'd really appreciate it if you could leave us a quick Google review. It takes less than a minute, but it makes a massive difference to a small local business like ours!\n\nYou can leave a review here:\n\n${reviewLink}\n\nThanks again!\n\nRachel`;
+  return `Hi ${firstName}, thanks so much for bringing ${dogLabel} to Maisey Days Dog Grooming today! 🐶🐾\n\nIf you and ${dogLabel} had a great experience, we'd really appreciate it if you could leave us a quick Google review. It takes less than a minute, but it makes a massive difference to a small local business like ours!\n\nYou can leave a review here:\n\n${reviewLink}\n\nThanks again!\n\nRachel`;
 };
 
 export const markReviewLinkSent = async (customerId: string, channel: "whatsapp" | "sms") => {

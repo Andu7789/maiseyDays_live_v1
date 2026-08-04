@@ -13,7 +13,7 @@ const jsonResponse = (body: Record<string, unknown>, status = 200) =>
 
 const wrapHtml = (bodyHtml: string) => `
   <div style="font-family: Arial, Helvetica, sans-serif; max-width: 560px; margin: 0 auto; color: #1e293b;">
-    <h2 style="color: #059669;">Maisey Days @ Dirty Dawg 🐾</h2>
+    <h2 style="color: #059669;">Maisey Days Dog Grooming 🐾</h2>
     ${bodyHtml}
   </div>
 `;
@@ -38,7 +38,7 @@ serve(async (req: Request) => {
     if (!resendApiKey) {
       return jsonResponse({ success: false, error: "Email is not configured yet (RESEND_API_KEY missing)." });
     }
-    const fromAddress = Deno.env.get("INTAKE_FROM_EMAIL") || "Maisey Days @ Dirty Dawg <onboarding@resend.dev>";
+    const fromAddress = Deno.env.get("INTAKE_FROM_EMAIL") || "Maisey Days Dog Grooming <onboarding@resend.dev>";
 
     let subject: string;
     let html: string;
@@ -61,19 +61,19 @@ serve(async (req: Request) => {
         Location: ${locationName}</p>
         <p>If you have any questions in the meantime, please do not hesitate to contact us on 07368 465966.</p>
         <p>We look forward to seeing you soon!</p>
-        <p>Warm regards,<br>Rachel<br>Maisey Days @ Dirty Dawg 🐾</p>
+        <p>Warm regards,<br>Rachel<br>Maisey Days Dog Grooming 🐾</p>
       `);
     } else if (template === "holiday-enquiry") {
-      subject = "Thanks for your enquiry - Maisey Days @ Dirty Dawg";
+      subject = "Thanks for your enquiry - Maisey Days Dog Grooming";
       html = wrapHtml(`
         <p>Hello ${firstName},</p>
         <p>Thank you for your enquiry! We're currently away, but we've received your details and will be in touch as soon as we're back to arrange your appointment.</p>
-        <p>Best regards,<br>Maisey Days @ Dirty Dawg 🐾</p>
+        <p>Best regards,<br>Maisey Days Dog Grooming 🐾</p>
       `);
     } else if (template === "custom") {
       // Free-form reply typed by the admin (e.g. replying to a booking request),
       // sent through the properly-authenticated domain instead of a personal inbox.
-      subject = String(body.subject || "Message from Maisey Days @ Dirty Dawg").trim();
+      subject = String(body.subject || "Message from Maisey Days Dog Grooming").trim();
       const messageText = String(body.message || "").trim();
       if (!messageText) {
         return jsonResponse({ success: false, error: "Message is empty." });

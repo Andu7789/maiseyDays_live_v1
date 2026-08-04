@@ -341,7 +341,7 @@ Message: ${enquiryData.message}
           <div className="space-y-20 pb-20 animate-fade-in">
             {isHolidayMode && (
               <div className="bg-amber-400 text-amber-900 text-center py-8 px-6 font-bold text-lg">
-                🌴 Maisey Days at Dirty Dawg is away on holiday{holidayEnd ? ` and back on ${formatHolidayDate(holidayEnd)}` : ""}. Please leave your details and we'll be in touch when we return!{" "}
+                🌴 Maisey Days Dog Grooming is away on holiday{holidayEnd ? ` and back on ${formatHolidayDate(holidayEnd)}` : ""}. Please leave your details and we'll be in touch when we return!{" "}
                 <button onClick={() => setCurrentPage("booking")} className="underline font-black hover:text-amber-700 transition-colors">
                   Get in touch
                 </button>
@@ -370,7 +370,7 @@ Message: ${enquiryData.message}
             {/* Hero Section */}
             <section className="relative h-[85vh] min-h-[600px] flex items-center overflow-hidden">
               <div className="absolute inset-0 z-0">
-                <img src="https://images.unsplash.com/photo-1516734212186-a967f81ad0d7?auto=format&fit=crop&q=80&w=2000" alt="Happy dog being groomed at Dirty Dawg Grooming (Maisey Days), dog groomer in Caister-on-Sea and Winterton, Norfolk" className="w-full h-full object-cover object-[center_20%] brightness-[0.75]" />
+                <img src="https://images.unsplash.com/photo-1516734212186-a967f81ad0d7?auto=format&fit=crop&q=80&w=2000" alt="Happy dog being groomed at Maisey Days Dog Grooming, dog groomer in Caister-on-Sea and Winterton, Norfolk" className="w-full h-full object-cover object-[center_20%] brightness-[0.75]" />
               </div>
               <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-white w-full">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
@@ -884,7 +884,7 @@ Message: ${enquiryData.message}
                       )}
                     </div>
                     <div className={`p-6 rounded-2xl border-2 transition-all ${marketingConsent === "" ? "bg-rose-50 border-rose-200" : "bg-emerald-50 border-emerald-200"}`}>
-                      <label className={`block text-sm font-bold mb-4 ${marketingConsent === "" ? "text-rose-800" : "text-emerald-800"}`}>Should Maisey Days be unable to fulfil an appointment, I consent to my contact details being shared with the grooming team at Dirty Dawg ONLY for the purpose of arranging an alternative booking.</label>
+                      <label className={`block text-sm font-bold mb-4 ${marketingConsent === "" ? "text-rose-800" : "text-emerald-800"}`}>Should Maisey Days be unable to fulfil an appointment, I consent to my contact details being shared with the grooming team at Maisey Days Dog Grooming ONLY for the purpose of arranging an alternative booking.</label>
                       <div className="flex gap-8">
                         <label className="flex items-center gap-3 cursor-pointer">
                           <input type="radio" name="marketing" value="yes" checked={marketingConsent === "yes"} onChange={(e) => setMarketingConsent("yes")} className="w-5 h-5 accent-emerald-600 cursor-pointer" />
@@ -991,7 +991,7 @@ Message: ${enquiryData.message}
             <div className="p-8 text-slate-700 text-sm leading-relaxed space-y-6">
               <div>
                 <h3 className="text-lg font-black text-slate-800 mb-3">1. Data Privacy (UK GDPR Compliance)</h3>
-                <p className="mb-3">At Dirty Dawg and Maisey Days, we are committed to protecting your personal data in accordance with UK law.</p>
+                <p className="mb-3">At Maisey Days Dog Grooming, we are committed to protecting your personal data in accordance with UK law.</p>
                 <ul className="space-y-2 ml-4 list-disc">
                   <li>
                     <strong>Data Collection:</strong> We collect your contact details (name, address, phone numbers, email) and your dog's medical, behavioural, and vaccination history.

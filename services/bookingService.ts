@@ -454,7 +454,7 @@ export const buildCancellationMessage = (appointment: Appointment) => {
 };
 
 export const buildRebookNudgeMessage = (appointment: Appointment) => {
-  return `Hi ${appointment.ownername}, it's been a little while since ${appointment.dogname}'s last groom with us at Maisey Days @ Dirty Dawg! Would you like to book their next appointment? 🐾`;
+  return `Hi ${appointment.ownername}, it's been a little while since ${appointment.dogname}'s last groom with us at Maisey Days Dog Grooming! Would you like to book their next appointment? 🐾`;
 };
 
 export const sendCustomerCancellationSms = async (appointment: Appointment) => {
@@ -655,7 +655,7 @@ Owner: ${appointment.ownername}
 Email: ${appointment.email}
 Phone: ${appointment.phone || "Not provided"}
 Notes: ${appointment.notes || "None"}
-Contact Share Consent: ${appointment.marketingConsent ? (appointment.marketingConsent === "yes" ? "YES - May share contact details with Dirty Dawg for alternative booking" : "NO - Do not share contact details") : "Not specified"}
+Contact Share Consent: ${appointment.marketingConsent ? (appointment.marketingConsent === "yes" ? "YES - May share contact details with Maisey Days Dog Grooming for alternative booking" : "NO - Do not share contact details") : "Not specified"}
 ${photoLink ? `\nPhoto for ${appointment.dogname} (Owner: ${appointment.ownername}, ${appointment.email}):\n${photoLink}` : "\nNo photo provided"}
     `;
     let response: Response;

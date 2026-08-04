@@ -120,7 +120,7 @@ Location: ${locationName}${apt.notes ? `\n⚠️ Notes: ${apt.notes}` : ''}
 ✅ ACTION REQUIRED: Contact these customers to schedule their next grooming appointment!
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-This is an automated reminder from Maisey Days @ Dirty Dawg.
+This is an automated reminder from Maisey Days Dog Grooming.
 Manage reminder settings in your admin panel.
 `;
 

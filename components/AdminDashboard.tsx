@@ -885,7 +885,7 @@ const AdminDashboard: React.FC = () => {
         ol { padding-left: 18px; } li { margin-bottom: 6px; }
         img.signature { max-height: 90px; border: 1px solid #cbd5e1; border-radius: 8px; }
       </style></head><body>
-      <h1>Maisey Days @ Dirty Dawg<br><small>Dog Grooming Agreement</small></h1>
+      <h1>Maisey Days Dog Grooming<br><small>Dog Grooming Agreement</small></h1>
       <h2>Owner</h2>
       <table>
         <tr><td>Name</td><td>${customer.ownername}</td></tr>
@@ -1360,7 +1360,7 @@ const AdminDashboard: React.FC = () => {
     }
     const firstName = (booking.ownername || "").trim().split(/\s+/)[0] || "there";
     setEmailSubject(`Your booking request - ${booking.dogname}`);
-    setEmailMessage(`Hi ${firstName},\n\nThanks for your booking request for ${booking.dogname}.\n\n\n\nBest regards,\nMaisey Days @ Dirty Dawg 🐾`);
+    setEmailMessage(`Hi ${firstName},\n\nThanks for your booking request for ${booking.dogname}.\n\n\n\nBest regards,\nMaisey Days Dog Grooming 🐾`);
     setShowEmailModal(true);
   };
 

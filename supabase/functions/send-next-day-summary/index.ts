@@ -123,7 +123,7 @@ ${formatAppointmentList(wintertonApts)}
 • Prepare reception area and workspace
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-This is an automated summary from Maisey Days @ Dirty Dawg.
+This is an automated summary from Maisey Days Dog Grooming.
 View full schedule: https://maiseydays.com/admin
 `;
 

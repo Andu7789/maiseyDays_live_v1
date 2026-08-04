@@ -181,7 +181,7 @@ const IntakeForm: React.FC<IntakeFormProps> = ({ token }) => {
       <div className="max-w-3xl mx-auto px-4 py-12 space-y-8 animate-fade-in">
         <div className="text-center">
           <h1 className="text-4xl font-black tracking-tight text-slate-800 uppercase">Matting Release Consent</h1>
-          <p className="text-slate-500 mt-2 font-medium">Maisey Days @ Dirty Dawg · One quick read and a signature</p>
+          <p className="text-slate-500 mt-2 font-medium">Maisey Days Dog Grooming · One quick read and a signature</p>
         </div>
 
         <SectionCard title="Matting release information and consent">
@@ -207,7 +207,7 @@ const IntakeForm: React.FC<IntakeFormProps> = ({ token }) => {
     <div className="max-w-3xl mx-auto px-4 py-12 space-y-8 animate-fade-in">
       <div className="text-center">
         <h1 className="text-4xl font-black tracking-tight text-slate-800 uppercase">Grooming Agreement</h1>
-        <p className="text-slate-500 mt-2 font-medium">Maisey Days @ Dirty Dawg · Takes about 2 minutes</p>
+        <p className="text-slate-500 mt-2 font-medium">Maisey Days Dog Grooming · Takes about 2 minutes</p>
         {alreadyCompleted && <div className="mt-4 inline-block bg-amber-50 border border-amber-200 text-amber-700 px-4 py-2 rounded-xl text-sm font-bold">You've already completed this form — submitting again will update your details.</div>}
       </div>
 
@@ -373,7 +373,7 @@ const IntakeForm: React.FC<IntakeFormProps> = ({ token }) => {
       <SectionCard title="Sign & submit">
         <label className="flex items-start gap-3 cursor-pointer mb-6">
           <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} className="w-5 h-5 mt-0.5 accent-emerald-600" />
-          <span className="text-sm font-bold text-slate-700">I confirm that I have read and agree to the policies of Maisey Days @ Dirty Dawg for my dog, and I authorise emergency veterinary care as described above.</span>
+          <span className="text-sm font-bold text-slate-700">I confirm that I have read and agree to the policies of Maisey Days Dog Grooming for my dog, and I authorise emergency veterinary care as described above.</span>
         </label>
         <SignatureCanvas onChange={setSignature} />
         {submitError && <div className="mt-4 bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-xl text-sm font-bold">{submitError}</div>}

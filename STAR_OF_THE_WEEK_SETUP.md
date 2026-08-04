@@ -40,6 +40,6 @@ When you're ready to build it, worth deciding between:
 
 ## Hashtags
 
-- Rule-based (always on, no credentials needed): breed → `#Breed #BreedGrooming`, area → `#Area #AreaDogGrooming`, plus `#DogGrooming #DirtyDawgGrooming`.
+- Rule-based (always on, no credentials needed): breed → `#Breed #BreedGrooming`, area → `#Area #AreaDogGrooming`, plus `#DogGrooming #MaiseyDaysDogGrooming`.
 - AI (needs `ANTHROPIC_API_KEY`): 3-5 extra tags for variety, generated from the one-liner + breed + area.
 - Instagram caption uses the combined set (capped at 15 tags). Facebook uses just the top 3 rule-based tags, kept minimal.
