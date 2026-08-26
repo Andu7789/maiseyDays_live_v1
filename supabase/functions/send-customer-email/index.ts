@@ -18,6 +18,18 @@ const wrapHtml = (bodyHtml: string) => `
   </div>
 `;
 
+const NAME_TITLES = new Set(["mr", "mrs", "miss", "ms", "mx", "dr", "prof"]);
+
+// Drops a leading title ("MR ANDREW BRITAIN" -> "Andrew") and fixes ALL-CAPS/
+// all-lowercase records so greetings don't come out as "Hi MR," or "Hi ANDREW,".
+const getFirstName = (fullName: string): string => {
+  const words = (fullName || "").trim().split(/\s+/).filter(Boolean);
+  const nameWords = words.length > 1 && NAME_TITLES.has(words[0].toLowerCase().replace(/\.$/, "")) ? words.slice(1) : words;
+  const first = nameWords[0];
+  if (!first) return "there";
+  return first === first.toUpperCase() || first === first.toLowerCase() ? first.charAt(0).toUpperCase() + first.slice(1).toLowerCase() : first;
+};
+
 serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -28,7 +40,7 @@ serve(async (req: Request) => {
     const to = String(body.to || "").trim();
     const template = String(body.template || "");
     const name = String(body.name || "").trim() || "there";
-    const firstName = name.split(/\s+/)[0];
+    const firstName = getFirstName(name);
 
     if (!to || !template) {
       return jsonResponse({ success: false, error: "Missing 'to' or 'template'" });

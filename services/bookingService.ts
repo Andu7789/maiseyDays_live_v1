@@ -745,14 +745,16 @@ const matchesLocationScope = (rowLocationId: string | null, locationId?: string)
 
 export const getUnavailableDays = async (locationId?: string): Promise<string[]> => {
   try {
-    const { data, error } = await supabase.from("availabilities").select("date, day_of_week, locationid").eq("isAvailable", false);
+    const { data, error } = await supabase.from("availabilities").select("date, day_of_week, locationid, start_time").eq("isAvailable", false);
 
     if (error) {
       console.error("Error fetching unavailable dates:", error);
       return [];
     }
 
-    const dates = (data || []).filter((d) => d.date !== null && d.day_of_week === null && matchesLocationScope(d.locationid, locationId)).map((d) => d.date);
+    // start_time !== null means the closure only covers part of the day, so the
+    // date itself stays bookable — getAvailableSlotTimes blocks just those hours.
+    const dates = (data || []).filter((d) => d.date !== null && d.day_of_week === null && d.start_time === null && matchesLocationScope(d.locationid, locationId)).map((d) => d.date);
     return dates;
   } catch (err) {
     console.error("Error in getUnavailableDays:", err);
@@ -762,14 +764,16 @@ export const getUnavailableDays = async (locationId?: string): Promise<string[]>
 
 export const getUnavailableWeekdays = async (locationId?: string): Promise<number[]> => {
   try {
-    const { data, error } = await supabase.from("availabilities").select("day_of_week, date, locationid").eq("isAvailable", false);
+    const { data, error } = await supabase.from("availabilities").select("day_of_week, date, locationid, start_time").eq("isAvailable", false);
 
     if (error) {
       console.error("Error fetching unavailable weekdays:", error);
       return [];
     }
 
-    const weekdays = (data || []).filter((d) => d.day_of_week !== null && d.date === null && matchesLocationScope(d.locationid, locationId)).map((d) => d.day_of_week);
+    // start_time !== null means the closure only covers part of the day, so the
+    // weekday itself stays bookable — getAvailableSlotTimes blocks just those hours.
+    const weekdays = (data || []).filter((d) => d.day_of_week !== null && d.date === null && d.start_time === null && matchesLocationScope(d.locationid, locationId)).map((d) => d.day_of_week);
     return weekdays;
   } catch (err) {
     console.error("Error in getUnavailableWeekdays:", err);
@@ -783,11 +787,13 @@ export interface UnavailabilityEntry {
   day_of_week: number | null;
   locationid: string | null;
   reason: string;
+  start_time: string | null;
+  end_time: string | null;
 }
 
 /** Every individual closed date, unfiltered — for the admin Closed Dates management list. */
 export const getUnavailableDayEntries = async (): Promise<UnavailabilityEntry[]> => {
-  const { data, error } = await supabase.from("availabilities").select("id, date, day_of_week, locationid, reason").eq("isAvailable", false).not("date", "is", null);
+  const { data, error } = await supabase.from("availabilities").select("id, date, day_of_week, locationid, reason, start_time, end_time").eq("isAvailable", false).not("date", "is", null);
   if (error) {
     console.error("Error fetching unavailable day entries:", error);
     return [];
@@ -797,7 +803,7 @@ export const getUnavailableDayEntries = async (): Promise<UnavailabilityEntry[]>
 
 /** Every recurring weekday closure, unfiltered — for the admin Closed Dates management list. */
 export const getUnavailableWeekdayEntries = async (): Promise<UnavailabilityEntry[]> => {
-  const { data, error } = await supabase.from("availabilities").select("id, date, day_of_week, locationid, reason").eq("isAvailable", false).not("day_of_week", "is", null);
+  const { data, error } = await supabase.from("availabilities").select("id, date, day_of_week, locationid, reason, start_time, end_time").eq("isAvailable", false).not("day_of_week", "is", null);
   if (error) {
     console.error("Error fetching unavailable weekday entries:", error);
     return [];
@@ -805,10 +811,10 @@ export const getUnavailableWeekdayEntries = async (): Promise<UnavailabilityEntr
   return data || [];
 };
 
-/** locationId null/omitted = closes it for both locations. */
-export const saveUnavailableDay = async (date: string, reason: string, locationId?: string | null) => {
+/** locationId null/omitted = closes it for both locations. startTime/endTime omitted = closed all day. */
+export const saveUnavailableDay = async (date: string, reason: string, locationId?: string | null, startTime?: string | null, endTime?: string | null) => {
   try {
-    const { error } = await supabase.from("availabilities").insert([{ date, isAvailable: false, reason, locationid: locationId || null }]);
+    const { error } = await supabase.from("availabilities").insert([{ date, isAvailable: false, reason, locationid: locationId || null, start_time: startTime || null, end_time: endTime || null }]);
     if (error) {
       console.error("Error saving unavailable day:", error);
       throw error;
@@ -833,12 +839,11 @@ export const removeUnavailableEntry = async (id: string) => {
   }
 };
 
-export const saveUnavailableDateRange = async (startDate: string, endDate: string, reason: string) => {
+/** Closes every date from startDate to endDate (inclusive) — e.g. booking off a holiday in one go. locationId null/omitted = closes it for both locations. */
+export const saveUnavailableDateRange = async (startDate: string, endDate: string, reason: string, locationId?: string | null) => {
   try {
-    console.log("Saving unavailable date range:", startDate, "to", endDate, reason);
-
-    const start = new Date(startDate);
-    const end = new Date(endDate);
+    const start = new Date(`${startDate}T00:00:00`);
+    const end = new Date(`${endDate}T00:00:00`);
     const datesInRange: string[] = [];
 
     // Generate all dates between start and end (inclusive)
@@ -849,27 +854,31 @@ export const saveUnavailableDateRange = async (startDate: string, endDate: strin
       datesInRange.push(`${year}-${month}-${day}`);
     }
 
-    // Save all dates
     for (const dateStr of datesInRange) {
-      await saveUnavailableDay(dateStr, reason);
+      await saveUnavailableDay(dateStr, reason, locationId);
     }
 
-    console.log("Successfully saved unavailable date range");
+    return datesInRange.length;
   } catch (err) {
     console.error("Catch error in saveUnavailableDateRange:", err);
     throw err;
   }
 };
 
-/** locationId null/omitted = closes it for both locations. Only replaces an existing entry for the same day + same location scope, leaving other locations' closures for that weekday untouched. */
-export const saveUnavailableWeekday = async (dayOfWeek: number, reason: string, locationId?: string | null) => {
+/**
+ * locationId null/omitted = closes it for both locations. startTime/endTime
+ * omitted = closed all day; otherwise only that window is blocked, so the rest
+ * of the day stays bookable. Only replaces an existing entry for the same day +
+ * same location scope, leaving other locations' closures for that weekday untouched.
+ */
+export const saveUnavailableWeekday = async (dayOfWeek: number, reason: string, locationId?: string | null, startTime?: string | null, endTime?: string | null) => {
   try {
     let deleteQuery = supabase.from("availabilities").delete().eq("day_of_week", dayOfWeek);
     deleteQuery = locationId ? deleteQuery.eq("locationid", locationId) : deleteQuery.is("locationid", null);
     await deleteQuery;
 
     // Omit date field entirely so it stays null
-    const { error } = await supabase.from("availabilities").insert([{ day_of_week: dayOfWeek, isAvailable: false, reason, locationid: locationId || null }]);
+    const { error } = await supabase.from("availabilities").insert([{ day_of_week: dayOfWeek, isAvailable: false, reason, locationid: locationId || null, start_time: startTime || null, end_time: endTime || null }]);
 
     if (error) {
       console.error("Error saving unavailable weekday:", error);
@@ -927,6 +936,24 @@ const applyLeadTimeRule = (blocked: Set<string>, date: string) => {
   }
 };
 
+/** Partial-day closures (start_time set) covering this date, either a one-off for this exact date or a recurring weekday. Full-day closures are handled separately by isDateAvailable, since they block the whole date rather than specific slots. */
+const getUnavailabilityTimeBlocks = async (locationId: string, date: string): Promise<{ startMinutes: number; endMinutes: number }[]> => {
+  try {
+    const dayOfWeek = new Date(`${date}T00:00:00`).getDay();
+    const { data, error } = await supabase.from("availabilities").select("date, day_of_week, locationid, start_time, end_time").eq("isAvailable", false).not("start_time", "is", null);
+    if (error) {
+      console.error("Error fetching unavailability time blocks:", error);
+      return [];
+    }
+    return (data || [])
+      .filter((d) => matchesLocationScope(d.locationid, locationId) && (d.date === date || (d.date === null && d.day_of_week === dayOfWeek)))
+      .map((d) => ({ startMinutes: timeToMinutes(d.start_time as string), endMinutes: timeToMinutes((d.end_time as string) || (d.start_time as string)) }));
+  } catch (err) {
+    console.error("Error in getUnavailabilityTimeBlocks:", err);
+    return [];
+  }
+};
+
 /**
  * Returns the free 2-hour slot start times for a location on a date.
  * Both pending requests and confirmed bookings block their slot.
@@ -961,6 +988,11 @@ export const getAvailableSlotTimes = async (locationId: string, date: string, op
       const schedule = getEffectiveSchedule(row as Appointment);
       if (!schedule || schedule.date !== date) continue;
       blockOverlappingSlots(blocked, schedule.startMinutes, schedule.durationMinutes);
+    }
+
+    const timeBlocks = await getUnavailabilityTimeBlocks(locationId, date);
+    for (const block of timeBlocks) {
+      blockOverlappingSlots(blocked, block.startMinutes, block.endMinutes - block.startMinutes);
     }
 
     if (enforceLeadTime) applyLeadTimeRule(blocked, date);

@@ -157,8 +157,23 @@ export const buildIntakeLink = (token: string) => {
   return `${window.location.origin}${window.location.pathname}#intake=${token}`;
 };
 
+const NAME_TITLES = new Set(["mr", "mrs", "miss", "ms", "mx", "dr", "prof"]);
+
+/**
+ * First name for greetings, e.g. "Hi {name}," — drops a leading title
+ * ("MR ANDREW BRITAIN" -> "Andrew") and fixes ALL-CAPS/all-lowercase
+ * records so it doesn't come out as "Hi MR," or "Hi ANDREW,".
+ */
+export const getFirstName = (fullName: string): string => {
+  const words = (fullName || "").trim().split(/\s+/).filter(Boolean);
+  const nameWords = words.length > 1 && NAME_TITLES.has(words[0].toLowerCase().replace(/\.$/, "")) ? words.slice(1) : words;
+  const first = nameWords[0];
+  if (!first) return "there";
+  return first === first.toUpperCase() || first === first.toLowerCase() ? first.charAt(0).toUpperCase() + first.slice(1).toLowerCase() : first;
+};
+
 export const buildIntakeMessage = (customer: Customer, link: string, appointment?: Appointment) => {
-  const firstName = (customer.ownername || "").trim().split(/\s+/)[0] || "there";
+  const firstName = getFirstName(customer.ownername);
   if (appointment) {
     const date = appointment.confirmed_date || appointment.date;
     const dateLabel = date ? new Date(`${date}T00:00:00`).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "your upcoming visit";
@@ -214,7 +229,7 @@ export const sendIntakeEmail = async (customer: Customer, link: string) => {
 // ============================================================
 
 export const buildReviewMessage = (customer: Customer, reviewLink: string, dogNames: string[] = []) => {
-  const firstName = (customer.ownername || "").trim().split(/\s+/)[0] || "there";
+  const firstName = getFirstName(customer.ownername);
   const dogLabel = dogNames.length === 0 ? "your dog" : dogNames.length === 1 ? dogNames[0] : `${dogNames.slice(0, -1).join(", ")} and ${dogNames[dogNames.length - 1]}`;
   return `Hi ${firstName}, thanks so much for bringing ${dogLabel} to Maisey Days Dog Grooming today! 🐶🐾\n\nIf you and ${dogLabel} had a great experience, we'd really appreciate it if you could leave us a quick Google review. It takes less than a minute, but it makes a massive difference to a small local business like ours!\n\nYou can leave a review here:\n\n${reviewLink}\n\nThanks again!\n\nRachel`;
 };

@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { addBookingPhoto, BookingPhoto, buildCancellationMessage, buildConfirmationMessage, buildRebookNudgeMessage, checkAuthStatus, confirmAppointmentBooking, createManualAppointment, deleteAppointment, deleteBookingPhoto, enrollMfaTotp, exportAppointmentsToExcel, findBookingClash, getAppointments, getAvailableSlotTimes, getBookingPhotos, getBookingRevenue, getCurrentUser, getEffectiveSchedule, getMfaAssuranceLevel, getReminderSettings, getServiceBasePrice, getUnavailableDays, getUnavailableDayEntries, getUnavailableWeekdays, getUnavailableWeekdayEntries, listMfaFactors, removeUnavailableEntry, saveUnavailableDay, saveUnavailableWeekday, sendCustomEmail, sendCustomerCancellationSms, sendCustomerConfirmationSms, signInAdmin, signOutAdmin, unenrollMfaFactor, updateAppointment, updateReminderSettings, getHolidaySettings, updateHolidaySettings, updateAdvertSettings, updateWeekendBookingsEnabled, updateGoogleReviewLink, verifyMfaCode, getDogNotes, getAllDogNotes, upsertDogNote, UnavailabilityEntry } from "../services/bookingService";
-import { buildIntakeLink, buildIntakeMessage, buildReviewMessage, buildWhatsAppLink, createCustomer, deleteCustomer, deleteDog, ensureIntakeToken, getCustomers, getDeletedCustomers, markIntakeSent, markReviewLinkSent, permanentlyDeleteCustomer, restoreCustomer, saveDog, sendIntakeEmail, sendIntakeSms, updateCustomer } from "../services/customerService";
+import { addBookingPhoto, BookingPhoto, buildCancellationMessage, buildConfirmationMessage, buildRebookNudgeMessage, checkAuthStatus, confirmAppointmentBooking, createManualAppointment, deleteAppointment, deleteBookingPhoto, enrollMfaTotp, exportAppointmentsToExcel, findBookingClash, getAppointments, getAvailableSlotTimes, getBookingPhotos, getBookingRevenue, getCurrentUser, getEffectiveSchedule, getMfaAssuranceLevel, getReminderSettings, getServiceBasePrice, getUnavailableDays, getUnavailableDayEntries, getUnavailableWeekdays, getUnavailableWeekdayEntries, listMfaFactors, removeUnavailableEntry, saveUnavailableDay, saveUnavailableDateRange, saveUnavailableWeekday, sendCustomEmail, sendCustomerCancellationSms, sendCustomerConfirmationSms, signInAdmin, signOutAdmin, unenrollMfaFactor, updateAppointment, updateReminderSettings, getHolidaySettings, updateHolidaySettings, updateAdvertSettings, updateWeekendBookingsEnabled, updateGoogleReviewLink, verifyMfaCode, getDogNotes, getAllDogNotes, upsertDogNote, UnavailabilityEntry } from "../services/bookingService";
+import { buildIntakeLink, buildIntakeMessage, buildReviewMessage, buildWhatsAppLink, createCustomer, deleteCustomer, deleteDog, ensureIntakeToken, getCustomers, getDeletedCustomers, getFirstName, markIntakeSent, markReviewLinkSent, permanentlyDeleteCustomer, restoreCustomer, saveDog, sendIntakeEmail, sendIntakeSms, updateCustomer } from "../services/customerService";
 import { Appointment, Customer, Dog, IntakeStatus, Service, StarPost } from "../types";
 import { ALL_LOCATIONS, INTAKE_TERMS, LOCATIONS, MATTING_BULLETS, MATTING_CLOSING, MATTING_TERMS, SERVICES, SLOT_TIMES } from "../constants";
 import { createServiceCatalogEntry, deleteServiceCatalogEntry, getServiceCatalog, updateServiceCatalogEntry, uploadServicePhoto } from "../services/serviceCatalogService";
@@ -55,7 +55,7 @@ const AdminDashboard: React.FC = () => {
   const [mfaEnrollError, setMfaEnrollError] = useState("");
   const [mfaBusy, setMfaBusy] = useState(false);
   const [appointments, setAppointments] = useState<Appointment[]>([]);
-  const [view, setView] = useState<"dashboard" | "bookings" | "diary" | "unavailable" | "services" | "settings" | "customers" | "stars">("dashboard");
+  const [view, setView] = useState<"dashboard" | "bookings" | "diary" | "unavailable" | "services" | "settings" | "customers" | "stars" | "mailshot" | "reviews">("dashboard");
   const [selectedLocation, setSelectedLocation] = useState(ALL_LOCATIONS);
   const [isLoading, setIsLoading] = useState(true);
   const [dbStatus, setDbStatus] = useState<"connecting" | "connected" | "error">("connecting");
@@ -65,6 +65,16 @@ const AdminDashboard: React.FC = () => {
   const [unavailableWeekdayEntries, setUnavailableWeekdayEntries] = useState<UnavailabilityEntry[]>([]);
   const [newDateLocationScope, setNewDateLocationScope] = useState<string>("");
   const [recurringLocationScope, setRecurringLocationScope] = useState<string>("");
+  const [rangeStart, setRangeStart] = useState("");
+  const [rangeEnd, setRangeEnd] = useState("");
+  const [rangeReason, setRangeReason] = useState("");
+  const [rangeLocationScope, setRangeLocationScope] = useState<string>("");
+  const [rangeSaving, setRangeSaving] = useState(false);
+  const [recurringTimeDay, setRecurringTimeDay] = useState<number>(1);
+  const [recurringTimeStart, setRecurringTimeStart] = useState("");
+  const [recurringTimeEnd, setRecurringTimeEnd] = useState("");
+  const [recurringTimeReason, setRecurringTimeReason] = useState("");
+  const [recurringTimeSaving, setRecurringTimeSaving] = useState(false);
   const [services, setServices] = useState<Service[]>(SERVICES);
   const [editingService, setEditingService] = useState<Service | null>(null);
   const [newService, setNewService] = useState<Partial<Service>>({});
@@ -149,6 +159,8 @@ const AdminDashboard: React.FC = () => {
   const [reviewLinkSaving, setReviewLinkSaving] = useState(false);
   const [reviewLinkStatus, setReviewLinkStatus] = useState<"idle" | "saved" | "error">("idle");
   const [sendingReviewLinkTo, setSendingReviewLinkTo] = useState<string | null>(null);
+  const [reviewsSearch, setReviewsSearch] = useState("");
+  const [reviewsOnlyNotAsked, setReviewsOnlyNotAsked] = useState(false);
 
   const [customerSearch, setCustomerSearch] = useState("");
   const [selectedCustomer, setSelectedCustomer] = useState<string | null>(null);
@@ -158,6 +170,13 @@ const AdminDashboard: React.FC = () => {
   const [showOnlyMattingDue, setShowOnlyMattingDue] = useState(false);
   const [showOnlyDepositOwed, setShowOnlyDepositOwed] = useState(false);
   const [showOnlyReviewAsked, setShowOnlyReviewAsked] = useState(false);
+
+  const [mailshotSearch, setMailshotSearch] = useState("");
+  const [mailshotSelectedIds, setMailshotSelectedIds] = useState<Set<string>>(new Set());
+  const [mailshotSubject, setMailshotSubject] = useState("");
+  const [mailshotMessage, setMailshotMessage] = useState("");
+  const [mailshotSending, setMailshotSending] = useState(false);
+  const [mailshotSentCount, setMailshotSentCount] = useState(0);
   type BookingStatusFilter = "all" | "pending" | "confirmed" | "completed" | "due_for_rebook" | "cancelled" | "deposit_unpaid" | "needs_time";
   const [bookingsStatusFilter, setBookingsStatusFilter] = useState<BookingStatusFilter>("all");
   const [legacyTimeDrafts, setLegacyTimeDrafts] = useState<Record<string, { date: string; time: string }>>({});
@@ -1358,7 +1377,7 @@ const AdminDashboard: React.FC = () => {
       alert("No email address on record for this customer.");
       return;
     }
-    const firstName = (booking.ownername || "").trim().split(/\s+/)[0] || "there";
+    const firstName = getFirstName(booking.ownername);
     setEmailSubject(`Your booking request - ${booking.dogname}`);
     setEmailMessage(`Hi ${firstName},\n\nThanks for your booking request for ${booking.dogname}.\n\n\n\nBest regards,\nMaisey Days Dog Grooming 🐾`);
     setShowEmailModal(true);
@@ -1379,6 +1398,39 @@ const AdminDashboard: React.FC = () => {
       alert(error.message || "Could not send the email.");
     } finally {
       setEmailSending(false);
+    }
+  };
+
+  const applyMailshotTemplate = (text: string, firstName: string) => text.replace(/\{\{\s*name\s*\}\}/gi, firstName);
+
+  const handleSendMailshot = async () => {
+    const recipients = customersList.filter((c) => mailshotSelectedIds.has(c.id) && c.email);
+    if (recipients.length === 0) return;
+    if (!mailshotSubject.trim() || !mailshotMessage.trim()) {
+      alert("Please write a subject and message.");
+      return;
+    }
+    if (!window.confirm(`Send this email to ${recipients.length} customer${recipients.length === 1 ? "" : "s"}? This can't be undone.`)) return;
+
+    setMailshotSending(true);
+    setMailshotSentCount(0);
+    const failed: { name: string; error: string }[] = [];
+    for (const customer of recipients) {
+      const firstName = getFirstName(customer.ownername);
+      try {
+        await sendCustomEmail(customer.email as string, customer.ownername, applyMailshotTemplate(mailshotSubject, firstName), applyMailshotTemplate(mailshotMessage, firstName), EMAIL_CUSTOMER_REPLY_TO);
+      } catch (error: any) {
+        failed.push({ name: customer.ownername, error: error.message || "Failed to send" });
+      }
+      setMailshotSentCount((prev) => prev + 1);
+      await new Promise((resolve) => setTimeout(resolve, 350));
+    }
+    setMailshotSending(false);
+    setMailshotSelectedIds(new Set());
+    if (failed.length === 0) {
+      alert(`Sent to all ${recipients.length} customer${recipients.length === 1 ? "" : "s"}.`);
+    } else {
+      alert(`Sent to ${recipients.length - failed.length} of ${recipients.length} customers.\n\nFailed:\n${failed.map((f) => `${f.name}: ${f.error}`).join("\n")}`);
     }
   };
 
@@ -1690,6 +1742,12 @@ const AdminDashboard: React.FC = () => {
           </button>
           <button onClick={() => setView("services")} className={`px-4 py-2 rounded-lg font-bold transition-all ${view === "services" ? "bg-white shadow-sm text-emerald-600" : "text-slate-600"}`}>
             Services
+          </button>
+          <button onClick={() => { setView("mailshot"); refreshCustomers(); }} className={`px-4 py-2 rounded-lg font-bold transition-all ${view === "mailshot" ? "bg-white shadow-sm text-emerald-600" : "text-slate-600"}`}>
+            📢 Mailshot
+          </button>
+          <button onClick={() => { setView("reviews"); refreshCustomers(); }} className={`px-4 py-2 rounded-lg font-bold transition-all ${view === "reviews" ? "bg-white shadow-sm text-emerald-600" : "text-slate-600"}`}>
+            ⭐ Ask for Reviews
           </button>
           <button onClick={() => { setView("stars"); getStarPosts().then(setStarPosts).catch(() => {}); }} className={`px-4 py-2 rounded-lg font-bold transition-all ${view === "stars" ? "bg-white shadow-sm text-emerald-600" : "text-slate-600"}`}>
             Stars ⭐
@@ -2352,11 +2410,13 @@ const AdminDashboard: React.FC = () => {
       {view === "unavailable" && (() => {
         const locationLabel = (id: string | null) => (id ? LOCATIONS.find((l) => l.id === id)?.name || id : "Both Locations");
         const sortedDayEntries = [...unavailableDayEntries].sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+        const timeRangeLabel = (e: UnavailabilityEntry) => (e.start_time ? ` ${e.start_time.slice(0, 5)}–${(e.end_time || e.start_time).slice(0, 5)}` : "");
         const weekdayLabelFor = (idx: number) => {
           const entries = unavailableWeekdayEntries.filter((e) => e.day_of_week === idx);
           if (entries.length === 0) return null;
-          return entries.map((e) => locationLabel(e.locationid)).join(", ");
+          return entries.map((e) => `${locationLabel(e.locationid)}${timeRangeLabel(e)}`).join(", ");
         };
+        const recurringTimeEntries = unavailableWeekdayEntries.filter((e) => e.start_time);
         return (
         <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-8">
           <h2 className="text-2xl font-black mb-6 text-slate-800">Closed Dates</h2>
@@ -2390,6 +2450,59 @@ const AdminDashboard: React.FC = () => {
                 className="bg-teal-600 hover:bg-teal-700 text-white px-8 py-3 rounded-lg font-bold transition-all"
               >
                 Add
+              </button>
+            </div>
+          </div>
+
+          <div className="mb-8 bg-teal-50 border border-teal-200 rounded-2xl p-6">
+            <label className="block text-sm font-bold text-slate-700 mb-1">Book Off a Date Range (e.g. a holiday)</label>
+            <p className="text-xs text-slate-500 mb-3">Pick a start and end date and every day in between gets closed in one go — no need to add each day separately.</p>
+            <div className="flex flex-wrap gap-4 items-center">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold text-slate-500 uppercase">From</span>
+                <input type="date" value={rangeStart} onChange={(e) => setRangeStart(e.target.value)} className="px-4 py-3 bg-white border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-teal-500" />
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold text-slate-500 uppercase">To</span>
+                <input type="date" value={rangeEnd} onChange={(e) => setRangeEnd(e.target.value)} className="px-4 py-3 bg-white border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-teal-500" />
+              </div>
+              <input type="text" placeholder="Reason (e.g., Annual leave)" value={rangeReason} onChange={(e) => setRangeReason(e.target.value)} className="flex-1 min-w-[200px] px-4 py-3 bg-white border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-teal-500" />
+              <select value={rangeLocationScope} onChange={(e) => setRangeLocationScope(e.target.value)} className="px-4 py-3 bg-white border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-teal-500 font-bold">
+                <option value="">Both Locations</option>
+                {LOCATIONS.map((l) => (
+                  <option key={l.id} value={l.id}>
+                    {l.name}
+                  </option>
+                ))}
+              </select>
+              <button
+                disabled={rangeSaving}
+                onClick={async () => {
+                  if (!rangeStart || !rangeEnd) {
+                    alert("Please pick both a start and end date.");
+                    return;
+                  }
+                  if (rangeEnd < rangeStart) {
+                    alert("The end date needs to be on or after the start date.");
+                    return;
+                  }
+                  setRangeSaving(true);
+                  try {
+                    const count = await saveUnavailableDateRange(rangeStart, rangeEnd, rangeReason || "Holiday", rangeLocationScope || null);
+                    await loadData();
+                    setRangeStart("");
+                    setRangeEnd("");
+                    setRangeReason("");
+                    alert(`Closed ${count} day${count === 1 ? "" : "s"}.`);
+                  } catch (err: any) {
+                    alert(err?.message || "Could not save the date range.");
+                  } finally {
+                    setRangeSaving(false);
+                  }
+                }}
+                className="bg-teal-600 hover:bg-teal-700 disabled:opacity-60 text-white px-8 py-3 rounded-lg font-bold transition-all"
+              >
+                {rangeSaving ? "Saving…" : "Close These Dates"}
               </button>
             </div>
           </div>
@@ -2456,6 +2569,73 @@ const AdminDashboard: React.FC = () => {
                 );
               })}
             </div>
+            <p className="text-xs text-slate-400">Tap a day above to close it completely. For just part of the day — like every Wednesday morning — use the section below instead.</p>
+          </div>
+
+          <div className="border-t pt-8 mt-8">
+            <h3 className="text-lg font-bold text-slate-800 mb-4">Recurring Unavailable Times</h3>
+            <p className="text-slate-600 mb-4">For a day that's only partly closed every week — e.g. closed every Wednesday 9am–12pm but open the rest of the day. Setting this replaces any existing closure for that day and location (including a full-day one from above).</p>
+            <div className="flex flex-wrap gap-4 items-center mb-4">
+              <select value={recurringTimeDay} onChange={(e) => setRecurringTimeDay(Number(e.target.value))} className="px-4 py-3 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-teal-500 font-bold">
+                {DAYS.map((day, idx) => (
+                  <option key={idx} value={idx}>
+                    {day}
+                  </option>
+                ))}
+              </select>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold text-slate-500 uppercase">From</span>
+                <input type="time" value={recurringTimeStart} onChange={(e) => setRecurringTimeStart(e.target.value)} className="px-4 py-3 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-teal-500" />
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold text-slate-500 uppercase">To</span>
+                <input type="time" value={recurringTimeEnd} onChange={(e) => setRecurringTimeEnd(e.target.value)} className="px-4 py-3 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-teal-500" />
+              </div>
+              <input type="text" placeholder="Reason (optional)" value={recurringTimeReason} onChange={(e) => setRecurringTimeReason(e.target.value)} className="flex-1 min-w-[160px] px-4 py-3 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-teal-500" />
+              <button
+                disabled={recurringTimeSaving}
+                onClick={async () => {
+                  if (!recurringTimeStart || !recurringTimeEnd) {
+                    alert("Please choose both a start and finish time.");
+                    return;
+                  }
+                  if (recurringTimeEnd <= recurringTimeStart) {
+                    alert("The finish time needs to be after the start time.");
+                    return;
+                  }
+                  setRecurringTimeSaving(true);
+                  try {
+                    await saveUnavailableWeekday(recurringTimeDay, recurringTimeReason || `Closed on ${DAYS[recurringTimeDay]}`, recurringLocationScope || null, recurringTimeStart, recurringTimeEnd);
+                    await loadData();
+                    setRecurringTimeStart("");
+                    setRecurringTimeEnd("");
+                    setRecurringTimeReason("");
+                  } catch (err: any) {
+                    alert(err?.message || "Could not save.");
+                  } finally {
+                    setRecurringTimeSaving(false);
+                  }
+                }}
+                className="bg-teal-600 hover:bg-teal-700 disabled:opacity-60 text-white px-8 py-3 rounded-lg font-bold transition-all"
+              >
+                {recurringTimeSaving ? "Saving…" : "Add"}
+              </button>
+            </div>
+            {recurringTimeEntries.length > 0 && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {recurringTimeEntries.map((entry) => (
+                  <div key={entry.id} className="bg-rose-50 border border-rose-200 p-4 rounded-lg flex justify-between items-center">
+                    <span>
+                      <span className="font-bold text-slate-800">{DAYS[entry.day_of_week as number]}{timeRangeLabel(entry)}</span>
+                      <span className="block text-xs text-rose-600 font-bold">{locationLabel(entry.locationid)}{entry.reason ? ` · ${entry.reason}` : ""}</span>
+                    </span>
+                    <button onClick={() => removeUnavailableEntry(entry.id).then(() => loadData())} className="text-rose-600 hover:text-rose-700 font-bold">
+                      Remove
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
         );
@@ -4060,6 +4240,226 @@ const AdminDashboard: React.FC = () => {
                   </div>
                 </div>
               );})}
+            </div>
+          </div>
+        );
+      })()}
+
+      {view === "mailshot" && (() => {
+        const withEmail = customersList.filter((c) => c.email);
+        const withoutEmailCount = customersList.length - withEmail.length;
+        const search = mailshotSearch.toLowerCase();
+        const filtered = withEmail.filter((c) => !search || c.ownername.toLowerCase().includes(search) || (c.email || "").toLowerCase().includes(search));
+        const allFilteredSelected = filtered.length > 0 && filtered.every((c) => mailshotSelectedIds.has(c.id));
+
+        const toggleOne = (id: string) => {
+          setMailshotSelectedIds((prev) => {
+            const next = new Set(prev);
+            if (next.has(id)) next.delete(id);
+            else next.add(id);
+            return next;
+          });
+        };
+
+        const toggleAllFiltered = () => {
+          setMailshotSelectedIds((prev) => {
+            const next = new Set(prev);
+            if (allFilteredSelected) filtered.forEach((c) => next.delete(c.id));
+            else filtered.forEach((c) => next.add(c.id));
+            return next;
+          });
+        };
+
+        return (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-8">
+              <div className="flex flex-wrap justify-between items-center gap-4 mb-4">
+                <h2 className="text-2xl font-black text-slate-800">Mailshot Recipients</h2>
+                <span className="px-3 py-1 bg-emerald-100 text-emerald-700 text-xs font-bold rounded-full whitespace-nowrap">{mailshotSelectedIds.size} selected</span>
+              </div>
+              <p className="text-xs text-slate-500 mb-4">
+                {withEmail.length} customer{withEmail.length === 1 ? "" : "s"} have an email on file
+                {withoutEmailCount > 0 ? ` (${withoutEmailCount} without an email aren't shown).` : "."}
+              </p>
+              <input
+                type="text"
+                value={mailshotSearch}
+                onChange={(e) => setMailshotSearch(e.target.value)}
+                placeholder="Search by name or email..."
+                className="w-full px-6 py-4 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-emerald-500 font-medium mb-4"
+              />
+              <div className="flex gap-2 mb-4">
+                <button onClick={toggleAllFiltered} className="bg-slate-100 hover:bg-slate-200 text-slate-600 px-4 py-2 rounded-xl font-bold text-sm">
+                  {allFilteredSelected ? "Deselect all" : "Select all"} {mailshotSearch ? "(filtered)" : ""}
+                </button>
+                {mailshotSelectedIds.size > 0 && (
+                  <button onClick={() => setMailshotSelectedIds(new Set())} className="bg-slate-100 hover:bg-slate-200 text-slate-600 px-4 py-2 rounded-xl font-bold text-sm">
+                    Clear selection
+                  </button>
+                )}
+              </div>
+              <div className="space-y-2 max-h-[28rem] overflow-y-auto">
+                {filtered.length === 0 && <div className="text-center py-12 text-slate-400">No customers with an email match your search.</div>}
+                {filtered.map((customer) => (
+                  <label key={customer.id} className="flex items-center gap-3 p-3 bg-slate-50 hover:bg-slate-100 rounded-xl border border-slate-200 cursor-pointer">
+                    <input type="checkbox" checked={mailshotSelectedIds.has(customer.id)} onChange={() => toggleOne(customer.id)} className="w-4 h-4 accent-emerald-600" />
+                    <div className="min-w-0 flex-1">
+                      <div className="font-bold text-slate-800 text-sm truncate">{customer.ownername}</div>
+                      <div className="text-xs text-slate-500 truncate">{customer.email}</div>
+                    </div>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-8">
+              <h2 className="text-2xl font-black text-slate-800 mb-1">Compose Email</h2>
+              <p className="text-xs text-slate-500 mb-4">
+                Sends from the business email address — replies land in {EMAIL_CUSTOMER_REPLY_TO}. Use <code>{"{{name}}"}</code> in the subject or message to insert each customer's first name.
+              </p>
+              <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Subject</label>
+              <input value={mailshotSubject} onChange={(e) => setMailshotSubject(e.target.value)} placeholder="e.g. We've got a new website!" className="w-full px-4 py-2 border border-slate-200 rounded-lg mb-3" />
+              <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Message</label>
+              <textarea
+                value={mailshotMessage}
+                onChange={(e) => setMailshotMessage(e.target.value)}
+                rows={12}
+                placeholder={"Hi {{name}},\n\n"}
+                className="w-full px-4 py-3 border border-slate-200 rounded-lg mb-4"
+              />
+              <button
+                disabled={mailshotSending || mailshotSelectedIds.size === 0}
+                onClick={handleSendMailshot}
+                className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white px-5 py-3 rounded-xl font-bold"
+              >
+                {mailshotSending ? `Sending... (${mailshotSentCount}/${mailshotSelectedIds.size})` : `Send to ${mailshotSelectedIds.size} customer${mailshotSelectedIds.size === 1 ? "" : "s"}`}
+              </button>
+            </div>
+          </div>
+        );
+      })()}
+
+      {view === "reviews" && (() => {
+        const eligible = customersList
+          .map((customer) => {
+            const bookings = bookingsForCustomer(customer);
+            const dogNameSet = new Set<string>((customer.dogs || []).map((d) => d.name));
+            bookings.forEach((apt) => apt.dogname && dogNameSet.add(apt.dogname));
+            let lastVisit: string | null = null;
+            bookings.forEach((apt) => {
+              if (apt.booking_status === "completed" && apt.completed_at && (!lastVisit || apt.completed_at > lastVisit)) lastVisit = apt.completed_at;
+            });
+            return { customer, dogNames: Array.from(dogNameSet), hasCompletedBooking: bookings.some((b) => b.booking_status === "completed"), lastVisit };
+          })
+          .filter((c) => c.hasCompletedBooking);
+
+        const withPhone = eligible.filter((c) => c.customer.phone);
+        const noPhoneCount = eligible.length - withPhone.length;
+        const askedCount = withPhone.filter((c) => c.customer.review_link_sent_at).length;
+        const notAskedCount = withPhone.length - askedCount;
+
+        const search = reviewsSearch.toLowerCase();
+        const filtered = withPhone
+          .filter((c) => !reviewsOnlyNotAsked || !c.customer.review_link_sent_at)
+          .filter((c) => !search || c.customer.ownername.toLowerCase().includes(search) || (c.customer.phone || "").toLowerCase().includes(search) || c.dogNames.some((d) => d.toLowerCase().includes(search)))
+          .sort((a, b) => {
+            const aAsked = a.customer.review_link_sent_at || "";
+            const bAsked = b.customer.review_link_sent_at || "";
+            if (!aAsked && bAsked) return -1;
+            if (aAsked && !bAsked) return 1;
+            if (!aAsked && !bAsked) return (b.lastVisit || "").localeCompare(a.lastVisit || "");
+            return bAsked.localeCompare(aAsked);
+          });
+
+        return (
+          <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-8">
+            <div className="flex flex-wrap justify-between items-center gap-4 mb-1">
+              <h2 className="text-2xl font-black text-slate-800">Ask for Reviews</h2>
+            </div>
+            <p className="text-xs text-slate-500 mb-4">
+              Every customer with a completed groom and a phone number on file, so you can work through the whole list — not just recent bookings.
+              {noPhoneCount > 0 ? ` ${noPhoneCount} completed customer${noPhoneCount === 1 ? "" : "s"} without a phone number aren't shown.` : ""}
+            </p>
+
+            {!reviewLinkForm && (
+              <div className="mb-4 px-4 py-3 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-800 font-semibold">
+                Add your Google review link in Settings before sending review requests.
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
+              <div className="bg-emerald-50 p-4 rounded-xl border border-emerald-200">
+                <div className="text-2xl font-black text-emerald-700">{withPhone.length}</div>
+                <div className="text-xs font-bold text-emerald-600 uppercase">Eligible Customers</div>
+              </div>
+              <div className="bg-amber-50 p-4 rounded-xl border border-amber-200">
+                <div className="text-2xl font-black text-amber-700">{notAskedCount}</div>
+                <div className="text-xs font-bold text-amber-600 uppercase">Not Yet Asked</div>
+              </div>
+              <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
+                <div className="text-2xl font-black text-slate-700">{askedCount}</div>
+                <div className="text-xs font-bold text-slate-600 uppercase">Already Asked</div>
+              </div>
+            </div>
+
+            <input
+              type="text"
+              value={reviewsSearch}
+              onChange={(e) => setReviewsSearch(e.target.value)}
+              placeholder="Search by name, phone, or dog..."
+              className="w-full px-6 py-4 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-emerald-500 font-medium mb-4"
+            />
+            <button
+              onClick={() => setReviewsOnlyNotAsked((prev) => !prev)}
+              className={`mb-4 px-4 py-2 rounded-xl text-sm font-bold transition-all ${reviewsOnlyNotAsked ? "bg-amber-500 text-white shadow" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}
+            >
+              ⭐ Only show not yet asked
+            </button>
+
+            <div className="space-y-3">
+              {filtered.length === 0 && <div className="text-center py-12 text-slate-400">No customers match.</div>}
+              {filtered.map(({ customer, dogNames, lastVisit }) => {
+                const reviewNotSent = !customer.review_link_sent_at;
+                return (
+                  <div key={customer.id} className="flex flex-wrap items-center justify-between gap-4 p-4 bg-slate-50 rounded-2xl border border-slate-200">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2 mb-1">
+                        <span className="font-black text-slate-800">{customer.ownername}</span>
+                        {reviewNotSent ? (
+                          <span className="px-3 py-1 bg-amber-100 text-amber-700 text-xs font-bold rounded-full whitespace-nowrap">⭐ Not asked yet</span>
+                        ) : (
+                          <span className="px-3 py-1 bg-emerald-100 text-emerald-700 text-xs font-bold rounded-full whitespace-nowrap">
+                            ✓ Asked {new Date(customer.review_link_sent_at as string).toLocaleDateString("en-GB")}
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-sm text-slate-600">
+                        {dogNames.length > 0 && <span>🐕 {dogNames.join(", ")} · </span>}
+                        📞 {customer.phone}
+                        {lastVisit && <span> · Last visit: {new Date(lastVisit).toLocaleDateString("en-GB")}</span>}
+                      </div>
+                    </div>
+                    <button
+                      disabled={sendingReviewLinkTo === customer.id}
+                      onClick={() => {
+                        if (!reviewLinkForm) {
+                          alert("Add your Google review link in Settings first.");
+                          return;
+                        }
+                        setSendingReviewLinkTo(customer.id);
+                        window.open(buildWhatsAppLink(customer.phone as string, buildReviewMessage(customer, reviewLinkForm, dogNames)), "_blank");
+                        markReviewLinkSent(customer.id, "whatsapp")
+                          .then(() => refreshCustomers())
+                          .catch((err: any) => alert(err?.message || "Could not update the customer record."))
+                          .finally(() => setSendingReviewLinkTo(null));
+                      }}
+                      className={`px-4 py-2 rounded-lg text-sm font-bold whitespace-nowrap disabled:opacity-50 ${reviewNotSent ? "bg-amber-500 hover:bg-amber-600 text-white" : "bg-slate-100 hover:bg-slate-200 text-slate-600"}`}
+                    >
+                      {sendingReviewLinkTo === customer.id ? "Opening…" : reviewNotSent ? "⭐ Ask for review" : "⭐ Ask again"}
+                    </button>
+                  </div>
+                );
+              })}
             </div>
           </div>
         );
