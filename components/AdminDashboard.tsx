@@ -38,7 +38,7 @@ const TriYesNo: React.FC<{ label: string; value: boolean | null | undefined; onC
 
 type AdminView = "dashboard" | "bookings" | "diary" | "unavailable" | "services" | "settings" | "customers" | "stars" | "mailshot" | "reviews";
 
-const AdminDashboard: React.FC<{ initialView?: AdminView }> = ({ initialView }) => {
+const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> = ({ initialView, minimal }) => {
   const [isAuthorized, setIsAuthorized] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -1727,38 +1727,40 @@ const AdminDashboard: React.FC<{ initialView?: AdminView }> = ({ initialView }) 
             Logout
           </button>
         </div>
-        <div className="flex bg-slate-200 p-1 rounded-xl">
-          <button onClick={() => setView("dashboard")} className={`px-4 py-2 rounded-lg font-bold transition-all ${view === "dashboard" ? "bg-white shadow-sm text-emerald-600" : "text-slate-600"}`}>
-            Dashboard
-          </button>
-          <button onClick={() => setView("bookings")} className={`px-4 py-2 rounded-lg font-bold transition-all ${view === "bookings" ? "bg-white shadow-sm text-emerald-600" : "text-slate-600"}`}>
-            Bookings
-          </button>
-          <button onClick={() => setView("diary")} className={`px-4 py-2 rounded-lg font-bold transition-all ${view === "diary" ? "bg-white shadow-sm text-emerald-600" : "text-slate-600"}`}>
-            Diary
-          </button>
-          <button onClick={() => { setView("customers"); refreshCustomers(); getAllDogNotes().then(setAllDogNotes).catch(() => {}); }} className={`px-4 py-2 rounded-lg font-bold transition-all ${view === "customers" ? "bg-white shadow-sm text-emerald-600" : "text-slate-600"}`}>
-            Customers
-          </button>
-          <button onClick={() => setView("unavailable")} className={`px-4 py-2 rounded-lg font-bold transition-all ${view === "unavailable" ? "bg-white shadow-sm text-emerald-600" : "text-slate-600"}`}>
-            Closed Dates
-          </button>
-          <button onClick={() => setView("services")} className={`px-4 py-2 rounded-lg font-bold transition-all ${view === "services" ? "bg-white shadow-sm text-emerald-600" : "text-slate-600"}`}>
-            Services
-          </button>
-          <button onClick={() => { setView("mailshot"); refreshCustomers(); }} className={`px-4 py-2 rounded-lg font-bold transition-all ${view === "mailshot" ? "bg-white shadow-sm text-emerald-600" : "text-slate-600"}`}>
-            📢 Mailshot
-          </button>
-          <button onClick={() => { setView("reviews"); refreshCustomers(); }} className={`px-4 py-2 rounded-lg font-bold transition-all ${view === "reviews" ? "bg-white shadow-sm text-emerald-600" : "text-slate-600"}`}>
-            ⭐ Ask for Reviews
-          </button>
-          <button onClick={() => { setView("stars"); getStarPosts().then(setStarPosts).catch(() => {}); }} className={`px-4 py-2 rounded-lg font-bold transition-all ${view === "stars" ? "bg-white shadow-sm text-emerald-600" : "text-slate-600"}`}>
-            Stars ⭐
-          </button>
-          <button onClick={() => { setView("settings"); refreshMfaFactors(); }} className={`px-4 py-2 rounded-lg font-bold transition-all ${view === "settings" ? "bg-white shadow-sm text-emerald-600" : "text-slate-600"}`}>
-            Settings
-          </button>
-        </div>
+        {!minimal && (
+          <div className="flex bg-slate-200 p-1 rounded-xl">
+            <button onClick={() => setView("dashboard")} className={`px-4 py-2 rounded-lg font-bold transition-all ${view === "dashboard" ? "bg-white shadow-sm text-emerald-600" : "text-slate-600"}`}>
+              Dashboard
+            </button>
+            <button onClick={() => setView("bookings")} className={`px-4 py-2 rounded-lg font-bold transition-all ${view === "bookings" ? "bg-white shadow-sm text-emerald-600" : "text-slate-600"}`}>
+              Bookings
+            </button>
+            <button onClick={() => setView("diary")} className={`px-4 py-2 rounded-lg font-bold transition-all ${view === "diary" ? "bg-white shadow-sm text-emerald-600" : "text-slate-600"}`}>
+              Diary
+            </button>
+            <button onClick={() => { setView("customers"); refreshCustomers(); getAllDogNotes().then(setAllDogNotes).catch(() => {}); }} className={`px-4 py-2 rounded-lg font-bold transition-all ${view === "customers" ? "bg-white shadow-sm text-emerald-600" : "text-slate-600"}`}>
+              Customers
+            </button>
+            <button onClick={() => setView("unavailable")} className={`px-4 py-2 rounded-lg font-bold transition-all ${view === "unavailable" ? "bg-white shadow-sm text-emerald-600" : "text-slate-600"}`}>
+              Closed Dates
+            </button>
+            <button onClick={() => setView("services")} className={`px-4 py-2 rounded-lg font-bold transition-all ${view === "services" ? "bg-white shadow-sm text-emerald-600" : "text-slate-600"}`}>
+              Services
+            </button>
+            <button onClick={() => { setView("mailshot"); refreshCustomers(); }} className={`px-4 py-2 rounded-lg font-bold transition-all ${view === "mailshot" ? "bg-white shadow-sm text-emerald-600" : "text-slate-600"}`}>
+              📢 Mailshot
+            </button>
+            <button onClick={() => { setView("reviews"); refreshCustomers(); }} className={`px-4 py-2 rounded-lg font-bold transition-all ${view === "reviews" ? "bg-white shadow-sm text-emerald-600" : "text-slate-600"}`}>
+              ⭐ Ask for Reviews
+            </button>
+            <button onClick={() => { setView("stars"); getStarPosts().then(setStarPosts).catch(() => {}); }} className={`px-4 py-2 rounded-lg font-bold transition-all ${view === "stars" ? "bg-white shadow-sm text-emerald-600" : "text-slate-600"}`}>
+              Stars ⭐
+            </button>
+            <button onClick={() => { setView("settings"); refreshMfaFactors(); }} className={`px-4 py-2 rounded-lg font-bold transition-all ${view === "settings" ? "bg-white shadow-sm text-emerald-600" : "text-slate-600"}`}>
+              Settings
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="mb-8 flex gap-4 overflow-x-auto pb-2">

@@ -955,7 +955,7 @@ Message: ${enquiryData.message}
       case "intake":
         return intakeToken ? <IntakeForm token={intakeToken} /> : null;
       case "admin":
-        return <AdminDashboard initialView={isManagerShortcut() ? "diary" : undefined} />;
+        return <AdminDashboard initialView={isManagerShortcut() ? "diary" : undefined} minimal={isManagerShortcut()} />;
       default:
         return <div className="p-20 text-center">Page Not Found</div>;
     }
