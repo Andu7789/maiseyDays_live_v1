@@ -1763,7 +1763,7 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
         )}
       </div>
 
-      <div className="mb-8 flex gap-4 overflow-x-auto pb-2">
+      <div className={`mb-8 flex gap-4 ${minimal ? "flex-col" : "overflow-x-auto pb-2"}`}>
         <button onClick={() => setSelectedLocation(ALL_LOCATIONS)} className={`px-6 py-3 rounded-2xl font-bold border-2 transition-all whitespace-nowrap ${selectedLocation === ALL_LOCATIONS ? "border-teal-600 bg-teal-50 text-teal-700" : "border-slate-200 text-slate-500"}`}>
           All Locations
         </button>

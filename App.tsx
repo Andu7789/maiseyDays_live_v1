@@ -1056,18 +1056,25 @@ Message: ${enquiryData.message}
     </>
   );
 
+  // The installed home-screen shortcut should look like a dedicated diary
+  // app, not the public site with the admin bolted on — skip the marketing
+  // header/footer chrome entirely for that entry point.
+  const minimalChrome = isManagerShortcut();
+
   return (
     <div className="min-h-screen flex flex-col bg-slate-50 selection:bg-teal-100 selection:text-teal-900">
-      <Header currentPage={currentPage} setPage={setCurrentPage} />
+      {!minimalChrome && <Header currentPage={currentPage} setPage={setCurrentPage} />}
       <main className="flex-grow">{renderPage()}</main>
-      <Footer setPage={setCurrentPage} />
+      {!minimalChrome && <Footer setPage={setCurrentPage} />}
       <AgreementModal />
       <BookingNoticeModal />
-      <div className="fixed bottom-4 left-4 z-40">
-        <button onClick={() => setCurrentPage(currentPage === "admin" ? "home" : "admin")} className="text-[9px] text-slate-300 hover:text-slate-600 font-black uppercase tracking-[0.2em] transition-colors">
-          {currentPage === "admin" ? "Exit Manager" : "Admin Login"}
-        </button>
-      </div>
+      {!minimalChrome && (
+        <div className="fixed bottom-4 left-4 z-40">
+          <button onClick={() => setCurrentPage(currentPage === "admin" ? "home" : "admin")} className="text-[9px] text-slate-300 hover:text-slate-600 font-black uppercase tracking-[0.2em] transition-colors">
+            {currentPage === "admin" ? "Exit Manager" : "Admin Login"}
+          </button>
+        </div>
+      )}
     </div>
   );
 };
