@@ -12,8 +12,12 @@ import { getServiceCatalog } from "./services/serviceCatalogService";
 import { getPublicStarPosts } from "./services/starPostService";
 
 
+// Lets the installed home-screen app icon (manifest start_url: "/#manager")
+// open straight into the admin diary instead of the public homepage.
+const isManagerShortcut = () => window.location.hash === "#manager";
+
 const App: React.FC = () => {
-  const [currentPage, setCurrentPage] = useState<Page>("home");
+  const [currentPage, setCurrentPage] = useState<Page>(() => (isManagerShortcut() ? "admin" : "home"));
   // Leaving the admin section — by any route (the Exit Manager button, the
   // regular header nav, etc.) — signs out entirely rather than just navigating
   // away. Otherwise the underlying Supabase session (already elevated past 2FA)
@@ -951,7 +955,7 @@ Message: ${enquiryData.message}
       case "intake":
         return intakeToken ? <IntakeForm token={intakeToken} /> : null;
       case "admin":
-        return <AdminDashboard />;
+        return <AdminDashboard initialView={isManagerShortcut() ? "diary" : undefined} />;
       default:
         return <div className="p-20 text-center">Page Not Found</div>;
     }

@@ -36,7 +36,9 @@ const TriYesNo: React.FC<{ label: string; value: boolean | null | undefined; onC
   </div>
 );
 
-const AdminDashboard: React.FC = () => {
+type AdminView = "dashboard" | "bookings" | "diary" | "unavailable" | "services" | "settings" | "customers" | "stars" | "mailshot" | "reviews";
+
+const AdminDashboard: React.FC<{ initialView?: AdminView }> = ({ initialView }) => {
   const [isAuthorized, setIsAuthorized] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -55,7 +57,7 @@ const AdminDashboard: React.FC = () => {
   const [mfaEnrollError, setMfaEnrollError] = useState("");
   const [mfaBusy, setMfaBusy] = useState(false);
   const [appointments, setAppointments] = useState<Appointment[]>([]);
-  const [view, setView] = useState<"dashboard" | "bookings" | "diary" | "unavailable" | "services" | "settings" | "customers" | "stars" | "mailshot" | "reviews">("dashboard");
+  const [view, setView] = useState<AdminView>(initialView || "dashboard");
   const [selectedLocation, setSelectedLocation] = useState(ALL_LOCATIONS);
   const [isLoading, setIsLoading] = useState(true);
   const [dbStatus, setDbStatus] = useState<"connecting" | "connected" | "error">("connecting");
@@ -113,6 +115,7 @@ const AdminDashboard: React.FC = () => {
   const [pendingConfirmChannel, setPendingConfirmChannel] = useState<"sms" | "whatsapp" | "none">("sms");
   const [diaryWeekStart, setDiaryWeekStart] = useState<Date>(() => getMonday(new Date()));
   const [diarySearch, setDiarySearch] = useState("");
+  const [diaryMobileDate, setDiaryMobileDate] = useState<Date>(() => new Date());
   const [showDiarySlotModal, setShowDiarySlotModal] = useState(false);
   const [diarySlotDate, setDiarySlotDate] = useState("");
   const [diarySlotTime, setDiarySlotTime] = useState("");
@@ -3865,11 +3868,27 @@ const AdminDashboard: React.FC = () => {
             return next;
           });
 
+        // Single-day agenda for narrow screens — the 7-day grid needs
+        // horizontal scrolling through cramped columns on a phone, so mobile
+        // gets one day at a time instead, reusing the same slot/booking logic.
+        const mobileDateStr = toDateString(diaryMobileDate);
+        const mobileDayLabel = diaryMobileDate.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "short" });
+        const shiftMobileDay = (days: number) =>
+          setDiaryMobileDate((prev) => {
+            const next = new Date(prev);
+            next.setDate(next.getDate() + days);
+            return next;
+          });
+        const jumpToDate = (date: string) => {
+          setDiaryWeekStart(getMonday(new Date(`${date}T00:00:00`)));
+          setDiaryMobileDate(new Date(`${date}T00:00:00`));
+        };
+
         return (
           <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-6">
             <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
               <h2 className="text-2xl font-black text-slate-800">Diary</h2>
-              <div className="flex items-center gap-2">
+              <div className="hidden md:flex items-center gap-2">
                 <button onClick={() => shiftWeek(-1)} className="px-4 py-2 bg-slate-100 hover:bg-slate-200 rounded-xl font-black text-slate-600">
                   ‹
                 </button>
@@ -3879,6 +3898,22 @@ const AdminDashboard: React.FC = () => {
                 </button>
                 <button onClick={() => setDiaryWeekStart(getMonday(new Date()))} className="ml-2 px-4 py-2 bg-teal-50 hover:bg-teal-100 text-teal-700 rounded-xl font-bold text-sm">
                   Today
+                </button>
+              </div>
+              <div className="flex md:hidden items-center gap-2 w-full justify-between">
+                <button onClick={() => shiftMobileDay(-1)} className="px-5 py-3 bg-slate-100 hover:bg-slate-200 rounded-xl font-black text-slate-600 text-lg">
+                  ‹
+                </button>
+                <div className="text-center">
+                  <div className="font-bold text-slate-800">{mobileDayLabel}</div>
+                  {mobileDateStr !== todayStr && (
+                    <button onClick={() => setDiaryMobileDate(new Date())} className="text-xs font-bold text-teal-600">
+                      Jump to today
+                    </button>
+                  )}
+                </div>
+                <button onClick={() => shiftMobileDay(1)} className="px-5 py-3 bg-slate-100 hover:bg-slate-200 rounded-xl font-black text-slate-600 text-lg">
+                  ›
                 </button>
               </div>
             </div>
@@ -3897,7 +3932,7 @@ const AdminDashboard: React.FC = () => {
                     <button
                       key={apt.id}
                       onClick={() => {
-                        setDiaryWeekStart(getMonday(new Date(`${schedule.date}T00:00:00`)));
+                        jumpToDate(schedule.date);
                         openUpdateModal(apt);
                       }}
                       className="w-full flex flex-wrap items-center justify-between gap-2 p-3 text-left hover:bg-white transition-colors"
@@ -3924,7 +3959,69 @@ const AdminDashboard: React.FC = () => {
               <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-red-200 border border-red-300"></span> Closed day</span>
             </div>
 
-            <div className="overflow-x-auto">
+            {/* Mobile: one day at a time, full-width rows — the 7-day grid below needs
+                horizontal scrolling through cramped columns, unusable one-handed on a phone. */}
+            <div className="md:hidden space-y-3">
+              {isClosedDay(mobileDateStr) && (
+                <div className="px-4 py-3 bg-red-50 border border-red-200 rounded-xl text-red-700 font-bold text-sm text-center">Closed this day</div>
+              )}
+              {SLOT_TIMES.map((slot, slotIndex) => {
+                const cellBookings = bookingsFor(mobileDateStr, slot);
+                const closed = isClosedDay(mobileDateStr);
+                const overlapping = hasRealOverlap(cellBookings);
+                const overflowFromPrev = getOverflowIntoNextRow(mobileDateStr, slotIndex - 1);
+                return (
+                  <div key={slot} className={`rounded-2xl border p-3 ${closed || overlapping ? "bg-red-50 border-red-200" : "bg-white border-slate-100"}`}>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-sm font-black text-slate-500">{slot}</span>
+                      {overlapping && <span className="text-[10px] font-black text-red-500 uppercase">Double booked</span>}
+                    </div>
+                    {overflowFromPrev.length > 0 && (
+                      <div className="text-xs font-bold text-slate-400 border-b border-dashed border-slate-300 pb-2 mb-2">
+                        ↳ {overflowFromPrev.map(({ apt }) => apt.dogname).join(", ")} until {formatMinutesAsTime(overflowFromPrev[0].schedule.startMinutes + overflowFromPrev[0].schedule.durationMinutes)}
+                      </div>
+                    )}
+                    {cellBookings.length === 0 ? (
+                      !closed && (
+                        <button
+                          onClick={() => openDiarySlotModal(mobileDateStr, slot)}
+                          className="w-full py-3 rounded-xl border-2 border-dashed border-slate-200 text-slate-400 font-bold text-sm hover:border-teal-300 hover:text-teal-600 transition-colors"
+                        >
+                          + Add booking
+                        </button>
+                      )
+                    ) : (
+                      <div className="space-y-2">
+                        {cellBookings.map(({ apt, schedule }) => {
+                          const isStandardSlot = schedule.timeLabel === slot && schedule.durationMinutes === 120;
+                          const endLabel = formatMinutesAsTime(schedule.startMinutes + schedule.durationMinutes);
+                          return (
+                            <button
+                              key={apt.id}
+                              onClick={() => openUpdateModal(apt)}
+                              className={`w-full text-left px-4 py-3 rounded-xl border font-bold ${chipStyle(apt)} ${!isStandardSlot ? "border-l-4" : ""}`}
+                            >
+                              <span className="block text-base break-words">🐕 {apt.dogname}</span>
+                              <span className="block text-xs font-medium opacity-75 mt-0.5 break-words">
+                                {apt.ownername}
+                                {apt.phone ? ` · ${apt.phone}` : ""}
+                              </span>
+                              <span className="block text-xs font-medium opacity-75 mt-0.5 break-words">
+                                {!isStandardSlot ? `⏰ ${schedule.timeLabel}–${endLabel} · ` : ""}
+                                {services.find((s) => s.id === apt.serviceid)?.name || apt.serviceid}
+                                {selectedLocation === ALL_LOCATIONS ? ` · ${LOCATIONS.find((l) => l.id === apt.locationid)?.name?.split(" ")[0] || ""}` : ""}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="hidden md:block overflow-x-auto">
               <div className="min-w-[1150px]">
                 {/* Day headers */}
                 <div className="grid grid-cols-[64px_repeat(7,1fr)] gap-2 mb-2">
