@@ -3806,11 +3806,16 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
           (apt.ownername || "").toLowerCase().includes(search) ||
           (apt.phone || "").replace(/\s+/g, "").includes(search.replace(/\s+/g, ""));
 
+        // Not restricted to weekDates: bookingsFor() already filters to the exact
+        // date it's asked for, and the mobile agenda navigates day-by-day
+        // independently of the desktop week — restricting the source list to the
+        // desktop's currently-loaded week silently dropped mobile's data whenever
+        // it stepped outside that window.
         const scheduled = appointments
           .filter((apt) => selectedLocation === ALL_LOCATIONS || apt.locationid === selectedLocation)
           .filter(matchesSearch)
           .map((apt) => ({ apt, schedule: getEffectiveSchedule(apt) }))
-          .filter((entry) => entry.schedule && weekDates.includes(entry.schedule.date)) as { apt: Appointment; schedule: NonNullable<ReturnType<typeof getEffectiveSchedule>> }[];
+          .filter((entry) => entry.schedule) as { apt: Appointment; schedule: NonNullable<ReturnType<typeof getEffectiveSchedule>> }[];
 
         // Search results across ALL weeks, so any booking can be found and jumped to
         const searchResults = !search
