@@ -94,11 +94,14 @@
         <h1>🔐 Google Refresh Token Generator</h1>
         <p><strong>Maisey Days Booking System - Calendar Sync Setup</strong></p>
 
-        <!-- Step 1: Authorize -->
+        <!-- Step 1: Enter credentials, then authorize -->
         <div class="step" id="step1">
-            <h2>Step 1: Authorize with Google</h2>
-            <p>Click the button below to authorize this app to access your Google Calendar:</p>
+            <h2>Step 1: Enter Your OAuth Client Credentials</h2>
+            <p>From Google Cloud Console → APIs &amp; Services → Credentials. These are entered here only — never saved to this file or committed to git.</p>
+            <input type="text" id="inputClientId" placeholder="Client ID (ends in .apps.googleusercontent.com)">
+            <input type="text" id="inputClientSecret" placeholder="Client Secret (starts with GOCSPX-)">
             <button onclick="startOAuthFlow()">🔓 Authorize Google Calendar Access</button>
+            <div class="error" id="credError"></div>
         </div>
 
         <!-- Step 2: Enter Authorization Code -->
@@ -143,14 +146,24 @@
     </div>
 
     <script>
-        const CLIENT_ID = "440123314585-fcoinivjrlpp9bd3li5v2bqptfo88e16.apps.googleusercontent.com";
-        const CLIENT_SECRET = "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";
         const REDIRECT_URI = "http://localhost";
         const SCOPES = "https://www.googleapis.com/auth/calendar";
 
+        let CLIENT_ID = "";
+        let CLIENT_SECRET = "";
         let refreshToken = "";
 
         function startOAuthFlow() {
+            CLIENT_ID = document.getElementById('inputClientId').value.trim();
+            CLIENT_SECRET = document.getElementById('inputClientSecret').value.trim();
+            const credError = document.getElementById('credError');
+            if (!CLIENT_ID || !CLIENT_SECRET) {
+                credError.style.display = 'block';
+                credError.textContent = 'Please enter both the Client ID and Client Secret first.';
+                return;
+            }
+            credError.style.display = 'none';
+
             const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?` +
                 `client_id=${CLIENT_ID}&` +
                 `redirect_uri=${encodeURIComponent(REDIRECT_URI)}&` +

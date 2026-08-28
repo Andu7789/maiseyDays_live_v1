@@ -26,3 +26,7 @@ dist-ssr
 # Local tool files
 .claude/
 supabase/.temp/
+
+# Secrets — never commit
+.env
+.env.*
