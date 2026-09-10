@@ -286,22 +286,22 @@ const ensureCustomerForAppointment = async (app: Appointment, appointmentId: str
     // means they're an active customer again.
     let customer: { id: string; deleted_at: string | null } | undefined;
     if (email) {
-      const { data } = await supabase.from("customers").select("id, deleted_at").ilike("email", email).limit(1);
+      const { data } = await supabase.from("md_customers").select("id, deleted_at").ilike("email", email).limit(1);
       customer = data?.[0];
     }
     if (!customer && phone) {
-      const { data } = await supabase.from("customers").select("id, deleted_at").eq("phone", phone).limit(1);
+      const { data } = await supabase.from("md_customers").select("id, deleted_at").eq("phone", phone).limit(1);
       customer = data?.[0];
     }
     let customerId = customer?.id;
     if (customer?.deleted_at) {
-      await supabase.from("customers").update({ deleted_at: null }).eq("id", customer.id);
+      await supabase.from("md_customers").update({ deleted_at: null }).eq("id", customer.id);
     }
     if (!customerId) {
       const payload: Record<string, unknown> = { ownername: app.ownername, source: app.booking_source === "manual" ? "manual" : "web" };
       if (email) payload.email = email;
       if (phone) payload.phone = phone;
-      const { data: created, error: createErr } = await supabase.from("customers").insert([payload]).select();
+      const { data: created, error: createErr } = await supabase.from("md_customers").insert([payload]).select();
       if (createErr) {
         console.error("Could not auto-create customer for new booking:", createErr);
         return;

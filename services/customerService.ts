@@ -11,8 +11,8 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 export const getCustomers = async (): Promise<Customer[]> => {
   const [customersResult, dogsResult] = await Promise.all([
-    supabase.from("customers").select("*").is("deleted_at", null).order("created_at", { ascending: false }),
-    supabase.from("dogs").select("*"),
+    supabase.from("md_customers").select("*").is("deleted_at", null).order("created_at", { ascending: false }),
+    supabase.from("md_dogs").select("*"),
   ]);
   if (customersResult.error) throw new Error(customersResult.error.message);
 
@@ -31,7 +31,7 @@ export const getCustomers = async (): Promise<Customer[]> => {
 
 /** Customers that have been soft-deleted, for the "Deleted customers" restore list. */
 export const getDeletedCustomers = async (): Promise<Customer[]> => {
-  const { data, error } = await supabase.from("customers").select("*").not("deleted_at", "is", null).order("deleted_at", { ascending: false });
+  const { data, error } = await supabase.from("md_customers").select("*").not("deleted_at", "is", null).order("deleted_at", { ascending: false });
   if (error) throw new Error(error.message);
   return (data || []).map((c: any) => ({ ...c, intake_status: c.intake_status || "not_sent", dogs: [] }));
 };
@@ -44,7 +44,7 @@ export const createCustomer = async (details: { ownername: string; email?: strin
   if (details.email?.trim()) payload.email = details.email.trim();
   if (details.phone?.trim()) payload.phone = details.phone.trim();
 
-  const { data, error } = await supabase.from("customers").insert([payload]).select();
+  const { data, error } = await supabase.from("md_customers").insert([payload]).select();
   if (error) {
     if (error.message.toLowerCase().includes("duplicate") || error.code === "23505") {
       throw new Error("A customer with this email already exists.");
@@ -58,7 +58,7 @@ export const updateCustomer = async (id: string, updates: Partial<Customer>) => 
   const payload: Record<string, unknown> = { ...updates, updated_at: new Date().toISOString() };
   delete payload.id;
   delete payload.dogs;
-  const { error } = await supabase.from("customers").update(payload).eq("id", id);
+  const { error } = await supabase.from("md_customers").update(payload).eq("id", id);
   if (error) throw new Error(error.message);
 };
 
@@ -70,7 +70,7 @@ export const updateCustomer = async (id: string, updates: Partial<Customer>) => 
  */
 export const deleteCustomer = async (id: string) => {
   const nowIso = new Date().toISOString();
-  const { error } = await supabase.from("customers").update({ deleted_at: nowIso, updated_at: nowIso }).eq("id", id);
+  const { error } = await supabase.from("md_customers").update({ deleted_at: nowIso, updated_at: nowIso }).eq("id", id);
   if (error) throw new Error(error.message);
 
   const { data: appointments, error: apptError } = await supabase.from("appointments").select("id, status, booking_status, date, confirmed_date").eq("customer_id", id);
@@ -90,7 +90,7 @@ export const deleteCustomer = async (id: string) => {
 
 /** Restores a soft-deleted customer. Bookings that were cancelled on delete stay cancelled. */
 export const restoreCustomer = async (id: string) => {
-  const { error } = await supabase.from("customers").update({ deleted_at: null, updated_at: new Date().toISOString() }).eq("id", id);
+  const { error } = await supabase.from("md_customers").update({ deleted_at: null, updated_at: new Date().toISOString() }).eq("id", id);
   if (error) throw new Error(error.message);
 };
 
@@ -100,7 +100,7 @@ export const restoreCustomer = async (id: string) => {
  * are kept but lose the customer_id link (DB sets it null).
  */
 export const permanentlyDeleteCustomer = async (id: string) => {
-  const { error } = await supabase.from("customers").delete().eq("id", id);
+  const { error } = await supabase.from("md_customers").delete().eq("id", id);
   if (error) throw new Error(error.message);
 };
 
@@ -121,16 +121,16 @@ export const saveDog = async (customerId: string, dog: Dog) => {
     updated_at: new Date().toISOString(),
   };
   if (dog.id) {
-    const { error } = await supabase.from("dogs").update(payload).eq("id", dog.id);
+    const { error } = await supabase.from("md_dogs").update(payload).eq("id", dog.id);
     if (error) throw new Error(error.message);
   } else {
-    const { error } = await supabase.from("dogs").insert([{ ...payload, customer_id: customerId }]);
+    const { error } = await supabase.from("md_dogs").insert([{ ...payload, customer_id: customerId }]);
     if (error) throw new Error(error.message);
   }
 };
 
 export const deleteDog = async (dogId: string) => {
-  const { error } = await supabase.from("dogs").delete().eq("id", dogId);
+  const { error } = await supabase.from("md_dogs").delete().eq("id", dogId);
   if (error) throw new Error(error.message);
 };
 
@@ -148,7 +148,7 @@ const generateToken = () => {
 export const ensureIntakeToken = async (customer: Customer): Promise<string> => {
   if (customer.intake_token) return customer.intake_token;
   const token = generateToken();
-  const { error } = await supabase.from("customers").update({ intake_token: token, updated_at: new Date().toISOString() }).eq("id", customer.id);
+  const { error } = await supabase.from("md_customers").update({ intake_token: token, updated_at: new Date().toISOString() }).eq("id", customer.id);
   if (error) throw new Error(error.message);
   return token;
 };
@@ -236,7 +236,7 @@ export const buildReviewMessage = (customer: Customer, reviewLink: string, dogNa
 
 export const markReviewLinkSent = async (customerId: string, channel: "whatsapp" | "sms") => {
   const { error } = await supabase
-    .from("customers")
+    .from("md_customers")
     .update({ review_link_sent_at: new Date().toISOString(), review_link_sent_via: channel, updated_at: new Date().toISOString() })
     .eq("id", customerId);
   if (error) throw new Error(error.message);
@@ -244,7 +244,7 @@ export const markReviewLinkSent = async (customerId: string, channel: "whatsapp"
 
 export const markIntakeSent = async (customerId: string, channel: "whatsapp" | "sms" | "email") => {
   const { error } = await supabase
-    .from("customers")
+    .from("md_customers")
     .update({
       intake_status: "sent",
       intake_sent_at: new Date().toISOString(),

@@ -351,11 +351,11 @@ Message: ${enquiryData.message}
                 </button>
               </div>
             )}
-            {!isHolidayMode && (advertText || true) && (
+            {isAdvertMode && (
               <div className="flex justify-center px-4">
                 {(() => {
                   const bg = advertColor || "#EAB308";
-                  const text = advertText || "⭐ Keep the date free for the most pawesome dog show of the year at Winterton Hound Ground, on Saturday 8th August 10am - 5pm. ⭐";
+                  const text = advertText;
                   const shadow = `0 0 30px 6px ${bg}80, 0 4px 24px rgba(0,0,0,0.25)`;
                   return (
                     <div

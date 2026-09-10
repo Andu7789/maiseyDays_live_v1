@@ -56,7 +56,7 @@ serve(async (req: Request) => {
 
     const supabase = createClient(Deno.env.get("SUPABASE_URL") ?? "", Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "");
 
-    const { data: customer, error: lookupError } = await supabase.from("customers").select("*").eq("intake_token", token).maybeSingle();
+    const { data: customer, error: lookupError } = await supabase.from("md_customers").select("*").eq("intake_token", token).maybeSingle();
 
     if (lookupError) {
       console.error("Customer lookup failed:", lookupError);
@@ -67,7 +67,7 @@ serve(async (req: Request) => {
     }
 
     if (action === "load") {
-      const { data: dogs } = await supabase.from("dogs").select("*").eq("customer_id", customer.id).order("created_at", { ascending: true });
+      const { data: dogs } = await supabase.from("md_dogs").select("*").eq("customer_id", customer.id).order("created_at", { ascending: true });
       return jsonResponse({
         success: true,
         customer: pick(customer, CUSTOMER_FIELDS),
@@ -89,7 +89,7 @@ serve(async (req: Request) => {
       }
       const nowIso = new Date().toISOString();
       const { error: mattingError } = await supabase
-        .from("customers")
+        .from("md_customers")
         .update({ matting_signature: signature, matting_signed_at: nowIso, matting_signed_via: "digital", updated_at: nowIso })
         .eq("id", customer.id);
       if (mattingError) {
@@ -114,7 +114,7 @@ serve(async (req: Request) => {
       const nowIso = new Date().toISOString();
       const mattingConsent = Boolean(body.mattingConsent);
       const { error: updateError } = await supabase
-        .from("customers")
+        .from("md_customers")
         .update({
           ...customerUpdates,
           signature_data: signature,
@@ -139,15 +139,15 @@ serve(async (req: Request) => {
         dogData.name = name;
 
         // Match existing dog by name (case-insensitive) so booking-created dogs get enriched
-        const { data: existing } = await supabase.from("dogs").select("id").eq("customer_id", customer.id).ilike("name", name).maybeSingle();
+        const { data: existing } = await supabase.from("md_dogs").select("id").eq("customer_id", customer.id).ilike("name", name).maybeSingle();
 
         if (existing) {
           await supabase
-            .from("dogs")
+            .from("md_dogs")
             .update({ ...dogData, updated_at: nowIso })
             .eq("id", existing.id);
         } else {
-          await supabase.from("dogs").insert([{ ...dogData, customer_id: customer.id }]);
+          await supabase.from("md_dogs").insert([{ ...dogData, customer_id: customer.id }]);
         }
       }
 
