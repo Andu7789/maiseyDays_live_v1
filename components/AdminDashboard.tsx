@@ -6,6 +6,7 @@ import { ALL_LOCATIONS, INTAKE_TERMS, LOCATIONS, MATTING_BULLETS, MATTING_CLOSIN
 import { createServiceCatalogEntry, deleteServiceCatalogEntry, getServiceCatalog, updateServiceCatalogEntry, uploadServicePhoto } from "../services/serviceCatalogService";
 import { createStarPost, deleteStarPost, getStarPosts, publishStarPost, uploadStarPhoto } from "../services/starPostService";
 import { RoundTimePicker } from "./RoundTimePicker";
+import { DateJumpPicker } from "./DateJumpPicker";
 
 const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const EMAIL_CUSTOMER_REPLY_TO = "hello@maiseydaysdoggrooming.co.uk";
@@ -3059,7 +3060,7 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
                 <option value="Afternoon">Afternoon (legacy)</option>
                 <option value="Evening">Evening (legacy)</option>
               </select>
-              <input type="date" value={editForm.confirmed_date} onChange={(e) => setEditForm({ ...editForm, confirmed_date: e.target.value })} className="px-4 py-3 border rounded-lg" />
+              <DateJumpPicker value={editForm.confirmed_date} onChange={(v) => setEditForm({ ...editForm, confirmed_date: v })} />
               <select value={SLOT_TIMES.includes(editForm.confirmed_time) ? editForm.confirmed_time : ""} onChange={(e) => setEditForm({ ...editForm, confirmed_time: e.target.value, confirmed_duration_minutes: 120 })} className="px-4 py-3 border rounded-lg">
                 <option value="">Quick slot (2 hrs)...</option>
                 {SLOT_TIMES.map((slot) => (
@@ -5143,6 +5144,10 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
                 <h3 className="text-xl font-black text-slate-800">New Booking — {dateLabel}</h3>
                 <button onClick={() => setShowDiarySlotModal(false)} className="text-slate-400 hover:text-slate-600 text-2xl font-bold">×</button>
               </div>
+              <div className="flex items-center gap-2 mb-3 flex-wrap">
+                <label className="text-xs font-bold text-slate-500 whitespace-nowrap">Date</label>
+                <DateJumpPicker value={diarySlotDate} onChange={setDiarySlotDate} className="flex-1 min-w-[240px]" />
+              </div>
               <div className="flex items-center gap-2 mb-4">
                 <label className="text-xs font-bold text-slate-500 whitespace-nowrap">Time</label>
                 <RoundTimePicker value={diarySlotTime} onChange={setDiarySlotTime} />
@@ -5382,7 +5387,7 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
                   </option>
                 ))}
               </select>
-              <input type="date" value={addForm.date} onChange={(e) => setAddForm({ ...addForm, date: e.target.value })} className="px-4 py-3 border rounded-lg" />
+              <DateJumpPicker value={addForm.date} onChange={(v) => setAddForm({ ...addForm, date: v })} />
               <select value={SLOT_TIMES.includes(addForm.confirmed_time) ? addForm.confirmed_time : ""} onChange={(e) => setAddForm({ ...addForm, confirmed_time: e.target.value, confirmed_duration_minutes: 120 })} className="px-4 py-3 border rounded-lg">
                 <option value="">Quick slot (2 hrs)...</option>
                 {SLOT_TIMES.map((slot) => (
