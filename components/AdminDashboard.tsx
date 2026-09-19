@@ -995,6 +995,34 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
     setShowUpdateModal(true);
   };
 
+  // Opens the diary "new booking" modal pre-filled with this customer's details, so a
+  // future visit can be added from inside Update Booking without touching the booking
+  // being edited (separate state — showUpdateModal/activeBooking are left untouched).
+  const openNewBookingForCustomer = (booking: Appointment) => {
+    const today = new Date().toISOString().split("T")[0];
+    setDiarySlotDate(today);
+    setDiarySlotTime("");
+    setDiarySlotDuration(120);
+    setDiarySlotCustomerSearch("");
+    setDiarySlotSelectedCustomer(customersList.find((c) => c.id === booking.customer_id) || null);
+    setDiarySlotForm({
+      ownername: booking.ownername || "",
+      email: booking.email || "",
+      phone: booking.phone || "",
+      dogname: booking.dogname || "",
+      dogbreed: booking.dogbreed || "",
+      serviceid: booking.serviceid || SERVICES[0].id,
+      locationid: booking.locationid || (selectedLocation === ALL_LOCATIONS ? LOCATIONS[0].id : selectedLocation),
+      notes: "",
+      number_of_dogs: booking.number_of_dogs || 1,
+      deposit_paid: false,
+      deposit_amount: (booking.number_of_dogs || 1) * 20,
+      deposit_notes: "",
+      confirm_channel: "whatsapp",
+    });
+    setShowDiarySlotModal(true);
+  };
+
   const handleUploadPhoto = async (file: File) => {
     if (!activeBooking?.id) return;
     if (file.size > 8 * 1024 * 1024) {
@@ -3249,6 +3277,9 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
               </button>
               <button disabled={isWorking} onClick={() => activeBooking && openEmailModal(activeBooking)} title="Free — sends from the business email address, not a personal inbox" className="bg-slate-600 hover:bg-slate-700 disabled:opacity-60 text-white px-5 py-2 rounded-lg font-bold">
                 📧 Email Customer
+              </button>
+              <button disabled={isWorking} onClick={() => activeBooking && openNewBookingForCustomer(activeBooking)} title="Start a fresh booking for this customer on another date — this booking stays untouched" className="bg-teal-600 hover:bg-teal-700 disabled:opacity-60 text-white px-5 py-2 rounded-lg font-bold">
+                ＋ Create New Booking
               </button>
               <button onClick={closeUpdateModal} className="bg-slate-200 hover:bg-slate-300 text-slate-700 px-5 py-2 rounded-lg font-bold">
                 Close
