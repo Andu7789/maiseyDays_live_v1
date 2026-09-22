@@ -44,34 +44,53 @@ export const RoundTimePicker: React.FC<RoundTimePickerProps> = ({ value, onChang
 
   const size = 288;
   const center = size / 2;
-  const radius = 118;
+  const outerRadius = 118; // AM hours 1–12
+  const innerRadius = 74;  // PM hours 13–24
 
-  const renderDial = (numbers: { label: string; value: number }[], selectedValue: number, onPick: (v: number) => void) => (
+  const renderRing = (numbers: { label: string; value: number }[], radius: number, selectedValue: number, onPick: (v: number) => void) =>
+    numbers.map(({ label, value: v }, i) => {
+      const angle = (i / numbers.length) * 2 * Math.PI - Math.PI / 2;
+      const x = center + radius * Math.cos(angle);
+      const y = center + radius * Math.sin(angle);
+      const isSelected = v === selectedValue;
+      return (
+        <button
+          key={label}
+          type="button"
+          onClick={() => onPick(v)}
+          className={`absolute w-7 h-7 -ml-[14px] -mt-[14px] rounded-full flex items-center justify-center text-[11px] font-bold transition-all ${isSelected ? "bg-emerald-600 text-white" : "hover:bg-emerald-100 text-slate-700"}`}
+          style={{ left: x, top: y }}
+        >
+          {label}
+        </button>
+      );
+    });
+
+  // AM hours (1–12) on the outside ring, PM hours (13–24) on the inside ring.
+  // 24:00 is midnight, stored as 00:00 (hh = 0).
+  const outerHours = Array.from({ length: 12 }, (_, i) => ({ label: String(i + 1), value: i + 1 }));
+  const innerHours = [
+    ...Array.from({ length: 11 }, (_, i) => ({ label: String(i + 13), value: i + 13 })),
+    { label: "24", value: 0 },
+  ];
+  const minuteNumbers = Array.from({ length: 12 }, (_, i) => ({ label: String(i * 5).padStart(2, "0"), value: i * 5 }));
+
+  const hourDial = (
     <div className="relative mx-auto" style={{ width: size, height: size }}>
       <div className="absolute inset-0 rounded-full bg-slate-100" />
       <div className="absolute w-2 h-2 -ml-1 -mt-1 rounded-full bg-emerald-600" style={{ left: center, top: center }} />
-      {numbers.map(({ label, value: v }, i) => {
-        const angle = (i / numbers.length) * 2 * Math.PI - Math.PI / 2;
-        const x = center + radius * Math.cos(angle);
-        const y = center + radius * Math.sin(angle);
-        const isSelected = v === selectedValue;
-        return (
-          <button
-            key={label}
-            type="button"
-            onClick={() => onPick(v)}
-            className={`absolute w-7 h-7 -ml-[14px] -mt-[14px] rounded-full flex items-center justify-center text-[11px] font-bold transition-all ${isSelected ? "bg-emerald-600 text-white" : "hover:bg-emerald-100 text-slate-700"}`}
-            style={{ left: x, top: y }}
-          >
-            {label}
-          </button>
-        );
-      })}
+      {renderRing(outerHours, outerRadius, hh, pickHour)}
+      {renderRing(innerHours, innerRadius, hh, pickHour)}
     </div>
   );
 
-  const hourNumbers = Array.from({ length: 24 }, (_, i) => ({ label: String(i).padStart(2, "0"), value: i }));
-  const minuteNumbers = Array.from({ length: 12 }, (_, i) => ({ label: String(i * 5).padStart(2, "0"), value: i * 5 }));
+  const minuteDial = (
+    <div className="relative mx-auto" style={{ width: size, height: size }}>
+      <div className="absolute inset-0 rounded-full bg-slate-100" />
+      <div className="absolute w-2 h-2 -ml-1 -mt-1 rounded-full bg-emerald-600" style={{ left: center, top: center }} />
+      {renderRing(minuteNumbers, outerRadius, mm, pickMinute)}
+    </div>
+  );
 
   return (
     <div ref={containerRef} className={`relative inline-block ${className || ""}`}>
@@ -89,7 +108,7 @@ export const RoundTimePicker: React.FC<RoundTimePickerProps> = ({ value, onChang
               {String(mm).padStart(2, "0")}
             </button>
           </div>
-          {mode === "hour" ? renderDial(hourNumbers, hh, pickHour) : renderDial(minuteNumbers, mm, pickMinute)}
+          {mode === "hour" ? hourDial : minuteDial}
         </div>
       )}
     </div>
