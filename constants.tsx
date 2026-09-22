@@ -135,7 +135,7 @@ export const LOCATIONS: Location[] = [
 
 export const STANDARD_HOURS = ["Morning", "Afternoon", "Evening"];
 
-// BOOKING SLOTS - 2 hour appointments, Monday to Friday, first slot 8am, last slot 6pm
-export const SLOT_TIMES = ["08:00", "10:00", "12:00", "14:00", "16:00", "18:00"];
+// BOOKING SLOTS - 2 hour appointments, Monday to Friday, first slot 8am, last slot 8pm
+export const SLOT_TIMES = ["08:00", "10:00", "12:00", "14:00", "16:00", "18:00", "20:00"];
 export const SLOT_DURATION_MINUTES = 120;
 export const BOOKABLE_WEEKDAYS = [1, 2, 3, 4, 5]; // Monday–Friday (0 = Sunday)

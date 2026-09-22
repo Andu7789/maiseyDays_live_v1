@@ -16,8 +16,6 @@ export const RoundTimePicker: React.FC<RoundTimePickerProps> = ({ value, onChang
   const [hhRaw, mmRaw] = (value || "09:00").split(":").map(Number);
   const hh = Number.isNaN(hhRaw) ? 9 : hhRaw;
   const mm = Number.isNaN(mmRaw) ? 0 : mmRaw;
-  const isPM = hh >= 12;
-  const hour12 = hh % 12 === 0 ? 12 : hh % 12;
 
   useEffect(() => {
     if (!open) return;
@@ -33,9 +31,8 @@ export const RoundTimePicker: React.FC<RoundTimePickerProps> = ({ value, onChang
 
   const updateTime = (newHH: number, newMM: number) => onChange(`${String(newHH).padStart(2, "0")}:${String(newMM).padStart(2, "0")}`);
 
-  const pickHour12 = (h12: number) => {
-    const newHH = (h12 % 12) + (isPM ? 12 : 0);
-    updateTime(newHH, mm);
+  const pickHour = (h: number) => {
+    updateTime(h, mm);
     setMode("minute");
   };
 
@@ -45,11 +42,9 @@ export const RoundTimePicker: React.FC<RoundTimePickerProps> = ({ value, onChang
     setMode("hour");
   };
 
-  const toggleAmPm = (pm: boolean) => updateTime((hh % 12) + (pm ? 12 : 0), mm);
-
-  const size = 216;
+  const size = 288;
   const center = size / 2;
-  const radius = 82;
+  const radius = 118;
 
   const renderDial = (numbers: { label: string; value: number }[], selectedValue: number, onPick: (v: number) => void) => (
     <div className="relative mx-auto" style={{ width: size, height: size }}>
@@ -65,7 +60,7 @@ export const RoundTimePicker: React.FC<RoundTimePickerProps> = ({ value, onChang
             key={label}
             type="button"
             onClick={() => onPick(v)}
-            className={`absolute w-9 h-9 -ml-[18px] -mt-[18px] rounded-full flex items-center justify-center text-sm font-bold transition-all ${isSelected ? "bg-emerald-600 text-white" : "hover:bg-emerald-100 text-slate-700"}`}
+            className={`absolute w-7 h-7 -ml-[14px] -mt-[14px] rounded-full flex items-center justify-center text-[11px] font-bold transition-all ${isSelected ? "bg-emerald-600 text-white" : "hover:bg-emerald-100 text-slate-700"}`}
             style={{ left: x, top: y }}
           >
             {label}
@@ -75,7 +70,7 @@ export const RoundTimePicker: React.FC<RoundTimePickerProps> = ({ value, onChang
     </div>
   );
 
-  const hourNumbers = Array.from({ length: 12 }, (_, i) => ({ label: String(i === 0 ? 12 : i), value: i === 0 ? 12 : i }));
+  const hourNumbers = Array.from({ length: 24 }, (_, i) => ({ label: String(i).padStart(2, "0"), value: i }));
   const minuteNumbers = Array.from({ length: 12 }, (_, i) => ({ label: String(i * 5).padStart(2, "0"), value: i * 5 }));
 
   return (
@@ -87,22 +82,14 @@ export const RoundTimePicker: React.FC<RoundTimePickerProps> = ({ value, onChang
         <div className="absolute z-[80] mt-2 p-4 bg-white border border-slate-200 rounded-2xl shadow-xl" style={{ minWidth: 260 }}>
           <div className="flex items-center justify-center gap-3 mb-4">
             <button type="button" onClick={() => setMode("hour")} className={`text-2xl font-black px-2 rounded transition-colors ${mode === "hour" ? "text-emerald-600" : "text-slate-500"}`}>
-              {String(hour12).padStart(2, "0")}
+              {String(hh).padStart(2, "0")}
             </button>
             <span className="text-2xl font-black text-slate-300">:</span>
             <button type="button" onClick={() => setMode("minute")} className={`text-2xl font-black px-2 rounded transition-colors ${mode === "minute" ? "text-emerald-600" : "text-slate-500"}`}>
               {String(mm).padStart(2, "0")}
             </button>
-            <div className="flex flex-col gap-1 ml-2">
-              <button type="button" onClick={() => toggleAmPm(false)} className={`px-2 py-0.5 rounded text-xs font-bold ${!isPM ? "bg-emerald-600 text-white" : "bg-slate-100 text-slate-600"}`}>
-                AM
-              </button>
-              <button type="button" onClick={() => toggleAmPm(true)} className={`px-2 py-0.5 rounded text-xs font-bold ${isPM ? "bg-emerald-600 text-white" : "bg-slate-100 text-slate-600"}`}>
-                PM
-              </button>
-            </div>
           </div>
-          {mode === "hour" ? renderDial(hourNumbers, hour12, pickHour12) : renderDial(minuteNumbers, mm, pickMinute)}
+          {mode === "hour" ? renderDial(hourNumbers, hh, pickHour) : renderDial(minuteNumbers, mm, pickMinute)}
         </div>
       )}
     </div>

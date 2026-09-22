@@ -11,6 +11,17 @@ import { DateJumpPicker } from "./DateJumpPicker";
 const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const EMAIL_CUSTOMER_REPLY_TO = "hello@maiseydaysdoggrooming.co.uk";
 
+// Bookings are normally taken between 8am and 8pm. The exact-time clock can pick
+// any hour, so an out-of-hours pick gets a confirmation prompt before it's saved.
+const BOOKING_HOURS_WARNING = "⚠️ Are you sure you want this time slot? Bookings are normally between 8am and 8pm.";
+const isOutsideBookingHours = (time: string | null | undefined): boolean => {
+  if (!time) return false;
+  const [h, m] = time.split(":").map(Number);
+  if (Number.isNaN(h) || Number.isNaN(m)) return false;
+  const mins = h * 60 + m;
+  return mins < 8 * 60 || mins > 20 * 60;
+};
+
 const getMonday = (source: Date) => {
   const copy = new Date(source);
   copy.setDate(copy.getDate() + (copy.getDay() === 0 ? -6 : 1 - copy.getDay()));
@@ -1081,6 +1092,10 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
 
   const saveBookingDetails = async () => {
     if (!activeBooking?.id) return;
+    if (isOutsideBookingHours(editForm.confirmed_time)) {
+      if (!window.confirm(BOOKING_HOURS_WARNING)) return;
+    }
+
     if (editForm.confirmed_date && editForm.confirmed_time) {
       const clash = await findBookingClash(activeBooking.locationid, editForm.confirmed_date, editForm.confirmed_time, Number(editForm.confirmed_duration_minutes) || 120, activeBooking.id);
       if (clash) {
@@ -1477,6 +1492,10 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
       return;
     }
 
+    if (isOutsideBookingHours(addForm.confirmed_time)) {
+      if (!window.confirm(BOOKING_HOURS_WARNING)) return;
+    }
+
     const clash = await findBookingClash(addForm.locationid, addForm.date, addForm.confirmed_time, Number(addForm.confirmed_duration_minutes) || 120);
     if (clash) {
       const clashTime = getEffectiveSchedule(clash)?.timeLabel || "";
@@ -1607,6 +1626,10 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
     if (!diarySlotForm.ownername || !diarySlotForm.dogname || (!diarySlotForm.email && !diarySlotForm.phone)) {
       alert("Please fill in owner name, dog name, and at least an email or phone number.");
       return;
+    }
+
+    if (isOutsideBookingHours(diarySlotTime)) {
+      if (!window.confirm(BOOKING_HOURS_WARNING)) return;
     }
 
     const clash = await findBookingClash(diarySlotForm.locationid, diarySlotDate, diarySlotTime, diarySlotDuration);
