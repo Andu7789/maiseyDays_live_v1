@@ -3,7 +3,7 @@ import { DogRecordTabs } from "./DogRecordTabs";
 import { sendDepositOutcomeEmail, getDepositCreditBalance, carryDepositAsCredit, refundDepositViaStripe, addBookingPhoto, BookingPhoto, buildCancellationMessage, buildConfirmationMessage, buildRebookNudgeMessage, checkAuthStatus, confirmAppointmentBooking, createManualAppointment, deleteAppointment, deleteBookingPhoto, enrollMfaTotp, exportAppointmentsToExcel, findBookingClash, getDayBookings, getAppointments, getAvailableSlotTimes, getBookingPhotos, getBookingRevenue, getCurrentUser, getEffectiveSchedule, getMfaAssuranceLevel, getReminderSettings, getServiceBasePrice, getUnavailableDays, getUnavailableDayEntries, getUnavailableWeekdays, getUnavailableWeekdayEntries, listMfaFactors, removeUnavailableEntry, saveUnavailableDay, saveUnavailableDateRange, saveUnavailableWeekday, sendCustomEmail, sendCustomerCancellationSms, sendCustomerConfirmationSms, signInAdmin, signOutAdmin, unenrollMfaFactor, updateAppointment, updateReminderSettings, getHolidaySettings, updateHolidaySettings, updateAdvertSettings, updateWeekendBookingsEnabled, updateGoogleReviewLink, verifyMfaCode, getDogNotes, getAllDogNotes, upsertDogNote, UnavailabilityEntry } from "../services/bookingService";
 import { buildIntakeLink, buildIntakeMessage, buildReviewMessage, buildWhatsAppLink, createCustomer, deleteCustomer, deleteDog, ensureIntakeToken, getCustomers, getDeletedCustomers, getFirstName, markIntakeSent, markReviewLinkSent, permanentlyDeleteCustomer, restoreCustomer, saveDog, sendIntakeEmail, sendIntakeSms, updateCustomer } from "../services/customerService";
 import { Appointment, Customer, Dog, IntakeStatus, Service, StarPost } from "../types";
-import { ALL_LOCATIONS, DEPOSIT_PER_DOG, INTAKE_TERMS, LOCATIONS, MATTING_BULLETS, MATTING_CLOSING, MATTING_TERMS, SERVICES, SLOT_TIMES } from "../constants";
+import { ALL_LOCATIONS, DEPOSIT_PER_DOG, INTAKE_TERMS, LOCATIONS, MATTING_BULLETS, MATTING_CLOSING, MATTING_TERMS, SERVICES, SLOT_TIMES, getLocationSlotTimes } from "../constants";
 import { createServiceCatalogEntry, deleteServiceCatalogEntry, getServiceCatalog, updateServiceCatalogEntry, uploadServicePhoto } from "../services/serviceCatalogService";
 import { createStarPost, deleteStarPost, getStarPosts, publishStarPost, uploadStarPhoto } from "../services/starPostService";
 import { RoundTimePicker } from "./RoundTimePicker";
@@ -12,15 +12,25 @@ import { DateJumpPicker } from "./DateJumpPicker";
 const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const EMAIL_CUSTOMER_REPLY_TO = "hello@maiseydaysdoggrooming.co.uk";
 
-// Bookings are normally taken between 8am and 8pm. The exact-time clock can pick
-// any hour, so an out-of-hours pick gets a confirmation prompt before it's saved.
-const BOOKING_HOURS_WARNING = "⚠️ Are you sure you want this time slot? Bookings are normally between 8am and 8pm.";
-const isOutsideBookingHours = (time: string | null | undefined): boolean => {
+// Bookings are normally taken within each location's slot hours (Caister 8am to 8pm,
+// Hemsby 9am to 5pm). The exact-time clock can pick any hour, so an out-of-hours pick
+// gets a confirmation prompt before it's saved.
+const toClockLabel = (time: string) => {
+  const h = Number(time.slice(0, 2));
+  return `${h % 12 || 12}${h >= 12 ? "pm" : "am"}`;
+};
+const getBookingHoursWarning = (locationId: string): string => {
+  const slots = getLocationSlotTimes(locationId);
+  return `⚠️ Are you sure you want this time slot? Bookings are normally between ${toClockLabel(slots[0])} and ${toClockLabel(slots[slots.length - 1])}.`;
+};
+const isOutsideBookingHours = (time: string | null | undefined, locationId: string): boolean => {
   if (!time) return false;
   const [h, m] = time.split(":").map(Number);
   if (Number.isNaN(h) || Number.isNaN(m)) return false;
+  const slots = getLocationSlotTimes(locationId);
+  const toMins = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
   const mins = h * 60 + m;
-  return mins < 8 * 60 || mins > 20 * 60;
+  return mins < toMins(slots[0]) || mins > toMins(slots[slots.length - 1]);
 };
 
 const getMonday = (source: Date) => {
@@ -1168,8 +1178,8 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
 
   const saveBookingDetails = async () => {
     if (!activeBooking?.id) return;
-    if (isOutsideBookingHours(editForm.confirmed_time)) {
-      if (!window.confirm(BOOKING_HOURS_WARNING)) return;
+    if (isOutsideBookingHours(editForm.confirmed_time, activeBooking.locationid)) {
+      if (!window.confirm(getBookingHoursWarning(activeBooking.locationid))) return;
     }
 
     if (editForm.confirmed_date && editForm.confirmed_time) {
@@ -1570,8 +1580,8 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
       return;
     }
 
-    if (isOutsideBookingHours(addForm.confirmed_time)) {
-      if (!window.confirm(BOOKING_HOURS_WARNING)) return;
+    if (isOutsideBookingHours(addForm.confirmed_time, addForm.locationid)) {
+      if (!window.confirm(getBookingHoursWarning(addForm.locationid))) return;
     }
 
     const clash = await findBookingClash(addForm.locationid, addForm.date, addForm.confirmed_time, Number(addForm.confirmed_duration_minutes) || 120);
@@ -1706,8 +1716,8 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
       return;
     }
 
-    if (isOutsideBookingHours(diarySlotTime)) {
-      if (!window.confirm(BOOKING_HOURS_WARNING)) return;
+    if (isOutsideBookingHours(diarySlotTime, diarySlotForm.locationid)) {
+      if (!window.confirm(getBookingHoursWarning(diarySlotForm.locationid))) return;
     }
 
     const clash = await findBookingClash(diarySlotForm.locationid, diarySlotDate, diarySlotTime, diarySlotDuration);

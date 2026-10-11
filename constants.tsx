@@ -135,6 +135,7 @@ export const LOCATIONS: Location[] = [
     address: "49a High Street, Caister on Sea, NR30 5EL",
     phone: "07368 465966",
     hours: "Mon-Sun: 8am - 8pm",
+    bookableUntil: "2026-11-14", // Rachel's last day at Caister
     image: "/locations/Dirty.jpg",
     coordinates: {
       lat: 52.6406,
@@ -147,7 +148,8 @@ export const LOCATIONS: Location[] = [
     address: "Kings Way, Hemsby, Great Yarmouth, NR29 4JT",
     bookableFrom: "2026-12-07",
     phone: "07368 465966",
-    hours: "Mon-Sun: 8am - 8pm",
+    hours: "Mon-Sun: 9am - 5pm",
+    slotTimes: ["09:00", "11:00", "13:00", "15:00", "17:00"],
     image: "",
     coordinates: {
       lat: 52.6862,
@@ -161,6 +163,18 @@ export const STANDARD_HOURS = ["Morning", "Afternoon", "Evening"];
 // BOOKING SLOTS - 2 hour appointments, Monday to Friday, first slot 8am, last slot 8pm
 export const SLOT_TIMES = ["08:00", "10:00", "12:00", "14:00", "16:00", "18:00", "20:00"];
 export const SLOT_DURATION_MINUTES = 120;
+
+/** Bookable slot start times for a location (customers see these; admins can still pick any time). */
+export const getLocationSlotTimes = (locationId: string): string[] => LOCATIONS.find((l) => l.id === locationId)?.slotTimes ?? SLOT_TIMES;
+
+/** True once a location's last bookable day has passed (e.g. Caister after Rachel's last day there). */
+export const isLocationClosed = (location: Location, today: string = new Date().toISOString().split("T")[0]): boolean => !!location.bookableUntil && location.bookableUntil < today;
+
+/** Locations still taking bookings, falling back to all of them so lists are never empty. */
+export const getOpenLocations = (): Location[] => {
+  const open = LOCATIONS.filter((l) => !isLocationClosed(l));
+  return open.length > 0 ? open : LOCATIONS;
+};
 export const BOOKABLE_WEEKDAYS = [1, 2, 3, 4, 5]; // Monday–Friday (0 = Sunday)
 
 // Oral care chart findings, matching the columns on Rachel's paper chart. Edit freely.

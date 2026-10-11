@@ -73,6 +73,10 @@ export interface Location {
   image: string;
   /** Earliest date (YYYY-MM-DD) customers can book online at this location. Omit for no restriction. */
   bookableFrom?: string;
+  /** Last date (YYYY-MM-DD) customers can book online at this location. Omit for no restriction. */
+  bookableUntil?: string;
+  /** Bookable 2-hour slot start times for customers. Defaults to the global SLOT_TIMES. */
+  slotTimes?: string[];
   coordinates: {
     lat: number;
     lng: number;

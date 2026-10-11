@@ -1,6 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { Appointment, AvailabilitySlot, OralCareEntry, WeeklyTemplate } from "../types";
-import { ALL_LOCATIONS, DEPOSIT_PER_DOG, EMAIL_ENDPOINT, LOCATIONS, SERVICES, SUPABASE_URL, SUPABASE_ANON_KEY, STANDARD_HOURS, SLOT_TIMES, SLOT_DURATION_MINUTES, BOOKABLE_WEEKDAYS } from "../constants";
+import { ALL_LOCATIONS, DEPOSIT_PER_DOG, EMAIL_ENDPOINT, LOCATIONS, SERVICES, SUPABASE_URL, SUPABASE_ANON_KEY, STANDARD_HOURS, SLOT_TIMES, SLOT_DURATION_MINUTES, BOOKABLE_WEEKDAYS, getLocationSlotTimes } from "../constants";
 import { getServiceNameSync } from "./serviceCatalogService";
 
 // Validation for the user's convenience
@@ -916,9 +916,9 @@ const LEGACY_PREFERENCE_SLOTS: Record<string, string[]> = {
   evening: ["16:00", "18:00"],
 };
 
-const blockOverlappingSlots = (blocked: Set<string>, startMinutes: number, durationMinutes: number) => {
+const blockOverlappingSlots = (blocked: Set<string>, slotTimes: string[], startMinutes: number, durationMinutes: number) => {
   const endMinutes = startMinutes + durationMinutes;
-  SLOT_TIMES.forEach((slot) => {
+  slotTimes.forEach((slot) => {
     const slotStart = timeToMinutes(slot);
     if (startMinutes < slotStart + SLOT_DURATION_MINUTES && endMinutes > slotStart) {
       blocked.add(slot);
@@ -934,17 +934,17 @@ const toLocalDateString = (d: Date) => `${d.getFullYear()}-${String(d.getMonth()
  * Admin bookings bypass this via enforceLeadTime: false.
  */
 const MIDDAY_MINUTES = 12 * 60;
-const applyLeadTimeRule = (blocked: Set<string>, date: string) => {
+const applyLeadTimeRule = (blocked: Set<string>, slotTimes: string[], date: string) => {
   const now = new Date();
   const todayStr = toLocalDateString(now);
   if (date === todayStr) {
-    SLOT_TIMES.forEach((slot) => blocked.add(slot));
+    slotTimes.forEach((slot) => blocked.add(slot));
     return;
   }
   const tomorrow = new Date(now);
   tomorrow.setDate(tomorrow.getDate() + 1);
   if (date === toLocalDateString(tomorrow)) {
-    SLOT_TIMES.forEach((slot) => {
+    slotTimes.forEach((slot) => {
       if (timeToMinutes(slot) < MIDDAY_MINUTES) blocked.add(slot);
     });
   }
@@ -976,7 +976,8 @@ const getUnavailabilityTimeBlocks = async (locationId: string, date: string): Pr
  */
 export const getAvailableSlotTimes = async (locationId: string, date: string, options?: { enforceLeadTime?: boolean }): Promise<string[]> => {
   const enforceLeadTime = options?.enforceLeadTime ?? true;
-  if (enforceLeadTime && isBeforeBookableFrom(locationId, date)) return [];
+  if (enforceLeadTime && (isBeforeBookableFrom(locationId, date) || isAfterBookableUntil(locationId, date))) return [];
+  const slotTimes = getLocationSlotTimes(locationId);
   const dayOfWeek = new Date(`${date}T00:00:00`).getDay();
   const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
   if (!BOOKABLE_WEEKDAYS.includes(dayOfWeek) && !isWeekend) return [];
@@ -1002,21 +1003,21 @@ export const getAvailableSlotTimes = async (locationId: string, date: string, op
       if (normalizeLocationId(row.locationid) !== locationId) continue;
       const schedule = getEffectiveSchedule(row as Appointment);
       if (!schedule || schedule.date !== date) continue;
-      blockOverlappingSlots(blocked, schedule.startMinutes, schedule.durationMinutes);
+      blockOverlappingSlots(blocked, slotTimes, schedule.startMinutes, schedule.durationMinutes);
     }
 
     const timeBlocks = await getUnavailabilityTimeBlocks(locationId, date);
     for (const block of timeBlocks) {
-      blockOverlappingSlots(blocked, block.startMinutes, block.endMinutes - block.startMinutes);
+      blockOverlappingSlots(blocked, slotTimes, block.startMinutes, block.endMinutes - block.startMinutes);
     }
 
-    if (enforceLeadTime) applyLeadTimeRule(blocked, date);
+    if (enforceLeadTime) applyLeadTimeRule(blocked, slotTimes, date);
 
-    return SLOT_TIMES.filter((slot) => !blocked.has(slot));
+    return slotTimes.filter((slot) => !blocked.has(slot));
   } catch (err) {
     console.error("Slot availability check failed:", err);
     // Fail open (matching existing availability behaviour) rather than blocking all bookings
-    return [...SLOT_TIMES];
+    return [...slotTimes];
   }
 };
 
@@ -1107,6 +1108,12 @@ export const getDayBookings = async (locationId: string, date: string): Promise<
 export const isBeforeBookableFrom = (locationId: string, date: string) => {
   const bookableFrom = LOCATIONS.find((l) => l.id === locationId)?.bookableFrom;
   return !!bookableFrom && date < bookableFrom;
+};
+
+/** True when the location has stopped taking online bookings for this date (after its last bookable day). */
+export const isAfterBookableUntil = (locationId: string, date: string) => {
+  const bookableUntil = LOCATIONS.find((l) => l.id === locationId)?.bookableUntil;
+  return !!bookableUntil && date > bookableUntil;
 };
 
 export const isDateAvailable = async (locationId: string, date: string): Promise<boolean> => {

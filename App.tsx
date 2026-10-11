@@ -6,8 +6,8 @@ import AdminDashboard from "./components/AdminDashboard";
 import IntakeForm from "./components/IntakeForm";
 import { CalendarPicker } from "./components/CalendarPicker";
 import { Service } from "./types";
-import { SERVICES, LOCATIONS, SLOT_TIMES, EMAIL_ENDPOINT, DEPOSIT_PER_DOG, HOME_GROOM_POSTCODE_AREAS, formatPostcode, isInHomeGroomArea } from "./constants";
-import { isBeforeBookableFrom, getAvailableSlotTimes, saveAppointmentAwaitingPayment, startDepositCheckout, getDepositStatus, abandonDepositBooking, prepareBookingPhoto, sendBookingEmail, sendConfirmationEmail, isDateAvailable, getUnavailableDays, getUnavailableWeekdays, sendHolidayEnquiryConfirmation, getHolidaySettings, signOutAdmin } from "./services/bookingService";
+import { SERVICES, LOCATIONS, getLocationSlotTimes, getOpenLocations, EMAIL_ENDPOINT, DEPOSIT_PER_DOG, HOME_GROOM_POSTCODE_AREAS, formatPostcode, isInHomeGroomArea } from "./constants";
+import { isBeforeBookableFrom, isAfterBookableUntil, getAvailableSlotTimes, saveAppointmentAwaitingPayment, startDepositCheckout, getDepositStatus, abandonDepositBooking, prepareBookingPhoto, sendBookingEmail, sendConfirmationEmail, isDateAvailable, getUnavailableDays, getUnavailableWeekdays, sendHolidayEnquiryConfirmation, getHolidaySettings, signOutAdmin } from "./services/bookingService";
 import { getServiceCatalog } from "./services/serviceCatalogService";
 import { getPublicStarPosts } from "./services/starPostService";
 
@@ -44,7 +44,7 @@ const App: React.FC = () => {
   const [paymentPending, setPaymentPending] = useState(false);
   const [returningFromPayment, setReturningFromPayment] = useState(() => new URLSearchParams(window.location.search).has("deposit"));
   const [formData, setFormData] = useState<Partial<Appointment>>({
-    locationid: LOCATIONS[0].id,
+    locationid: getOpenLocations()[0].id,
     serviceid: SERVICES[0].id,
     date: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().split("T")[0],
   });
@@ -89,7 +89,7 @@ const App: React.FC = () => {
 
   // Home grooms aren't tied to a salon, so don't let a chosen salon's rules (e.g. Hemsby's opening date) apply.
   useEffect(() => {
-    if (isHomeGroom && formData.locationid !== LOCATIONS[0].id) setFormData((f) => ({ ...f, locationid: LOCATIONS[0].id }));
+    if (isHomeGroom && formData.locationid !== getOpenLocations()[0].id) setFormData((f) => ({ ...f, locationid: getOpenLocations()[0].id }));
   }, [isHomeGroom, formData.locationid]);
 
   const today = new Date().toISOString().split("T")[0];
@@ -191,7 +191,7 @@ const App: React.FC = () => {
     if (!formData.locationid || !formData.date) return;
 
     const freeSlots = await getAvailableSlotTimes(formData.locationid, formData.date);
-    setAvailableSlots(Object.fromEntries(SLOT_TIMES.map((time) => [time, freeSlots.includes(time)])));
+    setAvailableSlots(Object.fromEntries(getLocationSlotTimes(formData.locationid).map((time) => [time, freeSlots.includes(time)])));
   }, [formData.locationid, formData.date]);
 
   // Load live slot availability whenever the customer is on the date/time step
@@ -217,7 +217,7 @@ const App: React.FC = () => {
           for (let d = new Date(today); d <= maxDate; d.setDate(d.getDate() + 1)) {
             const isWeekendDay = d.getDay() === 0 || d.getDay() === 6;
             const day = d.toISOString().split("T")[0];
-            if (weekdays.includes(d.getDay()) || (isWeekendDay && !weekendsEnabled) || isBeforeBookableFrom(formData.locationid || "", day)) {
+            if (weekdays.includes(d.getDay()) || (isWeekendDay && !weekendsEnabled) || isBeforeBookableFrom(formData.locationid || "", day) || isAfterBookableUntil(formData.locationid || "", day)) {
               allUnavailable.push(d.toISOString().split("T")[0]);
             }
           }
@@ -760,7 +760,7 @@ Message: ${enquiryData.message}
           <div className="max-w-7xl mx-auto px-4 py-20 animate-fade-in">
             <h1 className="text-6xl font-black text-center mb-16 tracking-tighter uppercase">Visit Us</h1>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-12">
-              {LOCATIONS.map((l) => (
+              {getOpenLocations().map((l) => (
                 <div key={l.id} className="bg-white rounded-[3rem] overflow-hidden shadow-lg border border-slate-100 group">
                   <div className="h-[40rem] overflow-hidden bg-slate-50">
                     {l.image ? (
@@ -847,7 +847,7 @@ Message: ${enquiryData.message}
                     <div>
                       <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-3">Select Salon</label>
                       <select value={formData.locationid} onChange={(e) => setFormData({ ...formData, locationid: e.target.value })} disabled={isHomeGroom} className={`w-full px-6 py-4 border border-slate-200 rounded-2xl outline-none transition-all font-bold ${isHomeGroom ? "bg-slate-100 text-slate-400 cursor-not-allowed" : "bg-slate-50 focus:ring-2 focus:ring-emerald-500"}`}>
-                        {LOCATIONS.map((l) => (
+                        {getOpenLocations().map((l) => (
                           <option key={l.id} value={l.id}>
                             {l.name}
                             {l.bookableFrom && l.bookableFrom > new Date().toISOString().split("T")[0] ? ` (bookings from ${new Date(`${l.bookableFrom}T00:00:00`).toLocaleDateString("en-GB", { day: "numeric", month: "short" })})` : ""}
@@ -909,7 +909,7 @@ Message: ${enquiryData.message}
                     <div>
                       <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-3">Pick a Time Slot</label>
                       <div className="grid grid-cols-3 gap-4">
-                        {SLOT_TIMES.map((time) => {
+                        {getLocationSlotTimes(formData.locationid).map((time) => {
                           const isAvailable = availableSlots[time] !== false;
                           return (
                             <button key={time} disabled={!isAvailable || !formData.date} onClick={() => setFormData({ ...formData, time })} className={`py-4 rounded-2xl font-black text-sm transition-all border-2 ${!isAvailable || !formData.date ? "bg-slate-50 text-slate-200 border-slate-50 cursor-not-allowed" : formData.time === time ? "bg-teal-600 text-white border-teal-600 shadow-lg shadow-teal-600/30" : "bg-white text-slate-700 border-slate-100 hover:border-teal-400"}`}>
