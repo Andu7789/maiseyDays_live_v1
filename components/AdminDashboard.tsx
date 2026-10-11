@@ -4004,6 +4004,22 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
           .map((apt) => ({ apt, schedule: getEffectiveSchedule(apt) }))
           .filter((entry) => entry.schedule) as { apt: Appointment; schedule: NonNullable<ReturnType<typeof getEffectiveSchedule>> }[];
 
+        // Diary rows follow the selected location's hours (Hemsby 09:00-17:00 slots, Caister
+        // 08:00-20:00). Rachel can book outside those hours, so rows are added before or after
+        // whenever a booking in view falls outside them, otherwise it would vanish from the grid.
+        const diarySlots = (() => {
+          const toMins = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
+          const toLabel = (m: number) => `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+          const starts = (selectedLocation === ALL_LOCATIONS ? SLOT_TIMES : getLocationSlotTimes(selectedLocation)).map(toMins);
+          const visibleDates = new Set([...weekDates, toDateString(diaryMobileDate)]);
+          for (const { schedule } of scheduled) {
+            if (!visibleDates.has(schedule.date)) continue;
+            while (schedule.startMinutes < starts[0] && starts[0] - 120 >= 0) starts.unshift(starts[0] - 120);
+            while (schedule.startMinutes >= starts[starts.length - 1] + 120 && starts[starts.length - 1] + 120 < 24 * 60) starts.push(starts[starts.length - 1] + 120);
+          }
+          return starts.map(toLabel);
+        })();
+
         // Search results across ALL weeks, so any booking can be found and jumped to
         const searchResults = !search
           ? []
@@ -4038,9 +4054,9 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
         // A booking whose window runs past this row's 2-hour block spills visually
         // into the next row with nothing shown there — flag it so we can hint at it.
         const getOverflowIntoNextRow = (date: string, slotIndex: number) => {
-          if (slotIndex < 0 || slotIndex >= SLOT_TIMES.length - 1) return [];
-          const nextRowStart = slotStartMinutes(SLOT_TIMES[slotIndex + 1]);
-          return bookingsFor(date, SLOT_TIMES[slotIndex]).filter(({ schedule }) => schedule.startMinutes + schedule.durationMinutes > nextRowStart && schedule.startMinutes < nextRowStart);
+          if (slotIndex < 0 || slotIndex >= diarySlots.length - 1) return [];
+          const nextRowStart = slotStartMinutes(diarySlots[slotIndex + 1]);
+          return bookingsFor(date, diarySlots[slotIndex]).filter(({ schedule }) => schedule.startMinutes + schedule.durationMinutes > nextRowStart && schedule.startMinutes < nextRowStart);
         };
         const isClosedDay = (date: string) => unavailableDays.includes(date) || unavailableWeekdays.includes(new Date(`${date}T00:00:00`).getDay());
 
@@ -4159,7 +4175,7 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
               {isClosedDay(mobileDateStr) && (
                 <div className="px-4 py-3 bg-red-50 border border-red-200 rounded-xl text-red-700 font-bold text-sm text-center">Closed this day</div>
               )}
-              {SLOT_TIMES.map((slot, slotIndex) => {
+              {diarySlots.map((slot, slotIndex) => {
                 const cellBookings = bookingsFor(mobileDateStr, slot);
                 const closed = isClosedDay(mobileDateStr);
                 const overlapping = hasRealOverlap(cellBookings);
@@ -4234,7 +4250,7 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
                 </div>
 
                 {/* Slot rows */}
-                {SLOT_TIMES.map((slot, slotIndex) => (
+                {diarySlots.map((slot, slotIndex) => (
                   <div key={slot} className="grid grid-cols-[64px_repeat(7,1fr)] gap-2 mb-2">
                     <div className="text-xs font-black text-slate-400 pt-3 text-right pr-1">{slot}</div>
                     {weekDates.map((date) => {
