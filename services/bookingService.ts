@@ -1,6 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
-import { Appointment, AvailabilitySlot, WeeklyTemplate } from "../types";
-import { ALL_LOCATIONS, EMAIL_ENDPOINT, LOCATIONS, SERVICES, SUPABASE_URL, SUPABASE_ANON_KEY, STANDARD_HOURS, SLOT_TIMES, SLOT_DURATION_MINUTES, BOOKABLE_WEEKDAYS } from "../constants";
+import { Appointment, AvailabilitySlot, OralCareEntry, WeeklyTemplate } from "../types";
+import { ALL_LOCATIONS, DEPOSIT_PER_DOG, EMAIL_ENDPOINT, LOCATIONS, SERVICES, SUPABASE_URL, SUPABASE_ANON_KEY, STANDARD_HOURS, SLOT_TIMES, SLOT_DURATION_MINUTES, BOOKABLE_WEEKDAYS } from "../constants";
 import { getServiceNameSync } from "./serviceCatalogService";
 
 // Validation for the user's convenience
@@ -120,6 +120,7 @@ export const unenrollMfaFactor = async (factorId: string) => {
 };
 
 const BOOKING_PHOTO_BUCKET = "booking-photos";
+const PAYMENT_HOLD_MINUTES = 35; // how long an unpaid web request holds its slot
 const sanitizeForPath = (value: string) =>
   value
     .toLowerCase()
@@ -230,7 +231,8 @@ export const getAppointments = async (): Promise<Appointment[]> => {
   try {
     const { data, error } = await supabase.from("appointments").select("*");
     if (error) throw error;
-    const normalized = (data || []).map((row: any) => ({
+    // Web requests still at the Stripe checkout aren't real bookings yet.
+    const normalized = (data || []).filter((row: any) => row.booking_status !== "awaiting_payment").map((row: any) => ({
       ...row,
       locationid: normalizeLocationId(row.locationid || row.locationId || row.location_id || row.location || row.branch),
       serviceid: row.serviceid || row.serviceId || row.service_id || SERVICES[0].id,
@@ -619,11 +621,21 @@ export const isSlotAvailable = async (locationId: string, date: string, time: st
   }
 };
 
-export const sendBookingEmail = async (appointment: Appointment, photo?: File | null) => {
+/** Uploads the optional dog photo up front, so it survives the redirect to Stripe. */
+export const prepareBookingPhoto = async (appointment: Appointment, photo: File): Promise<string | null> => {
+  try {
+    return await uploadBookingPhoto(appointment, photo);
+  } catch (err) {
+    console.error("Photo upload failed:", err);
+    return null;
+  }
+};
+
+export const sendBookingEmail = async (appointment: Appointment, photo?: File | null, options?: { photoLink?: string | null; depositPaid?: number }) => {
   try {
     const locationName = LOCATIONS.find((l) => l.id === appointment.locationid)?.name || appointment.locationid;
     const serviceName = getServiceNameSync(appointment.serviceid);
-    let photoLink: string | null = null;
+    let photoLink: string | null = options?.photoLink ?? null;
     if (photo) {
       try {
         console.log("Attempting to upload photo...");
@@ -651,6 +663,7 @@ Dog: ${appointment.dogname} (${appointment.dogbreed})
 Date of Requested Appointment: ${formatDate(appointment.date)} ${formatTime(appointment.time)}
 Location: ${locationName}
 Service: ${serviceName}
+Deposit: ${options?.depositPaid ? `£${options.depositPaid} paid` : "Not taken"}
 Owner: ${appointment.ownername}
 Email: ${appointment.email}
 Phone: ${appointment.phone || "Not provided"}
@@ -681,7 +694,7 @@ ${photoLink ? `\nPhoto for ${appointment.dogname} (Owner: ${appointment.ownernam
   }
 };
 
-export const sendConfirmationEmail = async (appointment: Appointment) => {
+export const sendConfirmationEmail = async (appointment: Appointment, depositPaid?: number) => {
   try {
     const result = await invokeEdgeFunction("send-customer-email", {
       to: appointment.email,
@@ -691,6 +704,7 @@ export const sendConfirmationEmail = async (appointment: Appointment) => {
       date: appointment.date,
       serviceName: getServiceNameSync(appointment.serviceid),
       locationName: LOCATIONS.find((l) => l.id === appointment.locationid)?.name || appointment.locationid,
+      depositPaid: depositPaid || 0,
     });
     return Boolean((result as any)?.success);
   } catch (e) {
@@ -962,6 +976,7 @@ const getUnavailabilityTimeBlocks = async (locationId: string, date: string): Pr
  */
 export const getAvailableSlotTimes = async (locationId: string, date: string, options?: { enforceLeadTime?: boolean }): Promise<string[]> => {
   const enforceLeadTime = options?.enforceLeadTime ?? true;
+  if (enforceLeadTime && isBeforeBookableFrom(locationId, date)) return [];
   const dayOfWeek = new Date(`${date}T00:00:00`).getDay();
   const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
   if (!BOOKABLE_WEEKDAYS.includes(dayOfWeek) && !isWeekend) return [];
@@ -978,7 +993,7 @@ export const getAvailableSlotTimes = async (locationId: string, date: string, op
   try {
     const { data, error } = await supabase
       .from("appointments")
-      .select("date, time, requested_time_preference, status, booking_status, confirmed_date, confirmed_time, confirmed_duration_minutes, locationid")
+      .select("date, time, requested_time_preference, status, booking_status, created_at, confirmed_date, confirmed_time, confirmed_duration_minutes, locationid")
       .or(`date.eq.${date},confirmed_date.eq.${date}`);
     if (error) throw error;
 
@@ -1008,6 +1023,8 @@ export const getAvailableSlotTimes = async (locationId: string, date: string, op
 /** Returns the effective diary slot for a booking: confirmed time wins, else the requested slot. */
 export const getEffectiveSchedule = (apt: Appointment): { date: string; startMinutes: number; durationMinutes: number; timeLabel: string } | null => {
   if (apt.status === "cancelled" || apt.booking_status === "cancelled") return null;
+  // A slot is held while the customer pays; if they walk away, it's released.
+  if (apt.booking_status === "awaiting_payment" && (!apt.created_at || Date.now() - new Date(apt.created_at).getTime() > PAYMENT_HOLD_MINUTES * 60 * 1000)) return null;
 
   if (apt.confirmed_date && apt.confirmed_time) {
     const timeLabel = String(apt.confirmed_time).slice(0, 5);
@@ -1063,8 +1080,15 @@ export const findBookingClash = async (locationId: string, date: string, time: s
   }
 };
 
+/** True when the location isn't taking online bookings yet for this date (e.g. a new salon that hasn't opened). */
+export const isBeforeBookableFrom = (locationId: string, date: string) => {
+  const bookableFrom = LOCATIONS.find((l) => l.id === locationId)?.bookableFrom;
+  return !!bookableFrom && date < bookableFrom;
+};
+
 export const isDateAvailable = async (locationId: string, date: string): Promise<boolean> => {
   try {
+    if (isBeforeBookableFrom(locationId, date)) return false;
     // Check if specific date is unavailable
     const unavailableDates = await getUnavailableDays(locationId);
     if (unavailableDates.includes(date)) return false;
@@ -1205,4 +1229,147 @@ export const upsertDogNote = async (ownerEmail: string, dogName: string, notes: 
     { onConflict: "owner_email,dog_name" }
   );
   if (error) throw new Error(error.message);
+};
+
+// ============================================================
+// DOG NOTES (dated entries) AND ORAL CARE CHART
+// Both follow the dog (owner email + dog name), not a single booking.
+// ============================================================
+
+const sameText = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
+
+// Finds the dog's notes row whatever the capitalisation of the email or name.
+const findDogNoteRow = async (ownerEmail: string, dogName: string) => {
+  const { data, error } = await supabase.from("dog_notes").select("id, owner_email, dog_name, notes").ilike("owner_email", ownerEmail.trim());
+  if (error) throw new Error(error.message);
+  return (data ?? []).find((row) => sameText(row.dog_name, dogName)) ?? null;
+};
+
+export const getDogNoteText = async (ownerEmail: string, dogName: string): Promise<string> => {
+  const row = await findDogNoteRow(ownerEmail, dogName);
+  return row?.notes ?? "";
+};
+
+const writeDogNoteText = async (row: { id: number } | null, ownerEmail: string, dogName: string, notes: string) => {
+  const result = row
+    ? await supabase.from("dog_notes").update({ notes, updated_at: new Date().toISOString() }).eq("id", row.id)
+    : await supabase.from("dog_notes").insert({ owner_email: ownerEmail.trim().toLowerCase(), dog_name: dogName.trim(), notes, updated_at: new Date().toISOString() });
+  if (result.error) throw new Error(result.error.message);
+};
+
+/** Adds a new entry at the top of the dog's notes, stamped with today's date. Returns the full notes text. */
+export const addDatedDogNote = async (ownerEmail: string, dogName: string, text: string): Promise<string> => {
+  const row = await findDogNoteRow(ownerEmail, dogName);
+  const stamp = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+  const entry = `${stamp}: ${text.trim()}`;
+  const notes = row?.notes ? `${entry}\n\n${row.notes}` : entry;
+  await writeDogNoteText(row, ownerEmail, dogName, notes);
+  return notes;
+};
+
+/** Replaces the whole notes text, for correcting mistakes. */
+export const replaceDogNoteText = async (ownerEmail: string, dogName: string, notes: string) => {
+  const row = await findDogNoteRow(ownerEmail, dogName);
+  await writeDogNoteText(row, ownerEmail, dogName, notes);
+};
+
+export const getOralCareEntries = async (ownerEmail: string, dogName: string): Promise<OralCareEntry[]> => {
+  const { data, error } = await supabase.from("md_dog_oral_care").select("*").ilike("owner_email", ownerEmail.trim()).order("recorded_on", { ascending: false }).order("created_at", { ascending: false });
+  if (error) throw new Error(error.message);
+  return ((data ?? []) as OralCareEntry[]).filter((row) => sameText(row.dog_name, dogName));
+};
+
+export const addOralCareEntry = async (entry: { ownerEmail: string; dogName: string; tooth: string; condition: string; note?: string; recordedOn: string }) => {
+  const { error } = await supabase.from("md_dog_oral_care").insert({
+    owner_email: entry.ownerEmail.trim().toLowerCase(),
+    dog_name: entry.dogName.trim(),
+    tooth: entry.tooth,
+    condition: entry.condition,
+    note: entry.note?.trim() || null,
+    recorded_on: entry.recordedOn,
+  });
+  if (error) throw new Error(error.message);
+};
+
+export const deleteOralCareEntry = async (id: string) => {
+  const { error } = await supabase.from("md_dog_oral_care").delete().eq("id", id);
+  if (error) throw new Error(error.message);
+};
+
+// ============================================================
+// STRIPE DEPOSITS
+// ============================================================
+
+/** Saves a web request in the "awaiting_payment" state; it only becomes a pending booking once the deposit is paid. */
+export const saveAppointmentAwaitingPayment = async (app: Appointment): Promise<string> => {
+  const rows = await saveAppointment({
+    ...app,
+    status: "pending",
+    booking_status: "awaiting_payment",
+    deposit_paid: false,
+    deposit_amount: DEPOSIT_PER_DOG * (app.number_of_dogs || 1),
+  });
+  const id = rows?.[0]?.id;
+  if (!id) throw new Error("Could not save your booking. Please try again.");
+  return id;
+};
+
+/** Returns a Stripe Checkout URL, or { paid: true } when carried-over credit covers the whole deposit. */
+export const startDepositCheckout = async (appointmentId: string): Promise<{ url?: string; paid?: boolean }> => {
+  return invokeEdgeFunction("md-deposit-checkout", { action: "create", appointmentId, origin: window.location.origin });
+};
+
+/** Frees the held slot when the customer cancels at Stripe or checkout couldn't start. */
+export const abandonDepositBooking = async (appointmentId: string) => {
+  try {
+    await invokeEdgeFunction("md-deposit-checkout", { action: "abandon", appointmentId });
+  } catch (err) {
+    console.error("Could not release held slot:", err);
+  }
+};
+
+export const getDepositStatus = async (appointmentId: string): Promise<{ paid: boolean; released: boolean }> => {
+  return invokeEdgeFunction("md-deposit-checkout", { action: "status", appointmentId }) as Promise<{ paid: boolean; released: boolean }>;
+};
+
+// Admin actions need the signed-in admin's session, not just the public anon key.
+const invokeAdminDepositFunction = async (payload: Record<string, unknown>) => {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  if (!session) throw new Error("Please sign in again.");
+  const response = await fetch(`${SUPABASE_URL}/functions/v1/md-deposit-admin`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${session.access_token}` },
+    body: JSON.stringify(payload),
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(result?.error || "Request failed");
+  return result;
+};
+
+/** Refunds the card payment through Stripe to the card that paid it. */
+export const refundDepositViaStripe = (appointmentId: string) => invokeAdminDepositFunction({ action: "refund", appointmentId });
+
+/** Turns the paid deposit into credit against the customer's next booking (matched by email). */
+export const carryDepositAsCredit = (appointmentId: string) => invokeAdminDepositFunction({ action: "credit", appointmentId });
+
+export const getDepositCreditBalance = (email: string): Promise<{ balance: number; expiresAt: string | null }> => invokeAdminDepositFunction({ action: "balance", email }) as Promise<{ balance: number; expiresAt: string | null }>;
+
+/** Tells the customer what happened to their deposit. Best effort: a failure never undoes the refund or credit. */
+export const sendDepositOutcomeEmail = async (appointment: Appointment, outcome: "refunded" | "credit", amount: number, expiresAt?: string | null): Promise<boolean> => {
+  try {
+    const result = await invokeEdgeFunction("send-customer-email", {
+      to: appointment.email,
+      name: appointment.ownername,
+      template: outcome === "refunded" ? "deposit-refunded" : "deposit-credit",
+      dogName: appointment.dogname,
+      amount,
+      expiresAt: expiresAt ? new Date(expiresAt).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" }) : "",
+    });
+    return Boolean((result as any)?.success);
+  } catch (err) {
+    console.error("Deposit email failed:", err);
+    return false;
+  }
 };

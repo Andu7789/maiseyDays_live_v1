@@ -64,7 +64,7 @@ serve(async (req: Request) => {
 
     // Group by location
     const caisterApts = appointments.filter(apt => apt.locationid === 'caister');
-    const wintertonApts = appointments.filter(apt => apt.locationid === 'winterton');
+    const hemsbyApts = appointments.filter(apt => apt.locationid === 'hemsby');
 
     const totalRevenue = appointments.reduce((sum, apt) => {
       const servicePrice = apt.serviceid === 'full-groom' ? 35 :
@@ -103,7 +103,7 @@ ${tomorrow.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month:
 📊 OVERVIEW
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Total Appointments: ${appointments.length}
-Caister: ${caisterApts.length} | Winterton: ${wintertonApts.length}
+Caister: ${caisterApts.length} | Hemsby: ${hemsbyApts.length}
 Estimated Revenue: £${totalRevenue}
 
 
@@ -111,9 +111,9 @@ Estimated Revenue: £${totalRevenue}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ${formatAppointmentList(caisterApts)}
 
-🏡 WINTERTON BRANCH (${wintertonApts.length} appointments)
+🏡 HEMSBY BRANCH (${hemsbyApts.length} appointments)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-${formatAppointmentList(wintertonApts)}
+${formatAppointmentList(hemsbyApts)}
 
 💡 PREPARATION CHECKLIST
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -158,7 +158,7 @@ View full schedule: https://maiseydays.com/admin
       sent: 1,
       appointments: appointments.length,
       caister: caisterApts.length,
-      winterton: wintertonApts.length,
+      hemsby: hemsbyApts.length,
       revenue: totalRevenue,
     }), {
       status: 200,

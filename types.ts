@@ -71,6 +71,8 @@ export interface Location {
   phone: string;
   hours: string;
   image: string;
+  /** Earliest date (YYYY-MM-DD) customers can book online at this location. Omit for no restriction. */
+  bookableFrom?: string;
   coordinates: {
     lat: number;
     lng: number;
@@ -104,7 +106,7 @@ export interface Appointment {
   calendar_sync_status?: "not_synced" | "synced" | "error";
   calendar_last_synced_at?: string | null;
   calendar_last_error?: string | null;
-  booking_status?: "pending" | "confirmed" | "completed" | "due_for_rebook" | "cancelled";
+  booking_status?: "awaiting_payment" | "pending" | "confirmed" | "completed" | "due_for_rebook" | "cancelled";
   completed_at?: string | null;
   reminder_28day_sent_at?: string | null;
   parent_booking_id?: string | null;
@@ -114,6 +116,9 @@ export interface Appointment {
   deposit_paid_at?: string | null;
   deposit_notes?: string;
   deposit_refunded_at?: string | null;
+  deposit_refund_method?: "stripe" | "credit" | "manual" | null;
+  deposit_credit_applied?: number;
+  stripe_payment_intent_id?: string | null;
   estimated_price?: number | null;
   missed?: boolean;
   missed_reason?: string | null;
@@ -163,4 +168,15 @@ export interface WeeklyTemplate {
   [locationId: string]: {
     [dayOfWeek: number]: string[];
   };
+}
+
+export interface OralCareEntry {
+  id: string;
+  owner_email: string;
+  dog_name: string;
+  tooth: string;
+  condition: string;
+  note?: string | null;
+  recorded_on: string; // YYYY-MM-DD
+  created_at?: string;
 }

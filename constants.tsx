@@ -17,7 +17,7 @@ export const INTAKE_TERMS: string[] = [
   "We will attempt to remove ticks ourselves. We believe it is something that may need to have your vet's advice on after. If we find any ticks, we will attempt to remove them if safe to do so. We will only remove up to 3 on one dog. However, if there are more ticks we will cease the groom and call you to come collect your dog. We will always advise a vet visit if this is the case.",
   "Late collection may result in a fee of £10/hour as we do not have facilities to keep your dog longer than the appointment.",
   "A late charge will be required if you are more than 30 minutes late to your dedicated appointment as we will have to reschedule.",
-  "A £20 deposit per dog is required at the time of booking. This deposit will be deducted from the total cost of the groom. If you cancel with less than 24 hours' notice or fail to attend your appointment, a cancellation fee of 50% of the grooming price per dog will apply. In these cases, the deposit will be retained and counted towards the cancellation fee.",
+  "A £10 deposit per dog is required at the time of booking. This deposit will be deducted from the total cost of the groom. If you cancel at least 48 hours before your appointment the deposit is refundable to the card you paid with, or may be carried over as credit towards your next groom (valid for 12 months). If you cancel with less than 24 hours' notice or fail to attend your appointment, a cancellation fee of 50% of the grooming price per dog will apply. In these cases, the deposit will be retained and counted towards the cancellation fee.",
   "If you are dissatisfied with your pet's groom, please let us know within 48 hours and we will do our best to resolve it for you.",
 ];
 
@@ -106,6 +106,28 @@ export const SERVICES: Service[] = [
 
 export const ALL_LOCATIONS = "__all__";
 
+// Home grooming travel area: postcode districts (the part before the space) Rachel visits.
+// Edit this list to widen or narrow the area; anything else is asked to get in touch.
+export const HOME_GROOM_POSTCODE_AREAS = ["NR29", "NR30", "NR31"];
+
+const UK_POSTCODE = /^([A-Z]{1,2}[0-9][A-Z0-9]?)\s*([0-9][A-Z]{2})$/;
+
+/** Returns the tidy postcode ("NR30 5EL") or null if it isn't a valid UK postcode. */
+export const formatPostcode = (raw: string): string | null => {
+  const match = raw.trim().toUpperCase().match(UK_POSTCODE);
+  return match ? `${match[1]} ${match[2]}` : null;
+};
+
+export const isInHomeGroomArea = (postcode: string): boolean => {
+  const formatted = formatPostcode(postcode);
+  return !!formatted && HOME_GROOM_POSTCODE_AREAS.includes(formatted.split(" ")[0]);
+};
+
+// Deposit taken at booking, per dog. Refundable with 48 hours' notice; can be carried over as credit.
+export const DEPOSIT_PER_DOG = 10;
+export const DEPOSIT_CREDIT_VALID_MONTHS = 12;
+export const DEPOSIT_REFUND_NOTICE_HOURS = 48;
+
 export const LOCATIONS: Location[] = [
   {
     id: "caister",
@@ -120,15 +142,16 @@ export const LOCATIONS: Location[] = [
     },
   },
   {
-    id: "winterton",
-    name: "Winterton Branch",
-    address: "Winterton Hound Ground, Winterton-on-Sea, Norfolk, NR29 4BX",
+    id: "hemsby",
+    name: "Hemsby Branch",
+    address: "Kings Way, Hemsby, Great Yarmouth, NR29 4JT",
+    bookableFrom: "2026-12-07",
     phone: "07368 465966",
     hours: "Mon-Sun: 8am - 8pm",
-    image: "/locations/caister.png",
+    image: "",
     coordinates: {
-      lat: 52.7264,
-      lng: 1.6313,
+      lat: 52.6862,
+      lng: 1.6987,
     },
   },
 ];
@@ -139,3 +162,7 @@ export const STANDARD_HOURS = ["Morning", "Afternoon", "Evening"];
 export const SLOT_TIMES = ["08:00", "10:00", "12:00", "14:00", "16:00", "18:00", "20:00"];
 export const SLOT_DURATION_MINUTES = 120;
 export const BOOKABLE_WEEKDAYS = [1, 2, 3, 4, 5]; // Monday–Friday (0 = Sunday)
+
+// Oral care chart findings, matching the columns on Rachel's paper chart. Edit freely.
+// (Tooth numbers and the diagram layout live in components/toothChartLayout.ts.)
+export const ORAL_CARE_CONDITIONS = ["Missing", "Extracted", "Abscess", "Periodontal pocket", "Fractured", "Gingival recession", "Enamel defect", "Carious lesion", "Resorptive lesion"];

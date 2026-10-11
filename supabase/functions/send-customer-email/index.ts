@@ -60,6 +60,10 @@ serve(async (req: Request) => {
       const date = String(body.date || "");
       const serviceName = String(body.serviceName || "");
       const locationName = String(body.locationName || "");
+      const depositPaid = Number(body.depositPaid) || 0;
+      const depositHtml = depositPaid
+        ? `<p>We have received your <strong>£${depositPaid}</strong> deposit. It comes off the cost of your groom, and it is refundable if you cancel at least 48 hours before your appointment.</p>`
+        : "";
       subject = `APPOINTMENT PENDING - ${dogName}`;
       html = wrapHtml(`
         <p>Hi ${firstName},</p>
@@ -71,8 +75,31 @@ serve(async (req: Request) => {
         Requested Date: ${date}<br>
         Service: ${serviceName}<br>
         Location: ${locationName}</p>
+        ${depositHtml}
         <p>If you have any questions in the meantime, please do not hesitate to contact us on 07368 465966.</p>
         <p>We look forward to seeing you soon!</p>
+        <p>Warm regards,<br>Rachel<br>Maisey Days Dog Grooming 🐾</p>
+      `);
+    } else if (template === "deposit-refunded") {
+      const dogName = String(body.dogName || "your dog");
+      const amount = Number(body.amount) || 0;
+      subject = `Your deposit has been refunded - ${dogName}`;
+      html = wrapHtml(`
+        <p>Hi ${firstName},</p>
+        <p>We have refunded your <strong>£${amount.toFixed(2)}</strong> deposit for <strong>${dogName}</strong> to the card you paid with.</p>
+        <p>Refunds usually reach your account within 5 to 10 working days, depending on your bank.</p>
+        <p>If you would like to rebook, we would love to see you both again.</p>
+        <p>Warm regards,<br>Rachel<br>Maisey Days Dog Grooming 🐾</p>
+      `);
+    } else if (template === "deposit-credit") {
+      const dogName = String(body.dogName || "your dog");
+      const amount = Number(body.amount) || 0;
+      const expires = String(body.expiresAt || "").trim();
+      subject = `Your deposit is saved as credit - ${dogName}`;
+      html = wrapHtml(`
+        <p>Hi ${firstName},</p>
+        <p>We have kept your <strong>£${amount.toFixed(2)}</strong> deposit for <strong>${dogName}</strong> as credit towards your next groom.</p>
+        <p>It is linked to this email address and is applied automatically when you next book online${expires ? `, as long as you book by <strong>${expires}</strong>` : ""}.</p>
         <p>Warm regards,<br>Rachel<br>Maisey Days Dog Grooming 🐾</p>
       `);
     } else if (template === "holiday-enquiry") {

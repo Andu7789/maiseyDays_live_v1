@@ -6,8 +6,8 @@ import AdminDashboard from "./components/AdminDashboard";
 import IntakeForm from "./components/IntakeForm";
 import { CalendarPicker } from "./components/CalendarPicker";
 import { Service } from "./types";
-import { SERVICES, LOCATIONS, SLOT_TIMES, EMAIL_ENDPOINT } from "./constants";
-import { getAvailableSlotTimes, saveAppointment, sendBookingEmail, sendConfirmationEmail, isDateAvailable, getUnavailableDays, getUnavailableWeekdays, sendHolidayEnquiryConfirmation, getHolidaySettings, signOutAdmin } from "./services/bookingService";
+import { SERVICES, LOCATIONS, SLOT_TIMES, EMAIL_ENDPOINT, DEPOSIT_PER_DOG, HOME_GROOM_POSTCODE_AREAS, formatPostcode, isInHomeGroomArea } from "./constants";
+import { isBeforeBookableFrom, getAvailableSlotTimes, saveAppointmentAwaitingPayment, startDepositCheckout, getDepositStatus, abandonDepositBooking, prepareBookingPhoto, sendBookingEmail, sendConfirmationEmail, isDateAvailable, getUnavailableDays, getUnavailableWeekdays, sendHolidayEnquiryConfirmation, getHolidaySettings, signOutAdmin } from "./services/bookingService";
 import { getServiceCatalog } from "./services/serviceCatalogService";
 import { getPublicStarPosts } from "./services/starPostService";
 
@@ -41,6 +41,8 @@ const App: React.FC = () => {
   const [showSuccess, setShowSuccess] = useState(false);
   const [bookingError, setBookingError] = useState<string | null>(null);
   const [emailFailed, setEmailFailed] = useState(false);
+  const [paymentPending, setPaymentPending] = useState(false);
+  const [returningFromPayment, setReturningFromPayment] = useState(() => new URLSearchParams(window.location.search).has("deposit"));
   const [formData, setFormData] = useState<Partial<Appointment>>({
     locationid: LOCATIONS[0].id,
     serviceid: SERVICES[0].id,
@@ -78,6 +80,17 @@ const App: React.FC = () => {
 
   const selectedService = services.find((service) => service.id === formData.serviceid);
   const isHomeGroom = Boolean(selectedService && (selectedService.id.toLowerCase().includes("home") || selectedService.name.toLowerCase().includes("home") || selectedService.id.toLowerCase().includes("mobile") || selectedService.name.toLowerCase().includes("mobile")));
+
+  const [homeAddress, setHomeAddress] = useState("");
+  const [homePostcode, setHomePostcode] = useState("");
+  const homePostcodeValid = formatPostcode(homePostcode) !== null;
+  const homeInArea = isInHomeGroomArea(homePostcode);
+  const homeDetailsOk = !isHomeGroom || (homeAddress.trim().length > 3 && homeInArea);
+
+  // Home grooms aren't tied to a salon, so don't let a chosen salon's rules (e.g. Hemsby's opening date) apply.
+  useEffect(() => {
+    if (isHomeGroom && formData.locationid !== LOCATIONS[0].id) setFormData((f) => ({ ...f, locationid: LOCATIONS[0].id }));
+  }, [isHomeGroom, formData.locationid]);
 
   const today = new Date().toISOString().split("T")[0];
   const isHolidayMode = Boolean(holidayStart && holidayEnd && today >= holidayStart && today <= holidayEnd);
@@ -203,7 +216,8 @@ const App: React.FC = () => {
           // Add unavailable weekdays and non-bookable days (weekends, unless enabled) within the booking window
           for (let d = new Date(today); d <= maxDate; d.setDate(d.getDate() + 1)) {
             const isWeekendDay = d.getDay() === 0 || d.getDay() === 6;
-            if (weekdays.includes(d.getDay()) || (isWeekendDay && !weekendsEnabled)) {
+            const day = d.toISOString().split("T")[0];
+            if (weekdays.includes(d.getDay()) || (isWeekendDay && !weekendsEnabled) || isBeforeBookableFrom(formData.locationid || "", day)) {
               allUnavailable.push(d.toISOString().split("T")[0]);
             }
           }
@@ -229,6 +243,12 @@ const App: React.FC = () => {
       return;
     }
 
+    if (isHomeGroom && !homeDetailsOk) {
+      setBookingError("Please give a home address and a postcode inside our home grooming area.");
+      setBookingStep(1);
+      return;
+    }
+
     setBookingError(null);
     setIsSubmitting(true);
 
@@ -242,7 +262,7 @@ const App: React.FC = () => {
       locationid: formData.locationid || "",
       date: formData.date || "",
       time: formData.time || "",
-      notes: formData.notes || "",
+      notes: isHomeGroom ? `HOME VISIT ADDRESS: ${homeAddress.trim()}, ${formatPostcode(homePostcode) || homePostcode.trim().toUpperCase()}${formData.notes ? `\n${formData.notes}` : ""}` : formData.notes || "",
       status: "pending",
       marketingConsent: marketingConsent as "yes" | "no",
     };
@@ -258,12 +278,26 @@ const App: React.FC = () => {
         return;
       }
 
-      await saveAppointment(appointment);
-      // Send emails in parallel instead of sequential to speed up confirmation
-      const [emailOk] = await Promise.all([sendBookingEmail(appointment, uploadedPhoto), sendConfirmationEmail(appointment)]);
-      setEmailFailed(!emailOk);
-      setShowSuccess(true);
-      setIsSubmitting(false);
+      // The photo is uploaded now so it survives the trip to Stripe and back.
+      const photoLink = uploadedPhoto ? await prepareBookingPhoto(appointment, uploadedPhoto) : null;
+      const appointmentId = await saveAppointmentAwaitingPayment({ ...appointment, number_of_dogs: 1 });
+      try {
+        const checkout = await startDepositCheckout(appointmentId);
+        if (checkout.paid) {
+          // A carried-over credit covered the whole deposit.
+          await finishPaidBooking(appointment, photoLink);
+          return;
+        }
+        if (!checkout.url) throw new Error("Could not start payment. Please try again.");
+        try {
+          sessionStorage.setItem("md_pending_booking", JSON.stringify({ appointmentId, appointment, photoLink }));
+        } catch {}
+        window.location.href = checkout.url;
+        return; // leaving the page; keep the button disabled
+      } catch (payErr) {
+        await abandonDepositBooking(appointmentId);
+        throw payErr;
+      }
     } catch (err: any) {
       console.error("Booking failed:", err);
       setBookingError(err.message || "Something went wrong. Please check your connection.");
@@ -271,6 +305,64 @@ const App: React.FC = () => {
       setIsSubmitting(false);
     }
   };
+
+  // Deposit is in (card or credit): notify Rachel and the customer, then show the success screen.
+  const finishPaidBooking = async (appointment: Appointment, photoLink: string | null) => {
+    setFormData({ ...appointment });
+    const [emailOk] = await Promise.all([sendBookingEmail(appointment, null, { photoLink, depositPaid: DEPOSIT_PER_DOG }), sendConfirmationEmail(appointment, DEPOSIT_PER_DOG)]);
+    setEmailFailed(!emailOk);
+    setShowSuccess(true);
+    setIsSubmitting(false);
+  };
+
+  // Back from Stripe Checkout (?deposit=success|cancelled&aid=...)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const outcome = params.get("deposit");
+    const appointmentId = params.get("aid");
+    if (!outcome || !appointmentId) return;
+    window.history.replaceState({}, "", window.location.pathname + window.location.hash);
+
+    let pending: { appointmentId: string; appointment: Appointment; photoLink: string | null } | null = null;
+    try {
+      pending = JSON.parse(sessionStorage.getItem("md_pending_booking") || "null");
+      sessionStorage.removeItem("md_pending_booking");
+    } catch {}
+    if (pending?.appointmentId !== appointmentId) pending = null;
+
+    const run = async () => {
+      if (outcome === "cancelled") {
+        await abandonDepositBooking(appointmentId);
+        if (pending) setFormData({ ...pending.appointment, time: "" });
+        setBookingStep(1);
+        setCurrentPage("booking");
+        setBookingError("Your payment was cancelled, so no booking was made and your time slot has been released.");
+        setReturningFromPayment(false);
+        return;
+      }
+      // The webhook marks the deposit paid; give it a few seconds to land.
+      let paid = false;
+      for (let i = 0; i < 20 && !paid; i++) {
+        try {
+          paid = (await getDepositStatus(appointmentId)).paid;
+        } catch {}
+        if (!paid) await new Promise((r) => setTimeout(r, 1500));
+      }
+      if (pending) {
+        if (paid) await finishPaidBooking(pending.appointment, pending.photoLink);
+        else {
+          setFormData({ ...pending.appointment });
+          setPaymentPending(true);
+          setShowSuccess(true);
+        }
+      } else {
+        setPaymentPending(!paid);
+        setShowSuccess(true);
+      }
+      setReturningFromPayment(false);
+    };
+    run();
+  }, []);
 
   const handleEnquirySubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -317,14 +409,24 @@ Message: ${enquiryData.message}
   };
 
   const renderPage = () => {
+    if (returningFromPayment) {
+      return (
+        <div className="max-w-2xl mx-auto py-32 text-center px-4 animate-fade-in">
+          <div className="w-24 h-24 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-8 text-5xl">💳</div>
+          <h1 className="text-4xl font-black mb-4 tracking-tight uppercase">Confirming your deposit...</h1>
+          <p className="text-slate-500 text-lg">Please don't close this page, it only takes a moment.</p>
+        </div>
+      );
+    }
     if (showSuccess) {
       return (
         <div className="max-w-2xl mx-auto py-32 text-center px-4 animate-fade-in">
           <div className="w-24 h-24 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-8 text-5xl">✅</div>
           <h1 className="text-5xl font-black mb-4 tracking-tight uppercase">Booking Sent!</h1>
           <p className="text-slate-500 text-xl leading-relaxed">
-            We've received your request for <strong>{formData.dogname}</strong>. We'll be in touch at <strong>{formData.email}</strong> shortly.
+            We've received your request{formData.dogname ? <> for <strong>{formData.dogname}</strong></> : ""}{paymentPending ? "" : ` and your £${DEPOSIT_PER_DOG} deposit`}. We'll be in touch{formData.email ? <> at <strong>{formData.email}</strong></> : ""} shortly.
           </p>
+          {paymentPending && <div className="mt-6 bg-amber-50 border border-amber-100 text-amber-700 px-6 py-4 rounded-2xl text-sm font-semibold">Your payment is still being confirmed by our card provider. You don't need to do anything. If you don't hear from us within 48 hours, please get in touch.</div>}
           {emailFailed && <div className="mt-6 bg-amber-50 border border-amber-100 text-amber-700 px-6 py-4 rounded-2xl text-sm font-semibold">The appointment saved, but the email notification failed to send. Please contact us if you don't receive a confirmation.</div>}
           <button
             onClick={() => {
@@ -374,7 +476,7 @@ Message: ${enquiryData.message}
             {/* Hero Section */}
             <section className="relative h-[85vh] min-h-[600px] flex items-center overflow-hidden">
               <div className="absolute inset-0 z-0">
-                <img src="https://images.unsplash.com/photo-1516734212186-a967f81ad0d7?auto=format&fit=crop&q=80&w=2000" alt="Happy dog being groomed at Maisey Days Dog Grooming, dog groomer in Caister-on-Sea and Winterton, Norfolk" className="w-full h-full object-cover object-[center_20%] brightness-[0.75]" />
+                <img src="https://images.unsplash.com/photo-1516734212186-a967f81ad0d7?auto=format&fit=crop&q=80&w=2000" alt="Happy dog being groomed at Maisey Days Dog Grooming, dog groomer in Caister-on-Sea and Hemsby, Norfolk" className="w-full h-full object-cover object-[center_20%] brightness-[0.75]" />
               </div>
               <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-white w-full">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
@@ -661,13 +763,23 @@ Message: ${enquiryData.message}
               {LOCATIONS.map((l) => (
                 <div key={l.id} className="bg-white rounded-[3rem] overflow-hidden shadow-lg border border-slate-100 group">
                   <div className="h-[40rem] overflow-hidden bg-slate-50">
-                    <img src={l.image} className="w-full h-full object-contain group-hover:scale-105 transition-transform duration-700" />
+                    {l.image ? (
+                      <img src={l.image} alt={l.name} className="w-full h-full object-contain group-hover:scale-105 transition-transform duration-700" />
+                    ) : (
+                      <div className="w-full h-full flex flex-col items-center justify-center gap-3 text-slate-400">
+                        <span className="text-6xl">📷</span>
+                        <p className="text-xl font-bold">Image coming soon</p>
+                      </div>
+                    )}
                   </div>
                   <div className="p-12">
                     <div className="text-center mb-8">
                       <h3 className="text-4xl font-black mb-4 text-slate-800">{l.name}</h3>
                       <p className="text-slate-500 mb-4 text-lg">{l.address}</p>
                       <p className="text-slate-600 text-sm mb-6">{l.hours}</p>
+                      {l.bookableFrom && l.bookableFrom > new Date().toISOString().split("T")[0] && (
+                        <p className="text-emerald-700 font-bold text-sm mb-6">Bookings open from {new Date(`${l.bookableFrom}T00:00:00`).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })}</p>
+                      )}
                       <p className="text-slate-600 text-sm mb-6">{l.phone}</p>
                     </div>
                     <div className="mb-8 rounded-2xl overflow-hidden shadow-md">
@@ -738,6 +850,7 @@ Message: ${enquiryData.message}
                         {LOCATIONS.map((l) => (
                           <option key={l.id} value={l.id}>
                             {l.name}
+                            {l.bookableFrom && l.bookableFrom > new Date().toISOString().split("T")[0] ? ` (bookings from ${new Date(`${l.bookableFrom}T00:00:00`).toLocaleDateString("en-GB", { day: "numeric", month: "short" })})` : ""}
                           </option>
                         ))}
                       </select>
@@ -762,7 +875,25 @@ Message: ${enquiryData.message}
                         ))}
                       </select>
                     </div>
-                    <button onClick={() => setBookingStep(2)} disabled={!formData.dogname || !formData.dogbreed} className="w-full bg-slate-900 text-white py-5 rounded-2xl font-black uppercase tracking-widest hover:bg-teal-600 transition-all disabled:opacity-20 mt-4 shadow-xl shadow-slate-200">
+                    {isHomeGroom && (
+                      <div className="p-6 bg-emerald-50 border-2 border-emerald-200 rounded-2xl space-y-5">
+                        <p className="text-sm font-bold text-emerald-800">🏡 Home grooming: where should we come to?</p>
+                        <div>
+                          <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-3">Address</label>
+                          <input type="text" autoComplete="street-address" placeholder="House number and street, town" value={homeAddress} onChange={(e) => setHomeAddress(e.target.value)} className="w-full px-6 py-4 bg-white border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-emerald-500 transition-all font-bold" />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-3">Postcode</label>
+                          <input type="text" autoComplete="postal-code" placeholder="e.g. NR30 5EL" value={homePostcode} onChange={(e) => setHomePostcode(e.target.value)} className="w-full px-6 py-4 bg-white border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-emerald-500 transition-all font-bold uppercase" />
+                          {homePostcode && !homePostcodeValid && <p className="text-sm text-amber-700 font-bold mt-3">That doesn't look like a full UK postcode yet.</p>}
+                          {homePostcodeValid && !homeInArea && (
+                            <p className="text-sm text-rose-700 font-bold mt-3">Sorry, that postcode is outside our home grooming area ({HOME_GROOM_POSTCODE_AREAS.join(", ")}). Send us an enquiry below and we'll see what we can do, or choose a salon visit instead.</p>
+                          )}
+                          {homePostcodeValid && homeInArea && <p className="text-sm text-emerald-700 font-bold mt-3">✓ Great, we cover your area.</p>}
+                        </div>
+                      </div>
+                    )}
+                    <button onClick={() => setBookingStep(2)} disabled={!formData.dogname || !formData.dogbreed || !homeDetailsOk} className="w-full bg-slate-900 text-white py-5 rounded-2xl font-black uppercase tracking-widest hover:bg-teal-600 transition-all disabled:opacity-20 mt-4 shadow-xl shadow-slate-200">
                       Next Step
                     </button>
                   </div>
@@ -906,12 +1037,15 @@ Message: ${enquiryData.message}
                         <span>Please select your contact sharing consent preference (Yes or No).</span>
                       </div>
                     )}
+                    <div className="bg-slate-50 border border-slate-200 rounded-2xl px-6 py-4 text-sm text-slate-600">
+                      <strong className="text-slate-800">£{DEPOSIT_PER_DOG} deposit per dog.</strong> You'll pay securely by card on the next page. It comes off the cost of your groom, and it's refundable if you cancel at least 48 hours before your appointment. If you have credit from an earlier cancelled booking under this email address, it's applied automatically, so you may not need to pay anything on the next page.
+                    </div>
                     <div className="flex gap-4">
                       <button type="button" onClick={() => setBookingStep(2)} className="w-1/3 py-5 border-2 border-slate-100 rounded-2xl font-bold text-slate-400 transition-transform active:scale-95">
                         Back
                       </button>
                       <button type="submit" disabled={isSubmitting} className={`flex-grow text-white py-5 rounded-2xl font-black uppercase tracking-widest shadow-xl transition-all active:scale-95 ${isSubmitting ? "bg-slate-400 cursor-not-allowed" : "bg-teal-600 shadow-teal-600/30 hover:bg-teal-700"}`}>
-                        {isSubmitting ? "Sending Request..." : "Request Appointment"}
+                        {isSubmitting ? "Just a moment..." : "Continue to Deposit"}
                       </button>
                     </div>
                   </form>
@@ -1034,13 +1168,13 @@ Message: ${enquiryData.message}
                 <h3 className="text-lg font-black text-slate-800 mb-3">3. Deposit & Cancellation Policy</h3>
                 <div className="space-y-3 ml-4">
                   <div>
-                    <strong>Non-Refundable Deposit:</strong> A £20 deposit per dog is required at the time of booking to secure your appointment. This is deducted from the final groom price.
+                    <strong>Deposit:</strong> A £{DEPOSIT_PER_DOG} deposit per dog is required at the time of booking to secure your appointment, paid securely by card. This is deducted from the final groom price. If you cancel at least 48 hours before your appointment, your deposit will be refunded to the card you paid with, or Rachel may offer to carry it over as credit towards your next groom (valid for 12 months).
                   </div>
                   <div>
                     <strong>24-Hour Notice:</strong> We require at least 24 hours' notice for cancellations or rescheduling.
                   </div>
                   <div>
-                    <strong>Cancellation Fee:</strong> If you cancel with less than 24 hours' notice, or fail to attend (no-show), a fee of 50% of the full groom price will apply. In these cases, your £20 deposit will be retained and applied toward this fee.
+                    <strong>Cancellation Fee:</strong> If you cancel with less than 24 hours' notice, or fail to attend (no-show), a fee of 50% of the full groom price will apply. In these cases, your £{DEPOSIT_PER_DOG} deposit will be retained and applied toward this fee.
                   </div>
                 </div>
               </div>

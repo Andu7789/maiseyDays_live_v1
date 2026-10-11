@@ -51,7 +51,7 @@ const Header: React.FC<HeaderProps> = ({ currentPage, setPage }) => {
 
             <div className="hidden xl:flex items-center cursor-pointer group shrink-0" onClick={() => handlePageChange("home")}>
               <span className="text-[20px] font-black text-slate-800 tracking-tight whitespace-nowrap">
-                Maisey Days<span className="text-emerald-500">@</span>Winterton Hound Ground
+                Maisey Days<span className="text-emerald-500">@</span>Hemsby
               </span>
               <div className="w-10 h-10 bg-emerald-600 rounded-full flex items-center justify-center ml-3 group-hover:rotate-12 transition-transform">
                 <span className="text-white text-base">🐾</span>

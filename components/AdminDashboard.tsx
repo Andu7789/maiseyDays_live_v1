@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { addBookingPhoto, BookingPhoto, buildCancellationMessage, buildConfirmationMessage, buildRebookNudgeMessage, checkAuthStatus, confirmAppointmentBooking, createManualAppointment, deleteAppointment, deleteBookingPhoto, enrollMfaTotp, exportAppointmentsToExcel, findBookingClash, getAppointments, getAvailableSlotTimes, getBookingPhotos, getBookingRevenue, getCurrentUser, getEffectiveSchedule, getMfaAssuranceLevel, getReminderSettings, getServiceBasePrice, getUnavailableDays, getUnavailableDayEntries, getUnavailableWeekdays, getUnavailableWeekdayEntries, listMfaFactors, removeUnavailableEntry, saveUnavailableDay, saveUnavailableDateRange, saveUnavailableWeekday, sendCustomEmail, sendCustomerCancellationSms, sendCustomerConfirmationSms, signInAdmin, signOutAdmin, unenrollMfaFactor, updateAppointment, updateReminderSettings, getHolidaySettings, updateHolidaySettings, updateAdvertSettings, updateWeekendBookingsEnabled, updateGoogleReviewLink, verifyMfaCode, getDogNotes, getAllDogNotes, upsertDogNote, UnavailabilityEntry } from "../services/bookingService";
+import { DogRecordTabs } from "./DogRecordTabs";
+import { sendDepositOutcomeEmail, getDepositCreditBalance, carryDepositAsCredit, refundDepositViaStripe, addBookingPhoto, BookingPhoto, buildCancellationMessage, buildConfirmationMessage, buildRebookNudgeMessage, checkAuthStatus, confirmAppointmentBooking, createManualAppointment, deleteAppointment, deleteBookingPhoto, enrollMfaTotp, exportAppointmentsToExcel, findBookingClash, getAppointments, getAvailableSlotTimes, getBookingPhotos, getBookingRevenue, getCurrentUser, getEffectiveSchedule, getMfaAssuranceLevel, getReminderSettings, getServiceBasePrice, getUnavailableDays, getUnavailableDayEntries, getUnavailableWeekdays, getUnavailableWeekdayEntries, listMfaFactors, removeUnavailableEntry, saveUnavailableDay, saveUnavailableDateRange, saveUnavailableWeekday, sendCustomEmail, sendCustomerCancellationSms, sendCustomerConfirmationSms, signInAdmin, signOutAdmin, unenrollMfaFactor, updateAppointment, updateReminderSettings, getHolidaySettings, updateHolidaySettings, updateAdvertSettings, updateWeekendBookingsEnabled, updateGoogleReviewLink, verifyMfaCode, getDogNotes, getAllDogNotes, upsertDogNote, UnavailabilityEntry } from "../services/bookingService";
 import { buildIntakeLink, buildIntakeMessage, buildReviewMessage, buildWhatsAppLink, createCustomer, deleteCustomer, deleteDog, ensureIntakeToken, getCustomers, getDeletedCustomers, getFirstName, markIntakeSent, markReviewLinkSent, permanentlyDeleteCustomer, restoreCustomer, saveDog, sendIntakeEmail, sendIntakeSms, updateCustomer } from "../services/customerService";
 import { Appointment, Customer, Dog, IntakeStatus, Service, StarPost } from "../types";
-import { ALL_LOCATIONS, INTAKE_TERMS, LOCATIONS, MATTING_BULLETS, MATTING_CLOSING, MATTING_TERMS, SERVICES, SLOT_TIMES } from "../constants";
+import { ALL_LOCATIONS, DEPOSIT_PER_DOG, INTAKE_TERMS, LOCATIONS, MATTING_BULLETS, MATTING_CLOSING, MATTING_TERMS, SERVICES, SLOT_TIMES } from "../constants";
 import { createServiceCatalogEntry, deleteServiceCatalogEntry, getServiceCatalog, updateServiceCatalogEntry, uploadServicePhoto } from "../services/serviceCatalogService";
 import { createStarPost, deleteStarPost, getStarPosts, publishStarPost, uploadStarPhoto } from "../services/starPostService";
 import { RoundTimePicker } from "./RoundTimePicker";
@@ -107,6 +108,7 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
   const [addFormAvailableSlots, setAddFormAvailableSlots] = useState<string[]>(SLOT_TIMES);
   const [activeBooking, setActiveBooking] = useState<Appointment | null>(null);
   const [isWorking, setIsWorking] = useState(false);
+  const [depositCredit, setDepositCredit] = useState<{ balance: number; expiresAt: string | null } | null>(null);
   const [showDepositModal, setShowDepositModal] = useState(false);
   const [missedBooking, setMissedBooking] = useState<Appointment | null>(null);
   const [missedReasonInput, setMissedReasonInput] = useState<string>("");
@@ -145,7 +147,7 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
     notes: "",
     number_of_dogs: 1,
     deposit_paid: false,
-    deposit_amount: 20,
+    deposit_amount: DEPOSIT_PER_DOG,
     deposit_notes: "",
     confirm_channel: "whatsapp" as "none" | "whatsapp" | "sms",
   });
@@ -246,7 +248,7 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
     notes: "",
     number_of_dogs: 1,
     deposit_paid: false,
-    deposit_amount: 20,
+    deposit_amount: DEPOSIT_PER_DOG,
     deposit_notes: "",
     deposit_paid_at: null as string | null,
     actual_price: "" as string | number,
@@ -267,7 +269,7 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
     notes: "",
     number_of_dogs: 1,
     deposit_paid: false,
-    deposit_amount: 20,
+    deposit_amount: DEPOSIT_PER_DOG,
     deposit_notes: "",
     confirm_channel: "whatsapp" as "none" | "whatsapp" | "sms",
   });
@@ -686,10 +688,71 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
   const pendingDepositRefunds = (customerBookings: Appointment[]) =>
     customerBookings.filter((a) => a.booking_status === "cancelled" && a.deposit_paid && !a.deposit_refunded_at);
 
+  // When the deposit reminder opens, look up any carried-over credit for this customer's email.
+  useEffect(() => {
+    setDepositCredit(null);
+    if (!showDepositModal || !editForm.email) return;
+    getDepositCreditBalance(editForm.email)
+      .then((credit) => setDepositCredit(credit.balance > 0 ? credit : null))
+      .catch(() => setDepositCredit(null));
+  }, [showDepositModal, editForm.email]);
+
+  // Records what happened to a deposit: updates the open window straight away and leaves a dated note on the booking.
+  const recordDepositOutcome = async (booking: Appointment, method: "stripe" | "credit" | "manual", summary: string) => {
+    const now = new Date().toISOString();
+    const stamp = new Date(now).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+    const deposit_notes = [booking.deposit_notes, `${summary} on ${stamp}`].filter(Boolean).join(" | ");
+    setActiveBooking((b) => (b && b.id === booking.id ? { ...b, deposit_refunded_at: now, deposit_refund_method: method, deposit_notes } : b));
+    setEditForm((f) => ({ ...f, deposit_notes }));
+    try {
+      await updateAppointment(booking.id!, { deposit_notes });
+    } catch (err) {
+      console.error("Could not save deposit note:", err);
+    }
+  };
+
   const handleMarkDepositRefunded = async (booking: Appointment) => {
     if (!booking.id) return;
-    await updateAppointment(booking.id, { deposit_refunded_at: new Date().toISOString() });
+    await updateAppointment(booking.id, { deposit_refunded_at: new Date().toISOString(), deposit_refund_method: "manual" });
+    await recordDepositOutcome(booking, "manual", `£${(booking.deposit_amount || 0).toFixed(2)} deposit marked as refunded/handled`);
     await loadData();
+  };
+
+  // Refunds through Stripe to the card that paid. Rachel presses this; nothing refunds automatically.
+  const handleRefundDepositViaStripe = async (booking: Appointment) => {
+    if (!booking.id) return;
+    const cardPortion = (booking.deposit_amount || 0) - (booking.deposit_credit_applied || 0);
+    if (!window.confirm(`Refund £${cardPortion.toFixed(2)} to ${booking.ownername}'s card for ${booking.dogname}'s deposit?\n\nThis can't be undone.`)) return;
+    setIsWorking(true);
+    try {
+      const result: any = await refundDepositViaStripe(booking.id);
+      const emailed = booking.email ? await sendDepositOutcomeEmail(booking, "refunded", Number(result.refundedToCard)) : false;
+      alert(`✅ Refunded £${Number(result.refundedToCard).toFixed(2)} to the card.${result.creditRestored ? ` £${Number(result.creditRestored).toFixed(2)} was paid with credit, so it has been put back as credit.` : ""}\n\n${emailed ? `We emailed ${booking.email} to tell them.` : "We could not email the customer, so please let them know."}`);
+      await recordDepositOutcome(booking, "stripe", `£${Number(result.refundedToCard).toFixed(2)} refunded to the card via Stripe`);
+      await loadData();
+    } catch (err: any) {
+      alert(`Refund failed: ${err.message || err}`);
+    } finally {
+      setIsWorking(false);
+    }
+  };
+
+  // Keeps the deposit as credit against the customer's next booking (matched by email, valid 12 months).
+  const handleCarryDepositAsCredit = async (booking: Appointment) => {
+    if (!booking.id) return;
+    if (!window.confirm(`Keep ${booking.ownername}'s £${(booking.deposit_amount || 0).toFixed(2)} deposit as credit for their next groom?\n\nIt's matched by email (${booking.email}), applied automatically when they next book online, and valid for 12 months.`)) return;
+    setIsWorking(true);
+    try {
+      const result: any = await carryDepositAsCredit(booking.id);
+      const emailed = booking.email ? await sendDepositOutcomeEmail(booking, "credit", Number(result.credit), result.expiresAt) : false;
+      alert(`✅ Deposit carried over as credit.\n\n${emailed ? `We emailed ${booking.email} to tell them.` : "We could not email the customer, so please let them know."}`);
+      await recordDepositOutcome(booking, "credit", `£${(booking.deposit_amount || 0).toFixed(2)} deposit carried over as credit (valid 12 months)`);
+      await loadData();
+    } catch (err: any) {
+      alert(`Could not carry over the deposit: ${err.message || err}`);
+    } finally {
+      setIsWorking(false);
+    }
   };
 
   const servicePriceFor = getServiceBasePrice;
@@ -988,7 +1051,7 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
       notes: booking.notes || "",
       number_of_dogs: booking.number_of_dogs || 1,
       deposit_paid: booking.deposit_paid || false,
-      deposit_amount: booking.deposit_amount || (booking.number_of_dogs || 1) * 20,
+      deposit_amount: booking.deposit_amount || (booking.number_of_dogs || 1) * DEPOSIT_PER_DOG,
       deposit_notes: booking.deposit_notes || "",
       deposit_paid_at: booking.deposit_paid_at || null,
       actual_price: booking.actual_price ?? "",
@@ -1027,7 +1090,7 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
       notes: "",
       number_of_dogs: booking.number_of_dogs || 1,
       deposit_paid: false,
-      deposit_amount: (booking.number_of_dogs || 1) * 20,
+      deposit_amount: (booking.number_of_dogs || 1) * DEPOSIT_PER_DOG,
       deposit_notes: "",
       confirm_channel: "whatsapp",
     });
@@ -1083,7 +1146,7 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
       notes: "",
       number_of_dogs: 1,
       deposit_paid: false,
-      deposit_amount: 20,
+      deposit_amount: DEPOSIT_PER_DOG,
       deposit_notes: "",
       confirm_channel: "whatsapp" as "none" | "whatsapp" | "sms",
     });
@@ -1365,7 +1428,7 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
       notes: `Rebooking from ${booking.confirmed_date || booking.date}`,
       number_of_dogs: booking.number_of_dogs || 1,
       deposit_paid: false,
-      deposit_amount: 20,
+      deposit_amount: DEPOSIT_PER_DOG,
       deposit_notes: "",
       confirm_channel: "whatsapp" as "none" | "whatsapp" | "sms",
     });
@@ -1406,11 +1469,13 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
         await sendCustomerCancellationSms(booking);
       }
 
-      await updateAppointment(booking.id, { status: "cancelled", booking_status: "cancelled" });
+      const saved: any = await updateAppointment(booking.id, { status: "cancelled", booking_status: "cancelled" });
       await loadData();
       closeUpdateModal();
-      if (booking.deposit_paid) {
-        alert(`⚠️ Heads up — ${booking.dogname}'s cancelled booking had a £${booking.deposit_amount || (booking.number_of_dogs || 1) * 20} deposit paid.\n\nIt'll show as "Deposit owed" on ${booking.ownername}'s customer record until you mark it refunded/handled.`);
+      // Use the saved booking, not the copy we were handed, so a deposit that was already refunded isn't flagged as owed.
+      const latest = saved?.[0] || booking;
+      if (latest.deposit_paid && !latest.deposit_refunded_at) {
+        alert(`⚠️ Heads up: ${booking.dogname}'s cancelled booking still has a £${latest.deposit_amount || (booking.number_of_dogs || 1) * DEPOSIT_PER_DOG} deposit to deal with.\n\nOpen the cancelled booking, or ${booking.ownername}'s customer record, to refund it to the card or keep it as credit. It stays marked "Deposit owed" until you do.`);
       }
     } catch (error: any) {
       alert(error.message || "Could not cancel the booking.");
@@ -1573,7 +1638,7 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
         notes: "",
         number_of_dogs: 1,
         deposit_paid: false,
-        deposit_amount: 20,
+        deposit_amount: DEPOSIT_PER_DOG,
         deposit_notes: "",
         confirm_channel: "whatsapp" as "none" | "whatsapp" | "sms",
       });
@@ -1602,7 +1667,7 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
       notes: "",
       number_of_dogs: 1,
       deposit_paid: false,
-      deposit_amount: 20,
+      deposit_amount: DEPOSIT_PER_DOG,
       deposit_notes: "",
       confirm_channel: "whatsapp",
     });
@@ -1859,7 +1924,7 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
 
         const upcomingConfirmed = scoped.filter((a) => a.booking_status === "confirmed");
         const depositsOwed = upcomingConfirmed.filter((a) => !a.deposit_paid);
-        const depositsOwedTotal = depositsOwed.reduce((sum, a) => sum + (a.deposit_amount || (a.number_of_dogs || 1) * 20), 0);
+        const depositsOwedTotal = depositsOwed.reduce((sum, a) => sum + (a.deposit_amount || (a.number_of_dogs || 1) * DEPOSIT_PER_DOG), 0);
 
         const pendingRequests = scoped.filter((a) => (a.booking_status || a.status) === "pending" && a.status !== "cancelled");
         const overdueResponses = scoped.filter(isOverdueResponse).sort((a, b) => (a.created_at || "").localeCompare(b.created_at || ""));
@@ -2422,8 +2487,8 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
                           )}
                         </td>
                         <td className="p-4">
-                          <span className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${app.deposit_paid ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`} title={app.deposit_notes || ""}>
-                            {app.deposit_paid ? "✓ Paid" : "Pending"}
+                          <span className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${app.deposit_refunded_at ? "bg-slate-200 text-slate-700" : app.deposit_paid ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`} title={app.deposit_notes || ""}>
+                            {app.deposit_refunded_at ? (app.deposit_refund_method === "credit" ? "↪ Credit" : "↩ Refunded") : app.deposit_paid ? "✓ Paid" : "Pending"}
                           </span>
                         </td>
                         <td className="p-4">
@@ -3069,7 +3134,7 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
 
       {showUpdateModal && activeBooking && (
         <div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl p-6 w-full max-w-3xl max-h-[90vh] overflow-y-auto">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-5xl max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-xl font-black text-slate-800">Update Booking</h3>
               <button onClick={closeUpdateModal} className="text-slate-400 hover:text-slate-600 text-2xl font-bold">×</button>
@@ -3150,7 +3215,7 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
                   value={editForm.number_of_dogs}
                   onChange={(e) => {
                     const n = Math.max(1, Number(e.target.value) || 1);
-                    setEditForm({ ...editForm, number_of_dogs: n, deposit_amount: n * 20 });
+                    setEditForm({ ...editForm, number_of_dogs: n, deposit_amount: n * DEPOSIT_PER_DOG });
                   }}
                   className="px-4 py-3 border rounded-lg w-full"
                 />
@@ -3175,14 +3240,19 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
             </div>
 
             <div className="mt-4 p-4 bg-slate-50 border border-slate-200 rounded-lg">
-              <h4 className="text-sm font-bold text-slate-700 mb-2">Notes</h4>
-              <textarea value={editForm.notes} onChange={(e) => setEditForm({ ...editForm, notes: e.target.value })} placeholder="Notes" className="w-full px-4 py-3 border rounded-lg min-h-24" />
+              <DogRecordTabs key={activeBooking?.id} email={editForm.email} dogName={editForm.dogname} />
+
+              <div className="mt-4 pt-4 border-t border-slate-200">
+                <h4 className="text-sm font-bold text-slate-700 mb-1">This booking only</h4>
+                <p className="text-xs text-slate-500 mb-2">What the customer asked for on this visit, such as a home address or a request. Lasting notes about the dog go under Notes above.</p>
+                <textarea value={editForm.notes} onChange={(e) => setEditForm({ ...editForm, notes: e.target.value })} placeholder="Booking notes" className="w-full px-4 py-3 border rounded-lg min-h-20" />
+              </div>
             </div>
 
             <div className="mt-4 p-4 bg-amber-50 border border-amber-200 rounded-lg">
               <h4 className="text-sm font-bold text-amber-900 mb-3">
                 £{editForm.deposit_amount} Deposit Status
-                {editForm.number_of_dogs > 1 && <span className="font-normal text-amber-700"> (£20 × {editForm.number_of_dogs} dogs)</span>}
+                {editForm.number_of_dogs > 1 && <span className="font-normal text-amber-700"> (£{DEPOSIT_PER_DOG} × {editForm.number_of_dogs} dogs)</span>}
               </h4>
               <div className="flex items-center gap-4">
                 <label className="flex items-center gap-2 cursor-pointer">
@@ -3194,8 +3264,15 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
                   />
                   <span className="text-sm font-medium text-amber-900">Deposit Paid</span>
                 </label>
-                {editForm.deposit_paid && (
+                {editForm.deposit_paid && !activeBooking?.deposit_refunded_at && (
                   <span className="text-xs text-emerald-600 font-semibold">✓ Confirmed</span>
+                )}
+                {activeBooking?.deposit_refunded_at && (
+                  <span className="text-xs font-bold text-slate-700 bg-slate-200 rounded-full px-3 py-1">
+                    {activeBooking.deposit_refund_method === "stripe" ? "↩ Refunded to card" : activeBooking.deposit_refund_method === "credit" ? "↪ Carried over as credit" : "✓ Handled manually"}
+                    {" · "}
+                    {new Date(activeBooking.deposit_refunded_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
+                  </span>
                 )}
               </div>
               <input
@@ -3205,6 +3282,33 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
                 placeholder="Deposit notes (optional - payment method, date, etc.)"
                 className="mt-3 w-full px-3 py-2 border border-amber-200 rounded-lg text-sm"
               />
+              {activeBooking?.id && activeBooking.deposit_paid && !activeBooking.deposit_refunded_at && (
+                <div className="mt-3 pt-3 border-t border-amber-200">
+                  <p className="text-xs text-amber-800 mb-2">Cancelling or can't offer a slot? Deal with the £{activeBooking.deposit_amount} deposit here (cancel the booking separately).</p>
+                  <div className="flex flex-wrap gap-2">
+                    {activeBooking.stripe_payment_intent_id && (
+                      <button type="button" disabled={isWorking} onClick={() => handleRefundDepositViaStripe(activeBooking)} className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white px-4 py-2 rounded-lg text-xs font-bold">
+                        Refund to card
+                      </button>
+                    )}
+                    <button type="button" disabled={isWorking} onClick={() => handleCarryDepositAsCredit(activeBooking)} className="bg-sky-600 hover:bg-sky-700 disabled:opacity-60 text-white px-4 py-2 rounded-lg text-xs font-bold">
+                      Keep as credit
+                    </button>
+                    <button type="button" disabled={isWorking} onClick={() => handleMarkDepositRefunded(activeBooking)} className="bg-slate-500 hover:bg-slate-600 disabled:opacity-60 text-white px-4 py-2 rounded-lg text-xs font-bold">
+                      Mark Refunded/Handled
+                    </button>
+                  </div>
+                </div>
+              )}
+              {activeBooking?.deposit_refunded_at && (
+                <p className="mt-3 text-xs font-semibold text-slate-700">
+                  {activeBooking.deposit_refund_method === "stripe"
+                    ? `The deposit has been refunded to the card it was paid with. It can take 5 to 10 days to show on the customer's statement.`
+                    : activeBooking.deposit_refund_method === "credit"
+                    ? `The deposit is now credit on ${activeBooking.email}, applied automatically to their next online booking within 12 months.`
+                    : "The deposit has been marked as dealt with outside the system."}
+                </p>
+              )}
             </div>
 
             <div className="mt-4 p-4 bg-emerald-50 border border-emerald-200 rounded-lg">
@@ -3285,7 +3389,7 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
               )}
             </div>
 
-            <div className="flex gap-3 mt-6">
+            <div className="flex flex-wrap gap-3 mt-6">
               <button disabled={isWorking} onClick={saveBookingDetails} className="bg-slate-700 hover:bg-slate-800 disabled:opacity-60 text-white px-5 py-2 rounded-lg font-bold">
                 Save Details
               </button>
@@ -3338,7 +3442,12 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
                 <span className="text-3xl">💰</span>
               </div>
               <h3 className="text-xl font-black text-slate-800 mb-2">Deposit Reminder</h3>
-              <p className="text-sm text-slate-600">Has the customer paid their £{editForm.deposit_amount} deposit{editForm.number_of_dogs > 1 ? ` (£20 × ${editForm.number_of_dogs} dogs)` : ""}?</p>
+              {depositCredit && (
+                <p className="text-sm font-bold text-sky-700 bg-sky-50 border border-sky-200 rounded-lg px-3 py-2 mb-3">
+                  💳 This customer has £{depositCredit.balance.toFixed(2)} carried-over credit (expires {depositCredit.expiresAt ? new Date(depositCredit.expiresAt).toLocaleDateString("en-GB") : ""}). Not applied automatically to bookings you add here.
+                </p>
+              )}
+              <p className="text-sm text-slate-600">Has the customer paid their £{editForm.deposit_amount} deposit{editForm.number_of_dogs > 1 ? ` (£${DEPOSIT_PER_DOG} × ${editForm.number_of_dogs} dogs)` : ""}?</p>
             </div>
 
             <div className="space-y-3">
@@ -4334,7 +4443,7 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
                         )}
                         {owedRefunds.length > 0 && (
                           <span className="px-3 py-1 bg-rose-100 text-rose-700 text-xs font-bold rounded-full whitespace-nowrap">
-                            ⚠️ Deposit owed £{owedRefunds.reduce((sum, a) => sum + (a.deposit_amount || (a.number_of_dogs || 1) * 20), 0)}
+                            ⚠️ Deposit owed £{owedRefunds.reduce((sum, a) => sum + (a.deposit_amount || (a.number_of_dogs || 1) * DEPOSIT_PER_DOG), 0)}
                           </span>
                         )}
                         <span className="px-3 py-1 bg-emerald-100 text-emerald-700 text-xs font-bold rounded-full">
@@ -4806,11 +4915,21 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
                     {owedRefunds.map((apt) => (
                       <div key={apt.id} className="flex items-center justify-between gap-3 bg-white border border-rose-200 rounded-xl px-4 py-3">
                         <div className="text-sm text-rose-900">
-                          <span className="font-bold">{apt.dogname}</span> — cancelled booking, £{apt.deposit_amount || (apt.number_of_dogs || 1) * 20} deposit paid
+                          <span className="font-bold">{apt.dogname}</span> — cancelled booking, £{apt.deposit_amount || (apt.number_of_dogs || 1) * DEPOSIT_PER_DOG} deposit paid
                         </div>
-                        <button onClick={() => handleMarkDepositRefunded(apt)} className="bg-rose-600 hover:bg-rose-700 text-white px-4 py-2 rounded-lg text-xs font-bold whitespace-nowrap">
-                          Mark Refunded/Handled
-                        </button>
+                        <div className="flex flex-wrap gap-2 justify-end">
+                          {apt.stripe_payment_intent_id && (
+                            <button disabled={isWorking} onClick={() => handleRefundDepositViaStripe(apt)} className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white px-4 py-2 rounded-lg text-xs font-bold whitespace-nowrap">
+                              Refund to card
+                            </button>
+                          )}
+                          <button disabled={isWorking} onClick={() => handleCarryDepositAsCredit(apt)} className="bg-sky-600 hover:bg-sky-700 disabled:opacity-60 text-white px-4 py-2 rounded-lg text-xs font-bold whitespace-nowrap">
+                            Keep as credit
+                          </button>
+                          <button disabled={isWorking} onClick={() => handleMarkDepositRefunded(apt)} className="bg-rose-600 hover:bg-rose-700 disabled:opacity-60 text-white px-4 py-2 rounded-lg text-xs font-bold whitespace-nowrap">
+                            Mark Refunded/Handled
+                          </button>
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -5009,7 +5128,7 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
                       notes: "",
                       number_of_dogs: Math.max(1, selectedDogs.length),
                       deposit_paid: false,
-                      deposit_amount: Math.max(1, selectedDogs.length) * 20,
+                      deposit_amount: Math.max(1, selectedDogs.length) * DEPOSIT_PER_DOG,
                       deposit_notes: "",
                       confirm_channel: "none" as "none" | "whatsapp" | "sms",
                     });
@@ -5193,7 +5312,7 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
 
         return (
           <div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center p-4 z-50">
-            <div className="bg-white rounded-2xl p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            <div className="bg-white rounded-2xl p-6 w-full max-w-4xl max-h-[90vh] overflow-y-auto">
               <div className="flex justify-between items-center mb-1">
                 <h3 className="text-xl font-black text-slate-800">New Booking — {dateLabel}</h3>
                 <button onClick={() => setShowDiarySlotModal(false)} className="text-slate-400 hover:text-slate-600 text-2xl font-bold">×</button>
@@ -5286,18 +5405,22 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
                     value={diarySlotForm.number_of_dogs}
                     onChange={(e) => {
                       const n = Math.max(1, Number(e.target.value) || 1);
-                      setDiarySlotForm({ ...diarySlotForm, number_of_dogs: n, deposit_amount: n * 20 });
+                      setDiarySlotForm({ ...diarySlotForm, number_of_dogs: n, deposit_amount: n * DEPOSIT_PER_DOG });
                     }}
                     className="px-4 py-3 border rounded-lg w-full"
                   />
                 </div>
-                <textarea value={diarySlotForm.notes} onChange={(e) => setDiarySlotForm({ ...diarySlotForm, notes: e.target.value })} placeholder="Notes" className="md:col-span-2 px-4 py-3 border rounded-lg min-h-20" />
+                <textarea value={diarySlotForm.notes} onChange={(e) => setDiarySlotForm({ ...diarySlotForm, notes: e.target.value })} placeholder="Notes for this booking only (the customer's request, a home address)" className="md:col-span-2 px-4 py-3 border rounded-lg min-h-20" />
+              </div>
+
+              <div className="mt-4 p-4 bg-slate-50 border border-slate-200 rounded-lg">
+                <DogRecordTabs email={diarySlotForm.email} dogName={diarySlotForm.dogname} />
               </div>
 
               <div className="mt-4 p-4 bg-amber-50 border border-amber-200 rounded-lg">
                 <h4 className="text-sm font-bold text-amber-900 mb-3">
                   £{diarySlotForm.deposit_amount} Deposit Status
-                  {diarySlotForm.number_of_dogs > 1 && <span className="font-normal text-amber-700"> (£20 × {diarySlotForm.number_of_dogs} dogs)</span>}
+                  {diarySlotForm.number_of_dogs > 1 && <span className="font-normal text-amber-700"> (£{DEPOSIT_PER_DOG} × {diarySlotForm.number_of_dogs} dogs)</span>}
                 </h4>
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input type="checkbox" checked={diarySlotForm.deposit_paid} onChange={(e) => setDiarySlotForm({ ...diarySlotForm, deposit_paid: e.target.checked })} className="w-5 h-5 rounded border-amber-300 text-amber-600 focus:ring-amber-500" />
@@ -5320,7 +5443,7 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
                 </div>
               </div>
 
-              <div className="flex gap-3 mt-5">
+              <div className="flex flex-wrap gap-3 mt-5">
                 <button disabled={isWorking} onClick={() => handleDiarySlotBooking(false)} title="Adds the booking as confirmed" className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white px-5 py-2 rounded-lg font-bold">
                   {isWorking ? "Adding..." : "Add Booking (Confirmed)"}
                 </button>
@@ -5390,7 +5513,7 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
               <input type="tel" value={addCustomerForm.phone} onChange={(e) => setAddCustomerForm({ ...addCustomerForm, phone: e.target.value })} placeholder="Phone (needed for WhatsApp/SMS)" className="w-full px-4 py-3 border rounded-lg" />
               <input type="email" value={addCustomerForm.email} onChange={(e) => setAddCustomerForm({ ...addCustomerForm, email: e.target.value })} placeholder="Email" className="w-full px-4 py-3 border rounded-lg" />
             </div>
-            <div className="flex gap-3 mt-5">
+            <div className="flex flex-wrap gap-3 mt-5">
               <button disabled={isWorking} onClick={handleAddCustomer} className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white px-5 py-2 rounded-lg font-bold">
                 {isWorking ? "Adding..." : "Add Customer"}
               </button>
@@ -5404,7 +5527,7 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
 
       {showAddModal && (
         <div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl p-6 w-full max-w-3xl max-h-[90vh] overflow-y-auto">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-5xl max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-xl font-black text-slate-800">Add New Booking</h3>
               <button onClick={() => setShowAddModal(false)} className="text-slate-400 hover:text-slate-600 text-2xl font-bold">×</button>
@@ -5489,18 +5612,22 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
                   value={addForm.number_of_dogs}
                   onChange={(e) => {
                     const n = Math.max(1, Number(e.target.value) || 1);
-                    setAddForm({ ...addForm, number_of_dogs: n, deposit_amount: n * 20 });
+                    setAddForm({ ...addForm, number_of_dogs: n, deposit_amount: n * DEPOSIT_PER_DOG });
                   }}
                   className="px-4 py-3 border rounded-lg w-full"
                 />
               </div>
-              <textarea value={addForm.notes} onChange={(e) => setAddForm({ ...addForm, notes: e.target.value })} placeholder="Notes" className="md:col-span-2 px-4 py-3 border rounded-lg min-h-24" />
+              <textarea value={addForm.notes} onChange={(e) => setAddForm({ ...addForm, notes: e.target.value })} placeholder="Notes for this booking only (the customer's request, a home address)" className="md:col-span-2 px-4 py-3 border rounded-lg min-h-24" />
+            </div>
+
+            <div className="mt-4 p-4 bg-slate-50 border border-slate-200 rounded-lg">
+              <DogRecordTabs email={addForm.email} dogName={addForm.dogname} />
             </div>
 
             <div className="mt-4 p-4 bg-amber-50 border border-amber-200 rounded-lg">
               <h4 className="text-sm font-bold text-amber-900 mb-3">
                 £{addForm.deposit_amount} Deposit Status
-                {addForm.number_of_dogs > 1 && <span className="font-normal text-amber-700"> (£20 × {addForm.number_of_dogs} dogs)</span>}
+                {addForm.number_of_dogs > 1 && <span className="font-normal text-amber-700"> (£{DEPOSIT_PER_DOG} × {addForm.number_of_dogs} dogs)</span>}
               </h4>
               <div className="flex items-center gap-4">
                 <label className="flex items-center gap-2 cursor-pointer">
@@ -5541,7 +5668,7 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
               </div>
             </div>
 
-            <div className="flex gap-3 mt-4">
+            <div className="flex flex-wrap gap-3 mt-4">
               <button disabled={isWorking} onClick={() => handleAddBooking(false)} title="Adds the booking as confirmed" className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white px-5 py-2 rounded-lg font-bold">
                 {isWorking ? "Adding..." : addForm.confirm_channel === "sms" ? "Add & Send SMS" : addForm.confirm_channel === "whatsapp" ? "Add & Send WhatsApp" : "Add Booking (Confirmed)"}
               </button>

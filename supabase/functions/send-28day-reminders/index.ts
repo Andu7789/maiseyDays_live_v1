@@ -84,7 +84,7 @@ serve(async (req: Request) => {
     // Send emails for each group
     for (const [location, apts] of Object.entries(groupedAppointments)) {
       try {
-        const locationName = location === 'caister' ? 'Caister' : location === 'winterton' ? 'Winterton' : 'All Locations';
+        const locationName = location === 'caister' ? 'Caister' : location === 'hemsby' ? 'Hemsby' : 'All Locations';
 
         let emailBody = `🐾 ${daysInterval}-DAY REBOOKING REMINDER
 ${locationName} - ${new Date().toLocaleDateString('en-GB')}
