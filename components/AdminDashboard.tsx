@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { DogRecordTabs } from "./DogRecordTabs";
-import { sendDepositOutcomeEmail, getDepositCreditBalance, carryDepositAsCredit, refundDepositViaStripe, addBookingPhoto, BookingPhoto, buildCancellationMessage, buildConfirmationMessage, buildRebookNudgeMessage, checkAuthStatus, confirmAppointmentBooking, createManualAppointment, deleteAppointment, deleteBookingPhoto, enrollMfaTotp, exportAppointmentsToExcel, findBookingClash, getAppointments, getAvailableSlotTimes, getBookingPhotos, getBookingRevenue, getCurrentUser, getEffectiveSchedule, getMfaAssuranceLevel, getReminderSettings, getServiceBasePrice, getUnavailableDays, getUnavailableDayEntries, getUnavailableWeekdays, getUnavailableWeekdayEntries, listMfaFactors, removeUnavailableEntry, saveUnavailableDay, saveUnavailableDateRange, saveUnavailableWeekday, sendCustomEmail, sendCustomerCancellationSms, sendCustomerConfirmationSms, signInAdmin, signOutAdmin, unenrollMfaFactor, updateAppointment, updateReminderSettings, getHolidaySettings, updateHolidaySettings, updateAdvertSettings, updateWeekendBookingsEnabled, updateGoogleReviewLink, verifyMfaCode, getDogNotes, getAllDogNotes, upsertDogNote, UnavailabilityEntry } from "../services/bookingService";
+import { sendDepositOutcomeEmail, getDepositCreditBalance, carryDepositAsCredit, refundDepositViaStripe, addBookingPhoto, BookingPhoto, buildCancellationMessage, buildConfirmationMessage, buildRebookNudgeMessage, checkAuthStatus, confirmAppointmentBooking, createManualAppointment, deleteAppointment, deleteBookingPhoto, enrollMfaTotp, exportAppointmentsToExcel, findBookingClash, getDayBookings, getAppointments, getAvailableSlotTimes, getBookingPhotos, getBookingRevenue, getCurrentUser, getEffectiveSchedule, getMfaAssuranceLevel, getReminderSettings, getServiceBasePrice, getUnavailableDays, getUnavailableDayEntries, getUnavailableWeekdays, getUnavailableWeekdayEntries, listMfaFactors, removeUnavailableEntry, saveUnavailableDay, saveUnavailableDateRange, saveUnavailableWeekday, sendCustomEmail, sendCustomerCancellationSms, sendCustomerConfirmationSms, signInAdmin, signOutAdmin, unenrollMfaFactor, updateAppointment, updateReminderSettings, getHolidaySettings, updateHolidaySettings, updateAdvertSettings, updateWeekendBookingsEnabled, updateGoogleReviewLink, verifyMfaCode, getDogNotes, getAllDogNotes, upsertDogNote, UnavailabilityEntry } from "../services/bookingService";
 import { buildIntakeLink, buildIntakeMessage, buildReviewMessage, buildWhatsAppLink, createCustomer, deleteCustomer, deleteDog, ensureIntakeToken, getCustomers, getDeletedCustomers, getFirstName, markIntakeSent, markReviewLinkSent, permanentlyDeleteCustomer, restoreCustomer, saveDog, sendIntakeEmail, sendIntakeSms, updateCustomer } from "../services/customerService";
 import { Appointment, Customer, Dog, IntakeStatus, Service, StarPost } from "../types";
 import { ALL_LOCATIONS, DEPOSIT_PER_DOG, INTAKE_TERMS, LOCATIONS, MATTING_BULLETS, MATTING_CLOSING, MATTING_TERMS, SERVICES, SLOT_TIMES } from "../constants";
@@ -134,6 +134,7 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
   const [diarySlotDate, setDiarySlotDate] = useState("");
   const [diarySlotTime, setDiarySlotTime] = useState("");
   const [diarySlotDuration, setDiarySlotDuration] = useState(120);
+  const [diarySlotDayBookings, setDiarySlotDayBookings] = useState<Awaited<ReturnType<typeof getDayBookings>>>([]);
   const [diarySlotCustomerSearch, setDiarySlotCustomerSearch] = useState("");
   const [diarySlotSelectedCustomer, setDiarySlotSelectedCustomer] = useState<Customer | null>(null);
   const [diarySlotForm, setDiarySlotForm] = useState({
@@ -441,6 +442,18 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
   useEffect(() => {
     setCurrentPage(1);
   }, [bookingsSearch, bookingsStatusFilter]);
+
+  // Keep the New Booking modal's "already booked" list in step with the chosen date and location
+  useEffect(() => {
+    if (!showDiarySlotModal || !diarySlotDate) return;
+    let cancelled = false;
+    getDayBookings(diarySlotForm.locationid, diarySlotDate).then((bookings) => {
+      if (!cancelled) setDiarySlotDayBookings(bookings);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [showDiarySlotModal, diarySlotDate, diarySlotForm.locationid]);
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -5336,6 +5349,50 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
                 </div>
                 <label className="text-xs font-bold text-slate-500 whitespace-nowrap">mins</label>
               </div>
+
+              {(() => {
+                const toLabel = (mins: number) => `${String(Math.floor(mins / 60)).padStart(2, "0")}:${String(mins % 60).padStart(2, "0")}`;
+                const chosenStart = diarySlotTime ? Number(diarySlotTime.slice(0, 2)) * 60 + Number(diarySlotTime.slice(3, 5)) : null;
+                const chosenEnd = chosenStart === null ? null : chosenStart + diarySlotDuration;
+                const clashes = chosenStart === null || chosenEnd === null ? [] : diarySlotDayBookings.filter((b) => chosenStart < b.startMinutes + b.durationMinutes && chosenEnd > b.startMinutes);
+                // Free gaps between 08:00 and 20:00 so the next open time is obvious
+                const dayStart = 8 * 60;
+                const dayEnd = 20 * 60;
+                const gaps: { from: number; to: number }[] = [];
+                let cursor = dayStart;
+                for (const b of diarySlotDayBookings) {
+                  if (b.startMinutes > cursor) gaps.push({ from: cursor, to: Math.min(b.startMinutes, dayEnd) });
+                  cursor = Math.max(cursor, b.startMinutes + b.durationMinutes);
+                }
+                if (cursor < dayEnd) gaps.push({ from: cursor, to: dayEnd });
+                const usefulGaps = gaps.filter((g) => g.to - g.from >= 15);
+
+                return (
+                  <div className={`mb-4 p-3 rounded-xl border ${clashes.length > 0 ? "bg-red-50 border-red-200" : "bg-slate-50 border-slate-200"}`}>
+                    <p className="text-xs font-bold text-slate-500 uppercase mb-2">This day at {LOCATIONS.find((l) => l.id === diarySlotForm.locationid)?.name || "this location"}</p>
+                    {diarySlotDayBookings.length === 0 ? (
+                      <p className="text-sm font-bold text-emerald-700">Nothing booked, the whole day is free.</p>
+                    ) : (
+                      <div className="space-y-1 mb-2">
+                        {diarySlotDayBookings.map(({ apt, startMinutes, durationMinutes }) => (
+                          <div key={apt.id} className="flex items-center gap-2 text-sm text-slate-700">
+                            <span className="font-black tabular-nums">{toLabel(startMinutes)}–{toLabel(startMinutes + durationMinutes)}</span>
+                            <span className="truncate">{apt.dogname} ({apt.ownername})</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {usefulGaps.length > 0 && diarySlotDayBookings.length > 0 && (
+                      <p className="text-xs text-emerald-700 font-bold">Free: {usefulGaps.map((g) => `${toLabel(g.from)}–${toLabel(g.to)}`).join(", ")}</p>
+                    )}
+                    {clashes.length > 0 && (
+                      <p className="mt-2 text-sm font-black text-red-700">
+                        ⚠ {diarySlotTime} for {diarySlotDuration} mins clashes with {clashes.map((c) => c.apt.dogname).join(", ")}. Pick a free time or this will be a double booking.
+                      </p>
+                    )}
+                  </div>
+                );
+              })()}
 
               {(() => {
                 const missedHistory = getMissedHistory(diarySlotForm.email, diarySlotForm.phone);

@@ -1080,6 +1080,29 @@ export const findBookingClash = async (locationId: string, date: string, time: s
   }
 };
 
+/** Live bookings at a location on a date, earliest first. Used to show the admin which times are taken. */
+export const getDayBookings = async (locationId: string, date: string): Promise<{ apt: Appointment; startMinutes: number; durationMinutes: number }[]> => {
+  try {
+    const { data, error } = await supabase
+      .from("appointments")
+      .select("*")
+      .or(`date.eq.${date},confirmed_date.eq.${date}`);
+    if (error) throw error;
+
+    const bookings: { apt: Appointment; startMinutes: number; durationMinutes: number }[] = [];
+    for (const row of data || []) {
+      if (normalizeLocationId(row.locationid) !== locationId) continue;
+      const schedule = getEffectiveSchedule(row as Appointment);
+      if (!schedule || schedule.date !== date) continue;
+      bookings.push({ apt: row as Appointment, startMinutes: schedule.startMinutes, durationMinutes: schedule.durationMinutes });
+    }
+    return bookings.sort((a, b) => a.startMinutes - b.startMinutes);
+  } catch (err) {
+    console.error("Day bookings lookup failed:", err);
+    return [];
+  }
+};
+
 /** True when the location isn't taking online bookings yet for this date (e.g. a new salon that hasn't opened). */
 export const isBeforeBookableFrom = (locationId: string, date: string) => {
   const bookableFrom = LOCATIONS.find((l) => l.id === locationId)?.bookableFrom;
