@@ -4102,7 +4102,16 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
                 <button onClick={() => shiftWeek(-1)} className="px-4 py-2 bg-slate-100 hover:bg-slate-200 rounded-xl font-black text-slate-600">
                   ‹
                 </button>
-                <span className="font-bold text-slate-700 min-w-[190px] text-center">{weekLabel}</span>
+                <label className="relative font-bold text-slate-700 min-w-[190px] text-center px-3 py-2 rounded-xl hover:bg-slate-100 cursor-pointer">
+                  {weekLabel}
+                  <input
+                    type="date"
+                    aria-label="Pick a date to show that week"
+                    value={toDateString(diaryWeekStart)}
+                    onChange={(e) => e.target.value && jumpToDate(e.target.value)}
+                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                  />
+                </label>
                 <button onClick={() => shiftWeek(1)} className="px-4 py-2 bg-slate-100 hover:bg-slate-200 rounded-xl font-black text-slate-600">
                   ›
                 </button>
@@ -4115,7 +4124,16 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
                   ‹
                 </button>
                 <div className="text-center">
-                  <div className="font-bold text-slate-800">{mobileDayLabel}</div>
+                  <label className="relative block font-bold text-slate-800 px-3 py-1 rounded-xl bg-slate-50 cursor-pointer">
+                    {mobileDayLabel} ▾
+                    <input
+                      type="date"
+                      aria-label="Pick a date"
+                      value={mobileDateStr}
+                      onChange={(e) => e.target.value && jumpToDate(e.target.value)}
+                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                    />
+                  </label>
                   {mobileDateStr !== todayStr && (
                     <button onClick={() => setDiaryMobileDate(new Date())} className="text-xs font-bold text-teal-600">
                       Jump to today
