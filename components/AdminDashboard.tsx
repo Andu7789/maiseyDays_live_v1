@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { DogRecordTabs } from "./DogRecordTabs";
-import { sendDepositOutcomeEmail, getDepositCreditBalance, carryDepositAsCredit, refundDepositViaStripe, addBookingPhoto, BookingPhoto, buildCancellationMessage, buildConfirmationMessage, buildRebookNudgeMessage, checkAuthStatus, confirmAppointmentBooking, createManualAppointment, deleteAppointment, deleteBookingPhoto, enrollMfaTotp, exportAppointmentsToExcel, findBookingClash, getDayBookings, getAppointments, getAvailableSlotTimes, getBookingPhotos, getBookingRevenue, getCurrentUser, getEffectiveSchedule, getMfaAssuranceLevel, getReminderSettings, getServiceBasePrice, getUnavailableDays, getUnavailableDayEntries, getUnavailableWeekdays, getUnavailableWeekdayEntries, listMfaFactors, removeUnavailableEntry, saveUnavailableDay, saveUnavailableDateRange, saveUnavailableWeekday, sendCustomEmail, sendCustomerCancellationSms, sendCustomerConfirmationSms, signInAdmin, signOutAdmin, unenrollMfaFactor, updateAppointment, updateReminderSettings, getHolidaySettings, updateHolidaySettings, updateAdvertSettings, updateWeekendBookingsEnabled, updateGoogleReviewLink, verifyMfaCode, getDogNotes, getAllDogNotes, upsertDogNote, UnavailabilityEntry } from "../services/bookingService";
+import { sendDepositOutcomeEmail, getDepositCreditBalance, carryDepositAsCredit, refundDepositViaStripe, addBookingPhoto, BookingPhoto, buildCancellationMessage, buildConfirmationMessage, buildRebookNudgeMessage, checkAuthStatus, confirmAppointmentBooking, createManualAppointment, deleteAppointment, deleteBookingPhoto, enrollMfaTotp, exportAppointmentsToExcel, findBookingClash, getDayBookings, getAppointments, getAvailableSlotTimes, getBookingPhotos, getBookingRevenue, getCurrentUser, getEffectiveSchedule, getMfaAssuranceLevel, getReminderSettings, getServiceBasePrice, getUnavailableDays, getUnavailableDayEntries, getUnavailableWeekdays, getUnavailableWeekdayEntries, listMfaFactors, removeUnavailableEntry, saveUnavailableDay, saveUnavailableDateRange, saveUnavailableWeekday, sendCustomEmail, sendCustomerCancellationSms, sendCustomerConfirmationSms, signInAdmin, signOutAdmin, unenrollMfaFactor, updateAppointment, updateReminderSettings, getHolidaySettings, updateHolidaySettings, updateAdvertSettings, updateWeekendBookingsEnabled, updateGoogleReviewLink, verifyMfaCode, getDogNotes, getAllDogNotes, upsertDogNote, UnavailabilityEntry, createPersonalAppointment, isPersonalAppointment } from "../services/bookingService";
 import { buildIntakeLink, buildIntakeMessage, buildReviewMessage, buildWhatsAppLink, createCustomer, deleteCustomer, deleteDog, ensureIntakeToken, getCustomers, getDeletedCustomers, getFirstName, markIntakeSent, markReviewLinkSent, permanentlyDeleteCustomer, restoreCustomer, saveDog, sendIntakeEmail, sendIntakeSms, updateCustomer } from "../services/customerService";
 import { Appointment, Customer, Dog, IntakeStatus, Service, StarPost } from "../types";
 import { ALL_LOCATIONS, DEPOSIT_PER_DOG, INTAKE_TERMS, LOCATIONS, MATTING_BULLETS, MATTING_CLOSING, MATTING_TERMS, SERVICES, SLOT_TIMES, getLocationSlotTimes } from "../constants";
@@ -79,7 +79,9 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
   const [mfaEnrollCodeInput, setMfaEnrollCodeInput] = useState("");
   const [mfaEnrollError, setMfaEnrollError] = useState("");
   const [mfaBusy, setMfaBusy] = useState(false);
-  const [appointments, setAppointments] = useState<Appointment[]>([]);
+  const [allAppointments, setAppointments] = useState<Appointment[]>([]);
+  // Personal diary entries only matter to the diary; everywhere else (stats, lists, customers) sees customer bookings only
+  const appointments = allAppointments.filter((a) => !isPersonalAppointment(a));
   const [view, setView] = useState<AdminView>(initialView || "dashboard");
   const [selectedLocation, setSelectedLocation] = useState(ALL_LOCATIONS);
   const [isLoading, setIsLoading] = useState(true);
@@ -144,6 +146,8 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
   const [diarySlotDate, setDiarySlotDate] = useState("");
   const [diarySlotTime, setDiarySlotTime] = useState("");
   const [diarySlotDuration, setDiarySlotDuration] = useState(120);
+  const [diarySlotPersonal, setDiarySlotPersonal] = useState(false);
+  const [diarySlotPersonalTitle, setDiarySlotPersonalTitle] = useState("");
   const [diarySlotDayBookings, setDiarySlotDayBookings] = useState<Awaited<ReturnType<typeof getDayBookings>>>([]);
   const [diarySlotCustomerSearch, setDiarySlotCustomerSearch] = useState("");
   const [diarySlotSelectedCustomer, setDiarySlotSelectedCustomer] = useState<Customer | null>(null);
@@ -1673,7 +1677,9 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
     }
   };
 
-  const openDiarySlotModal = (date: string, time: string) => {
+  const openDiarySlotModal = (date: string, time: string, personal: boolean = false) => {
+    setDiarySlotPersonal(personal);
+    setDiarySlotPersonalTitle("");
     setDiarySlotDate(date);
     setDiarySlotTime(time);
     setDiarySlotDuration(120);
@@ -1708,6 +1714,33 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
       dogbreed: customer.dogs?.[0]?.breed || "",
     }));
     setDiarySlotCustomerSearch("");
+  };
+
+  const handleDiarySlotPersonal = async () => {
+    const title = diarySlotPersonalTitle.trim();
+    if (!title) {
+      alert("Please enter what this appointment is, e.g. Dentist.");
+      return;
+    }
+    if (!diarySlotTime) {
+      alert("Please choose a start time.");
+      return;
+    }
+    const clash = await findBookingClash(diarySlotForm.locationid, diarySlotDate, diarySlotTime, diarySlotDuration);
+    if (clash) {
+      const clashTime = getEffectiveSchedule(clash)?.timeLabel || "";
+      if (!window.confirm(`⚠️ CLASH WARNING\n\n${clash.dogname} (${clash.ownername}) is already booked at ${clashTime} on this day.\n\nAdd your appointment anyway?`)) return;
+    }
+    setIsWorking(true);
+    try {
+      await createPersonalAppointment({ title, locationid: diarySlotForm.locationid, date: diarySlotDate, time: diarySlotTime, durationMinutes: diarySlotDuration, notes: diarySlotForm.notes });
+      await loadData();
+      setShowDiarySlotModal(false);
+    } catch (error: any) {
+      alert(error.message || "Could not add personal appointment.");
+    } finally {
+      setIsWorking(false);
+    }
   };
 
   const handleDiarySlotBooking = async (hold: boolean = false) => {
@@ -3998,7 +4031,7 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
         // independently of the desktop week — restricting the source list to the
         // desktop's currently-loaded week silently dropped mobile's data whenever
         // it stepped outside that window.
-        const scheduled = appointments
+        const scheduled = allAppointments
           .filter((apt) => selectedLocation === ALL_LOCATIONS || apt.locationid === selectedLocation)
           .filter(matchesSearch)
           .map((apt) => ({ apt, schedule: getEffectiveSchedule(apt) }))
@@ -4061,6 +4094,7 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
         const isClosedDay = (date: string) => unavailableDays.includes(date) || unavailableWeekdays.includes(new Date(`${date}T00:00:00`).getDay());
 
         const chipStyle = (apt: Appointment) => {
+          if (isPersonalAppointment(apt)) return "bg-slate-700 border-slate-800 text-white";
           const status = apt.booking_status || apt.status || "pending";
           if (status === "completed") return "bg-blue-50 border-blue-200 text-blue-800";
           if (status === "confirmed") return "bg-emerald-50 border-emerald-300 text-emerald-800";
@@ -4098,6 +4132,13 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
           <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-6">
             <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
               <h2 className="text-2xl font-black text-slate-800">Diary</h2>
+              <button
+                onClick={() => openDiarySlotModal(todayStr, "09:00", true)}
+                title="Block out time for your own appointment, even on a closed or fully booked day"
+                className="px-4 py-2 bg-slate-700 hover:bg-slate-800 text-white rounded-xl font-bold text-sm"
+              >
+                🔒 Personal appointment
+              </button>
               <div className="hidden md:flex items-center gap-2">
                 <button onClick={() => shiftWeek(-1)} className="px-4 py-2 bg-slate-100 hover:bg-slate-200 rounded-xl font-black text-slate-600">
                   ‹
@@ -4185,6 +4226,7 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
               <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-emerald-200 border border-emerald-300"></span> Confirmed</span>
               <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-blue-200 border border-blue-300"></span> Completed</span>
               <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-red-200 border border-red-300"></span> Closed day</span>
+              <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-slate-700 border border-slate-800"></span> Personal</span>
             </div>
 
             {/* Mobile: one day at a time, full-width rows — the 7-day grid below needs
@@ -4210,14 +4252,12 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
                       </div>
                     )}
                     {cellBookings.length === 0 ? (
-                      !closed && (
-                        <button
-                          onClick={() => openDiarySlotModal(mobileDateStr, slot)}
-                          className="w-full py-3 rounded-xl border-2 border-dashed border-slate-200 text-slate-400 font-bold text-sm hover:border-teal-300 hover:text-teal-600 transition-colors"
-                        >
-                          + Add booking
-                        </button>
-                      )
+                      <button
+                        onClick={() => openDiarySlotModal(mobileDateStr, slot, closed)}
+                        className="w-full py-3 rounded-xl border-2 border-dashed border-slate-200 text-slate-400 font-bold text-sm hover:border-teal-300 hover:text-teal-600 transition-colors"
+                      >
+                        {closed ? "🔒 Add personal appointment" : "+ Add booking"}
+                      </button>
                     ) : (
                       <div className="space-y-2">
                         {cellBookings.map(({ apt, schedule }) => {
@@ -4229,14 +4269,16 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
                               onClick={() => openUpdateModal(apt)}
                               className={`w-full text-left px-4 py-3 rounded-xl border font-bold ${chipStyle(apt)} ${!isStandardSlot ? "border-l-4" : ""}`}
                             >
-                              <span className="block text-base break-words">🐕 {apt.dogname}</span>
+                              <span className="block text-base break-words">{isPersonalAppointment(apt) ? "🔒" : "🐕"} {apt.dogname}</span>
+                              {!isPersonalAppointment(apt) && (
+                                <span className="block text-xs font-medium opacity-75 mt-0.5 break-words">
+                                  {apt.ownername}
+                                  {apt.phone ? ` · ${apt.phone}` : ""}
+                                </span>
+                              )}
                               <span className="block text-xs font-medium opacity-75 mt-0.5 break-words">
-                                {apt.ownername}
-                                {apt.phone ? ` · ${apt.phone}` : ""}
-                              </span>
-                              <span className="block text-xs font-medium opacity-75 mt-0.5 break-words">
-                                {!isStandardSlot ? `⏰ ${schedule.timeLabel}–${endLabel} · ` : ""}
-                                {services.find((s) => s.id === apt.serviceid)?.name || apt.serviceid}
+                                {!isStandardSlot || isPersonalAppointment(apt) ? `⏰ ${schedule.timeLabel}–${endLabel}${isPersonalAppointment(apt) ? "" : " · "}` : ""}
+                                {isPersonalAppointment(apt) ? "Personal" : services.find((s) => s.id === apt.serviceid)?.name || apt.serviceid}
                                 {selectedLocation === ALL_LOCATIONS ? ` · ${LOCATIONS.find((l) => l.id === apt.locationid)?.name?.split(" ")[0] || ""}` : ""}
                               </span>
                             </button>
@@ -4279,8 +4321,9 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
                       return (
                         <div
                           key={`${date}-${slot}`}
-                          onClick={() => !closed && cellBookings.length === 0 && openDiarySlotModal(date, slot)}
-                          className={`min-h-[64px] min-w-0 rounded-xl border p-1.5 space-y-1.5 ${closed ? "bg-red-50 border-red-200" : overlapping ? "bg-red-50 border-red-200" : cellBookings.length === 0 ? "bg-white border-slate-100 cursor-pointer hover:border-teal-300 hover:bg-teal-50/40 transition-colors" : "bg-white border-slate-100"}`}
+                          onClick={() => cellBookings.length === 0 && openDiarySlotModal(date, slot, closed)}
+                          title={closed && cellBookings.length === 0 ? "Closed day: click to add a personal appointment" : undefined}
+                          className={`min-h-[64px] min-w-0 rounded-xl border p-1.5 space-y-1.5 ${closed ? `bg-red-50 border-red-200${cellBookings.length === 0 ? " cursor-pointer hover:border-slate-400" : ""}` : overlapping ? "bg-red-50 border-red-200" : cellBookings.length === 0 ? "bg-white border-slate-100 cursor-pointer hover:border-teal-300 hover:bg-teal-50/40 transition-colors" : "bg-white border-slate-100"}`}
                         >
                           {overflowFromPrev.length > 0 && (
                             <div className="text-[9px] font-bold text-slate-400 border-b border-dashed border-slate-300 pb-1 mb-1 truncate">
@@ -4296,10 +4339,10 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
                                 onClick={() => openUpdateModal(apt)}
                                 className={`w-full min-w-0 text-left px-2 py-1.5 rounded-lg border text-xs font-bold hover:shadow transition-all ${chipStyle(apt)} ${!isStandardSlot ? "border-l-4" : ""}`}
                               >
-                                <span className="block break-words whitespace-normal leading-snug">🐕 {apt.dogname}</span>
+                                <span className="block break-words whitespace-normal leading-snug">{isPersonalAppointment(apt) ? "🔒" : "🐕"} {apt.dogname}</span>
                                 <span className="block break-words whitespace-normal font-medium opacity-75 leading-snug">
-                                  {!isStandardSlot ? `⏰ ${schedule.timeLabel}–${endLabel} · ` : ""}
-                                  {services.find((s) => s.id === apt.serviceid)?.name?.split(" ")[0] || apt.serviceid}
+                                  {!isStandardSlot || isPersonalAppointment(apt) ? `⏰ ${schedule.timeLabel}–${endLabel}${isPersonalAppointment(apt) ? "" : " · "}` : ""}
+                                  {isPersonalAppointment(apt) ? "" : services.find((s) => s.id === apt.serviceid)?.name?.split(" ")[0] || apt.serviceid}
                                   {selectedLocation === ALL_LOCATIONS ? ` · ${LOCATIONS.find((l) => l.id === apt.locationid)?.name?.split(" ")[0] || ""}` : ""}
                                 </span>
                               </button>
@@ -5371,9 +5414,18 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
           <div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center p-4 z-50">
             <div className="bg-white rounded-2xl p-6 w-full max-w-4xl max-h-[90vh] overflow-y-auto">
               <div className="flex justify-between items-center mb-1">
-                <h3 className="text-xl font-black text-slate-800">New Booking — {dateLabel}</h3>
+                <h3 className="text-xl font-black text-slate-800">{diarySlotPersonal ? "Personal Appointment" : "New Booking"} — {dateLabel}</h3>
                 <button onClick={() => setShowDiarySlotModal(false)} className="text-slate-400 hover:text-slate-600 text-2xl font-bold">×</button>
               </div>
+              <div className="flex gap-2 mb-3">
+                <button type="button" onClick={() => setDiarySlotPersonal(false)} className={`px-4 py-2 rounded-lg text-sm font-bold ${!diarySlotPersonal ? "bg-teal-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}>
+                  🐕 Customer booking
+                </button>
+                <button type="button" onClick={() => setDiarySlotPersonal(true)} className={`px-4 py-2 rounded-lg text-sm font-bold ${diarySlotPersonal ? "bg-slate-700 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}>
+                  🔒 Personal appointment
+                </button>
+              </div>
+              {diarySlotPersonal && <p className="text-sm text-slate-600 mb-3">Blocks this time in the diary, even on a closed or fully booked day. Customers cannot book it, and nothing is sent to anyone.</p>}
               <div className="flex items-center gap-2 mb-3 flex-wrap">
                 <label className="text-xs font-bold text-slate-500 whitespace-nowrap">Date</label>
                 <DateJumpPicker value={diarySlotDate} onChange={setDiarySlotDate} className="flex-1 min-w-[240px]" />
@@ -5438,7 +5490,21 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
                 );
               })()}
 
-              {(() => {
+              {diarySlotPersonal && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <input value={diarySlotPersonalTitle} onChange={(e) => setDiarySlotPersonalTitle(e.target.value)} placeholder="What is it? e.g. Dentist *" className="px-4 py-3 border rounded-lg" autoFocus />
+                  <select value={diarySlotForm.locationid} onChange={(e) => setDiarySlotForm({ ...diarySlotForm, locationid: e.target.value })} className="px-4 py-3 border rounded-lg">
+                    {LOCATIONS.map((location) => (
+                      <option key={location.id} value={location.id}>
+                        {location.name}
+                      </option>
+                    ))}
+                  </select>
+                  <textarea value={diarySlotForm.notes} onChange={(e) => setDiarySlotForm({ ...diarySlotForm, notes: e.target.value })} placeholder="Notes (optional)" className="md:col-span-2 px-4 py-3 border rounded-lg min-h-20" />
+                </div>
+              )}
+
+              {!diarySlotPersonal && (() => {
                 const missedHistory = getMissedHistory(diarySlotForm.email, diarySlotForm.phone);
                 if (missedHistory.length === 0) return null;
                 return (
@@ -5451,6 +5517,8 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
                 );
               })()}
 
+              {!diarySlotPersonal && (
+              <>
               <div className="mb-4">
                 <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Find an existing customer</label>
                 <input
@@ -5543,14 +5611,24 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
                   </button>
                 </div>
               </div>
+              </>
+              )}
 
               <div className="flex flex-wrap gap-3 mt-5">
-                <button disabled={isWorking} onClick={() => handleDiarySlotBooking(false)} title="Adds the booking as confirmed" className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white px-5 py-2 rounded-lg font-bold">
-                  {isWorking ? "Adding..." : "Add Booking (Confirmed)"}
-                </button>
-                <button disabled={isWorking} onClick={() => handleDiarySlotBooking(true)} title="Adds the booking as pending — no notification sent, review it later" className="bg-amber-100 hover:bg-amber-200 disabled:opacity-60 text-amber-800 px-5 py-2 rounded-lg font-bold">
-                  Hold Booking (Pending)
-                </button>
+                {diarySlotPersonal ? (
+                  <button disabled={isWorking} onClick={handleDiarySlotPersonal} className="bg-slate-700 hover:bg-slate-800 disabled:opacity-60 text-white px-5 py-2 rounded-lg font-bold">
+                    {isWorking ? "Adding..." : "Add Personal Appointment"}
+                  </button>
+                ) : (
+                  <>
+                    <button disabled={isWorking} onClick={() => handleDiarySlotBooking(false)} title="Adds the booking as confirmed" className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white px-5 py-2 rounded-lg font-bold">
+                      {isWorking ? "Adding..." : "Add Booking (Confirmed)"}
+                    </button>
+                    <button disabled={isWorking} onClick={() => handleDiarySlotBooking(true)} title="Adds the booking as pending — no notification sent, review it later" className="bg-amber-100 hover:bg-amber-200 disabled:opacity-60 text-amber-800 px-5 py-2 rounded-lg font-bold">
+                      Hold Booking (Pending)
+                    </button>
+                  </>
+                )}
                 <button onClick={() => setShowDiarySlotModal(false)} className="bg-slate-200 hover:bg-slate-300 text-slate-700 px-5 py-2 rounded-lg font-bold">
                   Cancel
                 </button>

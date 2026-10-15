@@ -49,6 +49,7 @@ serve(async (req: Request) => {
       .select("*")
       .eq("confirmed_date", tomorrowDateStr)
       .eq("booking_status", "confirmed")
+      .neq("serviceid", "personal")
       .order("confirmed_time", { ascending: true });
 
     if (error) {

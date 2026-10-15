@@ -367,6 +367,38 @@ export const createManualAppointment = async (app: Appointment) => {
   });
 };
 
+/** Rachel's own diary entries (dentist, school run) use this service id so they hold the time without being customer bookings. */
+export const PERSONAL_SERVICE_ID = "personal";
+
+export const isPersonalAppointment = (apt: Pick<Appointment, "serviceid">) => apt.serviceid === PERSONAL_SERVICE_ID;
+
+/** Blocks diary time for a personal appointment. Works on closed days too, and never creates a customer, deposit or notification. */
+export const createPersonalAppointment = async (entry: { title: string; locationid: string; date: string; time: string; durationMinutes: number; notes?: string }) => {
+  return saveAppointment({
+    ownername: "Personal",
+    email: "",
+    phone: "",
+    dogname: entry.title,
+    dogbreed: "",
+    serviceid: PERSONAL_SERVICE_ID,
+    locationid: entry.locationid,
+    date: entry.date,
+    time: entry.time,
+    requested_time_preference: entry.time,
+    confirmed_date: entry.date,
+    confirmed_time: entry.time,
+    confirmed_duration_minutes: entry.durationMinutes,
+    notes: entry.notes || "",
+    number_of_dogs: 1,
+    status: "confirmed",
+    booking_status: "confirmed",
+    booking_source: "manual",
+    is_confirmed: false,
+    deposit_paid: false,
+    deposit_amount: 0,
+  } as Appointment);
+};
+
 export const updateAppointment = async (id: string, updates: Partial<Appointment>) => {
   const payload: Record<string, unknown> = { ...updates };
   if (Object.prototype.hasOwnProperty.call(payload, "requested_time_preference") === false && updates.time) {
