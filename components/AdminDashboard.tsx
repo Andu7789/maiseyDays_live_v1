@@ -1,9 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { DogRecordTabs } from "./DogRecordTabs";
-import { sendDepositOutcomeEmail, getDepositCreditBalance, carryDepositAsCredit, refundDepositViaStripe, addBookingPhoto, BookingPhoto, buildCancellationMessage, buildConfirmationMessage, buildRebookNudgeMessage, checkAuthStatus, confirmAppointmentBooking, createManualAppointment, deleteAppointment, deleteBookingPhoto, enrollMfaTotp, exportAppointmentsToExcel, findBookingClash, getDayBookings, getAppointments, getAvailableSlotTimes, getBookingPhotos, getBookingRevenue, getCurrentUser, getEffectiveSchedule, getMfaAssuranceLevel, getReminderSettings, getServiceBasePrice, getUnavailableDays, getUnavailableDayEntries, getUnavailableWeekdays, getUnavailableWeekdayEntries, listMfaFactors, removeUnavailableEntry, saveUnavailableDay, saveUnavailableDateRange, saveUnavailableWeekday, sendCustomEmail, sendCustomerCancellationSms, sendCustomerConfirmationSms, signInAdmin, signOutAdmin, unenrollMfaFactor, updateAppointment, updateReminderSettings, getHolidaySettings, updateHolidaySettings, updateAdvertSettings, updateWeekendBookingsEnabled, updateGoogleReviewLink, verifyMfaCode, getDogNotes, getAllDogNotes, upsertDogNote, UnavailabilityEntry, createPersonalAppointment, isPersonalAppointment } from "../services/bookingService";
+import { ConfirmChannel, sendCustomerConfirmationEmail, sendDepositOutcomeEmail, getDepositCreditBalance, carryDepositAsCredit, refundDepositViaStripe, addBookingPhoto, BookingPhoto, buildCancellationMessage, buildConfirmationMessage, buildRebookNudgeMessage, checkAuthStatus, confirmAppointmentBooking, createManualAppointment, deleteAppointment, deleteBookingPhoto, enrollMfaTotp, exportAppointmentsToExcel, findBookingClash, getDayBookings, getAppointments, getAvailableSlotTimes, getBookingPhotos, getBookingRevenue, getCurrentUser, getEffectiveSchedule, getMfaAssuranceLevel, getReminderSettings, getServiceBasePrice, getUnavailableDays, getUnavailableDayEntries, getUnavailableWeekdays, getUnavailableWeekdayEntries, listMfaFactors, removeUnavailableEntry, saveUnavailableDay, saveUnavailableDateRange, saveUnavailableWeekday, sendCustomEmail, sendCustomerCancellationSms, sendCustomerConfirmationSms, signInAdmin, signOutAdmin, unenrollMfaFactor, updateAppointment, updateReminderSettings, getHolidaySettings, updateHolidaySettings, updateAdvertSettings, updateWeekendBookingsEnabled, updateGoogleReviewLink, verifyMfaCode, getDogNotes, getAllDogNotes, upsertDogNote, UnavailabilityEntry, createPersonalAppointment, isPersonalAppointment } from "../services/bookingService";
 import { buildIntakeLink, buildIntakeMessage, buildReviewMessage, buildWhatsAppLink, createCustomer, deleteCustomer, deleteDog, ensureIntakeToken, getCustomers, getDeletedCustomers, getFirstName, markIntakeSent, markReviewLinkSent, permanentlyDeleteCustomer, restoreCustomer, saveDog, sendIntakeEmail, sendIntakeSms, updateCustomer } from "../services/customerService";
 import { Appointment, Customer, Dog, IntakeStatus, Service, StarPost } from "../types";
-import { ALL_LOCATIONS, DEPOSIT_PER_DOG, INTAKE_TERMS, LOCATIONS, MATTING_BULLETS, MATTING_CLOSING, MATTING_TERMS, ORAL_CARE_TERMS_TITLE, SERVICES, SLOT_TIMES, getLocationSlotTimes, termsVersionIncludesOralCare } from "../constants";
+import { ALL_LOCATIONS, DEPOSIT_PER_DOG, EMAIL_CUSTOMER_REPLY_TO, INTAKE_TERMS, LOCATIONS, MATTING_BULLETS, MATTING_CLOSING, MATTING_TERMS, ORAL_CARE_TERMS_TITLE, SERVICES, SLOT_TIMES, getLocationSlotTimes, termsVersionIncludesOralCare } from "../constants";
 import { oralCareTermsHtml } from "./OralCareTerms";
 import { createServiceCatalogEntry, deleteServiceCatalogEntry, getServiceCatalog, updateServiceCatalogEntry, uploadServicePhoto } from "../services/serviceCatalogService";
 import { createStarPost, deleteStarPost, getStarPosts, publishStarPost, uploadStarPhoto } from "../services/starPostService";
@@ -13,7 +13,6 @@ import { BookingHistoryPanel, BookingHistoryView } from "./BookingHistory";
 import { logBookingNote } from "../services/bookingHistoryService";
 
 const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-const EMAIL_CUSTOMER_REPLY_TO = "hello@maiseydaysdoggrooming.co.uk";
 
 // Bookings are normally taken within each location's slot hours (Caister 8am to 8pm,
 // Hemsby 9am to 5pm). The exact-time clock can pick any hour, so an out-of-hours pick
@@ -141,7 +140,7 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
   const [newPhotoType, setNewPhotoType] = useState<"before" | "after" | "other">("before");
   const nudgePanelRef = useRef<HTMLDivElement>(null);
   const serviceEditSectionRef = useRef<HTMLDivElement>(null);
-  const [pendingConfirmChannel, setPendingConfirmChannel] = useState<"sms" | "whatsapp" | "none">("sms");
+  const [pendingConfirmChannel, setPendingConfirmChannel] = useState<ConfirmChannel>("sms");
   const [diaryWeekStart, setDiaryWeekStart] = useState<Date>(() => getMonday(new Date()));
   const [diarySearch, setDiarySearch] = useState("");
   const [diaryMobileDate, setDiaryMobileDate] = useState<Date>(() => new Date());
@@ -169,7 +168,7 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
     deposit_paid: false,
     deposit_amount: DEPOSIT_PER_DOG,
     deposit_notes: "",
-    confirm_channel: "whatsapp" as "none" | "whatsapp" | "sms",
+    confirm_channel: "whatsapp" as ConfirmChannel,
   });
   // Date of the booking being rebooked, so "In N weeks" counts from that groom, not today.
   const [addFormRebookFrom, setAddFormRebookFrom] = useState<string | null>(null);
@@ -293,7 +292,7 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
     deposit_paid: false,
     deposit_amount: DEPOSIT_PER_DOG,
     deposit_notes: "",
-    confirm_channel: "whatsapp" as "none" | "whatsapp" | "sms",
+    confirm_channel: "whatsapp" as ConfirmChannel,
   });
 
   // Pagination and sorting state
@@ -1184,7 +1183,7 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
       deposit_paid: false,
       deposit_amount: DEPOSIT_PER_DOG,
       deposit_notes: "",
-      confirm_channel: "whatsapp" as "none" | "whatsapp" | "sms",
+      confirm_channel: "whatsapp" as ConfirmChannel,
     });
     setAddFormRebookFrom(null);
     setShowAddModal(true);
@@ -1234,13 +1233,17 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
     }
   };
 
-  const confirmBooking = async (channel: "sms" | "whatsapp" | "none") => {
+  const confirmBooking = async (channel: ConfirmChannel) => {
     if (!activeBooking?.id) return;
     if (!editForm.confirmed_date || !editForm.confirmed_time || !editForm.confirmed_duration_minutes) {
       alert("Please set confirmed date, time and duration first.");
       return;
     }
-    if (channel !== "none" && !editForm.phone) {
+    if (channel === "email" && !editForm.email) {
+      alert("An email address is needed to confirm by email.");
+      return;
+    }
+    if ((channel === "whatsapp" || channel === "sms") && !editForm.phone) {
       alert(`A phone number is needed to confirm via ${channel === "whatsapp" ? "WhatsApp" : "SMS"}.`);
       return;
     }
@@ -1256,7 +1259,7 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
     await proceedWithConfirmation(channel);
   };
 
-  const proceedWithConfirmation = async (channel: "sms" | "whatsapp" | "none" = pendingConfirmChannel) => {
+  const proceedWithConfirmation = async (channel: ConfirmChannel = pendingConfirmChannel) => {
     if (!activeBooking?.id) return;
 
     const clash = await findBookingClash(activeBooking.locationid, editForm.confirmed_date, editForm.confirmed_time, Number(editForm.confirmed_duration_minutes) || 120, activeBooking.id);
@@ -1265,7 +1268,7 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
       if (!window.confirm(`⚠️ DOUBLE BOOKING WARNING\n\n${clash.dogname} (${clash.ownername}) is already booked at ${clashTime} on this day.\n\nConfirm this booking anyway?`)) return;
     }
 
-    const shouldConfirm = window.confirm(channel === "none" ? "Confirm this booking without sending a message to the customer?" : `Confirm this booking and send the ${channel === "whatsapp" ? "WhatsApp message" : "SMS"}?`);
+    const shouldConfirm = window.confirm(channel === "none" ? "Confirm this booking without sending a message to the customer?" : `Confirm this booking and send the ${channel === "whatsapp" ? "WhatsApp message" : channel === "email" ? `email to ${editForm.email}` : "SMS"}?`);
     if (!shouldConfirm) return;
 
     setIsWorking(true);
@@ -1276,6 +1279,7 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
         dogname: editForm.dogname,
         serviceid: editForm.serviceid,
         phone: editForm.phone,
+        email: editForm.email,
         locationid: activeBooking.locationid,
         confirmed_date: editForm.confirmed_date,
         confirmed_time: editForm.confirmed_time,
@@ -1298,7 +1302,7 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
 
       await loadData();
       closeUpdateModal();
-      alert(channel === "whatsapp" ? "Booking confirmed — WhatsApp message opened, just press send." : channel === "sms" ? "Booking confirmed and SMS sent." : "Booking confirmed — no message sent.");
+      alert(channel === "whatsapp" ? "Booking confirmed — WhatsApp message opened, just press send." : channel === "sms" ? "Booking confirmed and SMS sent." : channel === "email" ? "Booking confirmed and email sent." : "Booking confirmed — no message sent.");
     } catch (error: any) {
       alert(error.message || "Failed to confirm booking.");
     } finally {
@@ -1468,7 +1472,7 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
       deposit_paid: false,
       deposit_amount: DEPOSIT_PER_DOG,
       deposit_notes: "",
-      confirm_channel: "whatsapp" as "none" | "whatsapp" | "sms",
+      confirm_channel: "whatsapp" as ConfirmChannel,
     });
     setAddFormRebookFrom(booking.confirmed_date || booking.date || null);
     setShowAddModal(true);
@@ -1607,6 +1611,11 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
       if (!window.confirm(`⚠️ DOUBLE BOOKING WARNING\n\n${clash.dogname} (${clash.ownername}) is already booked at ${clashTime} on this day.\n\nAdd this booking anyway?`)) return;
     }
 
+    if (!hold && addForm.confirm_channel === "email" && !addForm.email.trim()) {
+      alert("An email address is needed to confirm by email. Add one, or choose WhatsApp or SMS.");
+      return;
+    }
+
     setIsWorking(true);
     try {
       const result = await createManualAppointment({
@@ -1648,6 +1657,8 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
         try {
           if (addForm.confirm_channel === "sms") {
             await sendCustomerConfirmationSms(confirmedAppointment);
+          } else if (addForm.confirm_channel === "email") {
+            await sendCustomerConfirmationEmail(confirmedAppointment);
           } else {
             // Free channel: open WhatsApp with the confirmation ready to send
             window.open(buildWhatsAppLink(addForm.phone, buildConfirmationMessage(confirmedAppointment)), "_blank");
@@ -1681,9 +1692,9 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
         deposit_paid: false,
         deposit_amount: DEPOSIT_PER_DOG,
         deposit_notes: "",
-        confirm_channel: "whatsapp" as "none" | "whatsapp" | "sms",
+        confirm_channel: "whatsapp" as ConfirmChannel,
       });
-      alert(hold ? "Booking added and held as pending." : addForm.confirm_channel === "sms" ? "Booking added and confirmed — SMS sent." : addForm.confirm_channel === "whatsapp" ? "Booking added and confirmed — WhatsApp message opened, just press send." : "Booking added and confirmed.");
+      alert(hold ? "Booking added and held as pending." : addForm.confirm_channel === "sms" ? "Booking added and confirmed — SMS sent." : addForm.confirm_channel === "email" ? "Booking added and confirmed — email sent." : addForm.confirm_channel === "whatsapp" ? "Booking added and confirmed — WhatsApp message opened, just press send." : "Booking added and confirmed.");
     } catch (error: any) {
       alert(error.message || "Could not add booking.");
     } finally {
@@ -1774,6 +1785,11 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
       if (!window.confirm(`⚠️ DOUBLE BOOKING WARNING\n\n${clash.dogname} (${clash.ownername}) is already booked at ${clashTime} on this day.\n\nAdd this booking anyway?`)) return;
     }
 
+    if (!hold && diarySlotForm.confirm_channel === "email" && !diarySlotForm.email.trim()) {
+      alert("An email address is needed to confirm by email. Add one, or choose WhatsApp or SMS.");
+      return;
+    }
+
     setIsWorking(true);
     try {
       const result = await createManualAppointment({
@@ -1820,6 +1836,8 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
         try {
           if (diarySlotForm.confirm_channel === "sms") {
             await sendCustomerConfirmationSms(confirmedAppointment);
+          } else if (diarySlotForm.confirm_channel === "email") {
+            await sendCustomerConfirmationEmail(confirmedAppointment);
           } else {
             window.open(buildWhatsAppLink(diarySlotForm.phone, buildConfirmationMessage(confirmedAppointment)), "_blank");
             logBookingNote("message_sent", confirmedAppointment, { channel: "whatsapp", kind: "confirmation", message: buildConfirmationMessage(confirmedAppointment) });
@@ -3484,6 +3502,9 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
               </button>
               <button disabled={isWorking} onClick={() => confirmBooking("sms")} title="Sends a text automatically (~4p)" className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white px-5 py-2 rounded-lg font-bold">
                 💬 Confirm + SMS
+              </button>
+              <button disabled={isWorking} onClick={() => confirmBooking("email")} title="Free — emails the confirmation from the business email address" className="bg-sky-700 hover:bg-sky-800 disabled:opacity-60 text-white px-5 py-2 rounded-lg font-bold">
+                📧 Confirm + Email
               </button>
               <button disabled={isWorking} onClick={() => confirmBooking("none")} title="Marks it confirmed without sending anything — e.g. for a paper booking the customer already knows about" className="bg-slate-500 hover:bg-slate-600 disabled:opacity-60 text-white px-5 py-2 rounded-lg font-bold">
                 ✓ Confirm (No Message)
@@ -5275,7 +5296,7 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
                       deposit_paid: false,
                       deposit_amount: Math.max(1, selectedDogs.length) * DEPOSIT_PER_DOG,
                       deposit_notes: "",
-                      confirm_channel: "none" as "none" | "whatsapp" | "sms",
+                      confirm_channel: "none" as ConfirmChannel,
                     });
                     // Count "In N weeks" from these dogs' most recent groom (cancellations don't count).
                     const lastGroom = customerData
@@ -5659,6 +5680,9 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
                   <button type="button" onClick={() => setDiarySlotForm({ ...diarySlotForm, confirm_channel: "sms" })} className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${diarySlotForm.confirm_channel === "sms" ? "bg-blue-500 text-white shadow" : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"}`}>
                     💬 SMS (~4p)
                   </button>
+                  <button type="button" onClick={() => setDiarySlotForm({ ...diarySlotForm, confirm_channel: "email" })} className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${diarySlotForm.confirm_channel === "email" ? "bg-sky-700 text-white shadow" : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"}`}>
+                    📧 Email (free)
+                  </button>
                   <button type="button" onClick={() => setDiarySlotForm({ ...diarySlotForm, confirm_channel: "none" })} className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${diarySlotForm.confirm_channel === "none" ? "bg-slate-700 text-white shadow" : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"}`}>
                     Don't send
                   </button>
@@ -5894,6 +5918,9 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
                 <button type="button" onClick={() => setAddForm({ ...addForm, confirm_channel: "sms" })} className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${addForm.confirm_channel === "sms" ? "bg-blue-500 text-white shadow" : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"}`}>
                   💬 SMS (~4p)
                 </button>
+                <button type="button" onClick={() => setAddForm({ ...addForm, confirm_channel: "email" })} className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${addForm.confirm_channel === "email" ? "bg-sky-700 text-white shadow" : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"}`}>
+                  📧 Email (free)
+                </button>
                 <button type="button" onClick={() => setAddForm({ ...addForm, confirm_channel: "none" })} className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${addForm.confirm_channel === "none" ? "bg-slate-700 text-white shadow" : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"}`}>
                   Don't send
                 </button>
@@ -5902,7 +5929,7 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
 
             <div className="flex flex-wrap gap-3 mt-4">
               <button disabled={isWorking} onClick={() => handleAddBooking(false)} title="Adds the booking as confirmed" className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white px-5 py-2 rounded-lg font-bold">
-                {isWorking ? "Adding..." : addForm.confirm_channel === "sms" ? "Add & Send SMS" : addForm.confirm_channel === "whatsapp" ? "Add & Send WhatsApp" : "Add Booking (Confirmed)"}
+                {isWorking ? "Adding..." : addForm.confirm_channel === "sms" ? "Add & Send SMS" : addForm.confirm_channel === "email" ? "Add & Send Email" : addForm.confirm_channel === "whatsapp" ? "Add & Send WhatsApp" : "Add Booking (Confirmed)"}
               </button>
               <button disabled={isWorking} onClick={() => handleAddBooking(true)} title="Adds the booking as pending — no notification sent, review it later" className="bg-amber-100 hover:bg-amber-200 disabled:opacity-60 text-amber-800 px-5 py-2 rounded-lg font-bold">
                 Hold Booking (Pending)

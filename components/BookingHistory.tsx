@@ -41,7 +41,7 @@ const entryDetail = (entry: BookingHistoryEntry): string[] => {
       return [`${operation} failed: ${entry.details?.error || "unknown error"}`, "Nothing was saved, so this booking may need adding again."];
     }
     case "message_sent": {
-      const channel = entry.details?.channel === "sms" ? "SMS sent" : "WhatsApp opened to send";
+      const channel = entry.details?.channel === "sms" ? "SMS sent" : entry.details?.channel === "email" ? "Email sent" : "WhatsApp opened to send";
       return [`${channel}: ${entry.details?.kind || "message"}`];
     }
     default:

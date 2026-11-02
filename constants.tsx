@@ -5,6 +5,8 @@ export const EMAIL_ENDPOINT = "https://formspree.io/f/xnjvowlz";
 
 // Customer-facing confirmation emails (booking received, holiday enquiry) are sent
 // via the send-customer-email edge function using Resend on the verified domain.
+// Replies to emails sent from the admin page land here.
+export const EMAIL_CUSTOMER_REPLY_TO = "hello@maiseydaysdoggrooming.co.uk";
 
 // GROOMING AGREEMENT (customer intake form)
 // 2026-11 added the emmi®-pet oral hygiene terms (ORAL_CARE_TERMS below).

@@ -1,8 +1,9 @@
 import { createClient } from "@supabase/supabase-js";
 import { Appointment, AvailabilitySlot, OralCareEntry, WeeklyTemplate } from "../types";
-import { ALL_LOCATIONS, DEPOSIT_PER_DOG, EMAIL_ENDPOINT, LOCATIONS, SERVICES, SUPABASE_URL, SUPABASE_ANON_KEY, STANDARD_HOURS, SLOT_TIMES, SLOT_DURATION_MINUTES, BOOKABLE_WEEKDAYS, getLocationSlotTimes } from "../constants";
+import { ALL_LOCATIONS, DEPOSIT_PER_DOG, EMAIL_CUSTOMER_REPLY_TO, EMAIL_ENDPOINT, LOCATIONS, SERVICES, SUPABASE_URL, SUPABASE_ANON_KEY, STANDARD_HOURS, SLOT_TIMES, SLOT_DURATION_MINUTES, BOOKABLE_WEEKDAYS, getLocationSlotTimes } from "../constants";
 import { getServiceNameSync } from "./serviceCatalogService";
 import { logBookingNote } from "./bookingHistoryService";
+import { getFirstName } from "./names";
 
 // Validation for the user's convenience
 if (SUPABASE_ANON_KEY && !SUPABASE_ANON_KEY.startsWith("eyJ")) {
@@ -565,6 +566,24 @@ export const sendCustomerConfirmationSms = async (appointment: Appointment) => {
   return true;
 };
 
+export type ConfirmChannel = "sms" | "whatsapp" | "email" | "none";
+
+/** Free: emails the confirmation (same wording as WhatsApp/SMS) from the business address. */
+export const sendCustomerConfirmationEmail = async (appointment: Appointment) => {
+  if (!appointment.email) {
+    throw new Error("Customer email address is missing.");
+  }
+  const message = buildConfirmationMessage(appointment);
+  await sendCustomEmail(
+    appointment.email,
+    appointment.ownername,
+    `Booking confirmed: ${appointment.dogname}`,
+    `Hi ${getFirstName(appointment.ownername)},\n\n${message}\n\nWarm regards,\nRachel\nMaisey Days Dog Grooming 🐾`,
+    EMAIL_CUSTOMER_REPLY_TO,
+  );
+  await logBookingNote("message_sent", appointment, { channel: "email", kind: "confirmation", message });
+};
+
 export const confirmAppointmentBooking = async (
   appointment: Appointment,
   confirmation: {
@@ -572,7 +591,7 @@ export const confirmAppointmentBooking = async (
     confirmedTime: string;
     confirmedDurationMinutes: number;
   },
-  channel: "sms" | "whatsapp" | "none" = "sms",
+  channel: ConfirmChannel = "sms",
 ) => {
   if (!appointment.id) {
     throw new Error("Booking ID is required to confirm.");
@@ -607,6 +626,8 @@ export const confirmAppointmentBooking = async (
     if (!smsSent) {
       throw new Error("SMS confirmation failed to send.");
     }
+  } else if (channel === "email") {
+    await sendCustomerConfirmationEmail(smsPayload);
   }
   // SMS is recorded by sendCustomerConfirmationSms itself.
   if (channel === "whatsapp") {

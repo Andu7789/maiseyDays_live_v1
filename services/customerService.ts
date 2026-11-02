@@ -2,6 +2,7 @@ import { createClient } from "@supabase/supabase-js";
 import { Appointment, Customer, Dog } from "../types";
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from "../constants";
 import { invokeEdgeFunction } from "./bookingService";
+import { getFirstName } from "./names";
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
@@ -157,20 +158,7 @@ export const buildIntakeLink = (token: string) => {
   return `${window.location.origin}${window.location.pathname}#intake=${token}`;
 };
 
-const NAME_TITLES = new Set(["mr", "mrs", "miss", "ms", "mx", "dr", "prof"]);
-
-/**
- * First name for greetings, e.g. "Hi {name}," — drops a leading title
- * ("MR ANDREW BRITAIN" -> "Andrew") and fixes ALL-CAPS/all-lowercase
- * records so it doesn't come out as "Hi MR," or "Hi ANDREW,".
- */
-export const getFirstName = (fullName: string): string => {
-  const words = (fullName || "").trim().split(/\s+/).filter(Boolean);
-  const nameWords = words.length > 1 && NAME_TITLES.has(words[0].toLowerCase().replace(/\.$/, "")) ? words.slice(1) : words;
-  const first = nameWords[0];
-  if (!first) return "there";
-  return first === first.toUpperCase() || first === first.toLowerCase() ? first.charAt(0).toUpperCase() + first.slice(1).toLowerCase() : first;
-};
+export { getFirstName };
 
 export const buildIntakeMessage = (customer: Customer, link: string, appointment?: Appointment) => {
   const firstName = getFirstName(customer.ownername);
