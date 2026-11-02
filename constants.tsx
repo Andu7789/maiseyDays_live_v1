@@ -78,6 +78,13 @@ export const ORAL_CARE_TERMS: OralCareTermsSection[] = [
   },
 ];
 
+// Must be ticked before booking teeth cleaning online: on the first booking pop-up when they
+// came from Services > Teeth Cleaning, or in its own pop-up when they pick it in the form.
+export const ORAL_CARE_SERVICE_ID = "teeth-cleaning";
+export const ORAL_CARE_DISCLAIMER_TITLE = "Important Notice & Consent";
+export const ORAL_CARE_DISCLAIMER = "Emmi-Pet is a cosmetic oral hygiene service designed to support routine mouth cleanliness and is not a substitute for veterinary dental examination or treatment. If any signs of dental disease, oral infection, severe tartar build-up, or mouth pain are identified during the initial assessment, we will advise you to seek appropriate advice from your veterinary surgeon before proceeding.";
+export const ORAL_CARE_DISCLAIMER_CONFIRM = "I confirm I have read, understood, and accept these terms.";
+
 /** The printed agreement only includes the oral care terms for customers who signed a version that had them. */
 export const termsVersionIncludesOralCare = (version?: string | null) => !!version && /^\d{4}-\d{2}/.test(version) && version >= "2026-11";
 

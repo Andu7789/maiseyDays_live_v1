@@ -7,7 +7,7 @@ import IntakeForm from "./components/IntakeForm";
 import { CalendarPicker } from "./components/CalendarPicker";
 import { OralCareTerms } from "./components/OralCareTerms";
 import { Service } from "./types";
-import { SERVICES, LOCATIONS, getLocationSlotTimes, getOpenLocations, EMAIL_ENDPOINT, DEPOSIT_PER_DOG, HOME_GROOM_POSTCODE_AREAS, formatPostcode, isInHomeGroomArea, ORAL_CARE_TERMS_TITLE } from "./constants";
+import { SERVICES, LOCATIONS, getLocationSlotTimes, getOpenLocations, EMAIL_ENDPOINT, DEPOSIT_PER_DOG, HOME_GROOM_POSTCODE_AREAS, formatPostcode, isInHomeGroomArea, ORAL_CARE_TERMS_TITLE, ORAL_CARE_SERVICE_ID, ORAL_CARE_DISCLAIMER, ORAL_CARE_DISCLAIMER_CONFIRM, ORAL_CARE_DISCLAIMER_TITLE } from "./constants";
 import { isBeforeBookableFrom, isAfterBookableUntil, getAvailableSlotTimes, saveAppointmentAwaitingPayment, startDepositCheckout, getDepositStatus, abandonDepositBooking, prepareBookingPhoto, sendBookingEmail, sendConfirmationEmail, isDateAvailable, getUnavailableDays, getUnavailableWeekdays, sendHolidayEnquiryConfirmation, getHolidaySettings, signOutAdmin } from "./services/bookingService";
 import { getServiceCatalog } from "./services/serviceCatalogService";
 import { getPublicStarPosts } from "./services/starPostService";
@@ -35,7 +35,10 @@ const App: React.FC = () => {
   // the booking page, so it can't be missed however they got there (header
   // nav, hero button, service card, etc.) — but not on every step within it.
   useEffect(() => {
-    if (currentPage === "booking") setShowBookingNotice(true);
+    if (currentPage === "booking") {
+      setOralCareTick(false);
+      setShowBookingNotice(true);
+    }
   }, [currentPage]);
   const [intakeToken, setIntakeToken] = useState<string | null>(null);
   const [bookingStep, setBookingStep] = useState(1);
@@ -61,6 +64,11 @@ const App: React.FC = () => {
   const [marketingConsent, setMarketingConsent] = useState<"yes" | "no" | "">("");
   const [showAgreement, setShowAgreement] = useState(false);
   const [showBookingNotice, setShowBookingNotice] = useState(false);
+  // Emmi-Pet disclaimer: accepted once per visit, ticked in whichever pop-up asked for it.
+  const [oralCareAccepted, setOralCareAccepted] = useState(false);
+  const [oralCareTick, setOralCareTick] = useState(false);
+  const [showOralCareDisclaimer, setShowOralCareDisclaimer] = useState(false);
+  const needsOralCareDisclaimer = formData.serviceid === ORAL_CARE_SERVICE_ID && !oralCareAccepted;
   const [enquiryData, setEnquiryData] = useState({
     name: "",
     email: "",
@@ -250,6 +258,13 @@ const App: React.FC = () => {
       return;
     }
 
+    if (needsOralCareDisclaimer) {
+      setBookingError(`Please read and accept the ${ORAL_CARE_DISCLAIMER_TITLE} for teeth cleaning.`);
+      setOralCareTick(false);
+      setShowOralCareDisclaimer(true);
+      return;
+    }
+
     setBookingError(null);
     setIsSubmitting(true);
 
@@ -263,7 +278,13 @@ const App: React.FC = () => {
       locationid: formData.locationid || "",
       date: formData.date || "",
       time: formData.time || "",
-      notes: isHomeGroom ? `HOME VISIT ADDRESS: ${homeAddress.trim()}, ${formatPostcode(homePostcode) || homePostcode.trim().toUpperCase()}${formData.notes ? `\n${formData.notes}` : ""}` : formData.notes || "",
+      notes: [
+        isHomeGroom ? `HOME VISIT ADDRESS: ${homeAddress.trim()}, ${formatPostcode(homePostcode) || homePostcode.trim().toUpperCase()}` : "",
+        formData.serviceid === ORAL_CARE_SERVICE_ID ? `✓ Accepted the Emmi-Pet ${ORAL_CARE_DISCLAIMER_TITLE} online` : "",
+        formData.notes || "",
+      ]
+        .filter(Boolean)
+        .join("\n"),
       status: "pending",
       marketingConsent: marketingConsent as "yes" | "no",
     };
@@ -868,7 +889,19 @@ Message: ${enquiryData.message}
                     </div>
                     <div>
                       <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-3">{formData.serviceid === "puppy-intro" ? "Options" : "Service"}</label>
-                      <select value={formData.serviceid} onChange={(e) => setFormData({ ...formData, serviceid: e.target.value })} className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-emerald-500 transition-all font-bold">
+                      <select
+                        value={formData.serviceid}
+                        onChange={(e) => {
+                          // Teeth cleaning only becomes the chosen service once the disclaimer is ticked.
+                          if (e.target.value === ORAL_CARE_SERVICE_ID && !oralCareAccepted) {
+                            setOralCareTick(false);
+                            setShowOralCareDisclaimer(true);
+                            return;
+                          }
+                          setFormData({ ...formData, serviceid: e.target.value });
+                        }}
+                        className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-emerald-500 transition-all font-bold"
+                      >
                         {services.map((s) => (
                           <option key={s.id} value={s.id}>
                             {s.name} ({s.price})
@@ -1096,24 +1129,80 @@ Message: ${enquiryData.message}
     }
   };
 
-  // Booking Notice Modal — shown on arrival at the booking page
-  const BookingNoticeModal = () => (
-    <>
-      {showBookingNotice && (
-        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-md w-full shadow-2xl p-8 text-center">
-            <p className="text-2xl font-black mb-4">🐶 🐾 A Quick Note</p>
-            <p className="text-red-600 font-bold text-lg leading-relaxed mb-6">
-              Selecting a date and time is not a confirmed booking. Once submitted, we'll double-check our diary and get back to you within 48 hours to confirm your appointment or find another date and time that works for you.
-            </p>
-            <button onClick={() => setShowBookingNotice(false)} className="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-4 rounded-2xl font-bold transition-all">
-              Got It
-            </button>
-          </div>
-        </div>
-      )}
-    </>
+  // The Emmi-Pet disclaimer and its mandatory tick box, shared by both pop-ups that ask for it.
+  const renderOralCareConsent = () => (
+    <div className="text-left bg-amber-50 border-2 border-amber-200 rounded-2xl p-5 mb-6">
+      <p className="font-black text-slate-800 mb-2">🦷 {ORAL_CARE_DISCLAIMER_TITLE}</p>
+      <p className="text-sm text-slate-800 leading-relaxed mb-4">{ORAL_CARE_DISCLAIMER}</p>
+      <label className="flex items-start gap-3 cursor-pointer">
+        <input type="checkbox" checked={oralCareTick} onChange={(e) => setOralCareTick(e.target.checked)} className="w-6 h-6 mt-0.5 shrink-0 accent-emerald-600 cursor-pointer" />
+        <span className="text-sm font-bold text-slate-800">{ORAL_CARE_DISCLAIMER_CONFIRM}</span>
+      </label>
+    </div>
   );
+
+  // Booking Notice Modal — shown on arrival at the booking page. Arriving from Services >
+  // Teeth Cleaning means we already know the service, so the disclaimer is asked for here too.
+  const renderBookingNoticeModal = () =>
+    showBookingNotice && (
+      <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+        <div className="bg-white rounded-3xl max-w-md w-full max-h-[90vh] overflow-y-auto shadow-2xl p-8 text-center">
+          <p className="text-2xl font-black mb-4">🐶 🐾 A Quick Note</p>
+          <p className="text-red-600 font-bold text-lg leading-relaxed mb-6">
+            Selecting a date and time is not a confirmed booking. Once submitted, we'll double-check our diary and get back to you within 48 hours to confirm your appointment or find another date and time that works for you.
+          </p>
+          {needsOralCareDisclaimer && renderOralCareConsent()}
+          <button
+            disabled={needsOralCareDisclaimer && !oralCareTick}
+            onClick={() => {
+              if (needsOralCareDisclaimer) setOralCareAccepted(true);
+              setShowBookingNotice(false);
+            }}
+            className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 disabled:text-slate-600 disabled:cursor-not-allowed text-white py-4 rounded-2xl font-bold transition-all"
+          >
+            {needsOralCareDisclaimer && !oralCareTick ? "Please tick the box above" : "Got It"}
+          </button>
+          {needsOralCareDisclaimer && (
+            <button
+              type="button"
+              onClick={() => {
+                setFormData((f) => ({ ...f, serviceid: SERVICES[0].id }));
+                setShowBookingNotice(false);
+              }}
+              className="mt-3 w-full py-3 rounded-2xl font-bold text-slate-700 hover:bg-slate-100 transition-all"
+            >
+              Choose a different service
+            </button>
+          )}
+        </div>
+      </div>
+    );
+
+  // Shown when Teeth Cleaning is picked in the booking form (e.g. they came in via Book Now).
+  const renderOralCareDisclaimerModal = () =>
+    showOralCareDisclaimer && (
+      <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+        <div role="dialog" aria-modal="true" aria-label={ORAL_CARE_DISCLAIMER_TITLE} className="bg-white rounded-3xl max-w-md w-full max-h-[90vh] overflow-y-auto shadow-2xl p-8 text-center">
+          <p className="text-2xl font-black mb-4">Before you book teeth cleaning</p>
+          {renderOralCareConsent()}
+          <button
+            disabled={!oralCareTick}
+            onClick={() => {
+              setOralCareAccepted(true);
+              setFormData((f) => ({ ...f, serviceid: ORAL_CARE_SERVICE_ID }));
+              setShowOralCareDisclaimer(false);
+              setBookingError(null);
+            }}
+            className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 disabled:text-slate-600 disabled:cursor-not-allowed text-white py-4 rounded-2xl font-bold transition-all"
+          >
+            {oralCareTick ? "Continue" : "Please tick the box above"}
+          </button>
+          <button type="button" onClick={() => setShowOralCareDisclaimer(false)} className="mt-3 w-full py-3 rounded-2xl font-bold text-slate-700 hover:bg-slate-100 transition-all">
+            Choose a different service
+          </button>
+        </div>
+      </div>
+    );
 
   // Agreement Modal
   const AgreementModal = () => (
@@ -1209,7 +1298,8 @@ Message: ${enquiryData.message}
       <main className="flex-grow">{renderPage()}</main>
       {!minimalChrome && <Footer setPage={setCurrentPage} />}
       <AgreementModal />
-      <BookingNoticeModal />
+      {renderBookingNoticeModal()}
+      {renderOralCareDisclaimerModal()}
       {!minimalChrome && (
         <div className="fixed bottom-4 left-4 z-40">
           <button onClick={() => setCurrentPage(currentPage === "admin" ? "home" : "admin")} className="text-[9px] text-slate-300 hover:text-slate-600 font-black uppercase tracking-[0.2em] transition-colors">
