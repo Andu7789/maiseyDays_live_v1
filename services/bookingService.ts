@@ -524,11 +524,11 @@ export const buildCancellationMessage = (appointment: Appointment) => {
   const bookedDate = appointment.confirmed_date || appointment.date;
   const when = bookedDate ? ` on ${formatLongDate(bookedDate)}${appointment.confirmed_time ? ` at ${formatClockTime(appointment.confirmed_time)}` : ""}` : "";
   return [
-    `We are sorry that your ${getServiceName(appointment.serviceid)} appointment for ${appointment.dogname}${when} has been cancelled with Maisey Days.`,
-    `If you would like to rebook please contact Maisey Days on 07368465966, or you can rebook online.`,
+    `We are sorry that your ${getServiceName(appointment.serviceid)} appointment for ${appointment.dogname}${when} has been cancelled at Maisey Days.`,
+    `If you would like to rebook please contact Maisey Days on 07368 465966, or you can rebook online.`,
     `If you have paid a deposit, refunds usually reach your account within 5 - 10 working days.`,
     `We hope to see you again in the near future.`,
-    `Best wishes,\nRachel at Maisey Days Dog Grooming. 🐾`,
+    `Best wishes,\nRachel at Maisey Days Dog Grooming.`,
   ].join("\n\n");
 };
 
