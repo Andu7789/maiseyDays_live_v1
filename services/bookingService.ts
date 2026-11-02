@@ -500,11 +500,15 @@ const formatClockTime = (time: string) => {
   return `${h % 12 === 0 ? 12 : h % 12}:${String(m || 0).padStart(2, "0")} ${h < 12 ? "am" : "pm"}`;
 };
 
+// Built by hand so it always reads "Monday, 11 January 2027" whatever the browser's date style.
+const formatLongDate = (date: string) => {
+  const d = new Date(`${String(date).slice(0, 10)}T00:00:00`);
+  return `${d.toLocaleDateString("en-GB", { weekday: "long" })}, ${d.getDate()} ${d.toLocaleDateString("en-GB", { month: "long" })} ${d.getFullYear()}`;
+};
+
 export const buildConfirmationMessage = (appointment: Appointment) => {
   const confirmedDate = appointment.confirmed_date || appointment.date;
-  // Built by hand so it always reads "Monday, 11 January 2027" whatever the browser's date style.
-  const d = confirmedDate ? new Date(`${String(confirmedDate).slice(0, 10)}T00:00:00`) : null;
-  const when = d ? `${d.toLocaleDateString("en-GB", { weekday: "long" })}, ${d.getDate()} ${d.toLocaleDateString("en-GB", { month: "long" })} ${d.getFullYear()}` : "a date to be confirmed";
+  const when = confirmedDate ? formatLongDate(confirmedDate) : "a date to be confirmed";
   const time = appointment.confirmed_time ? formatClockTime(appointment.confirmed_time) : "a time to be confirmed";
   const location = LOCATIONS.find((loc) => loc.id === appointment.locationid);
   const place = location?.confirmationPlace || `at our ${getLocationName(appointment.locationid)}`;
@@ -518,8 +522,14 @@ export const buildConfirmationMessage = (appointment: Appointment) => {
 
 export const buildCancellationMessage = (appointment: Appointment) => {
   const bookedDate = appointment.confirmed_date || appointment.date;
-  const bookedTime = appointment.confirmed_time || "";
-  return `Hi ${appointment.ownername}, due to unforeseen circumstances, your ${getServiceName(appointment.serviceid)} appointment for ${appointment.dogname} at Maisey Days (${getLocationName(appointment.locationid)}) on ${formatHumanDate(bookedDate)}${bookedTime ? ` at ${bookedTime}` : ""} has been cancelled. We will be in contact with you to re-arrange. Apologies for the inconvenience.`;
+  const when = bookedDate ? ` on ${formatLongDate(bookedDate)}${appointment.confirmed_time ? ` at ${formatClockTime(appointment.confirmed_time)}` : ""}` : "";
+  return [
+    `We are sorry that your ${getServiceName(appointment.serviceid)} appointment for ${appointment.dogname}${when} has been cancelled with Maisey Days.`,
+    `If you would like to rebook please contact Maisey Days on 07368465966, or you can rebook online.`,
+    `If you have paid a deposit, refunds usually reach your account within 5 - 10 working days.`,
+    `We hope to see you again in the near future.`,
+    `Best wishes,\nRachel at Maisey Days Dog Grooming. 🐾`,
+  ].join("\n\n");
 };
 
 export const buildRebookNudgeMessage = (appointment: Appointment) => {
