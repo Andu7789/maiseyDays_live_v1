@@ -533,8 +533,8 @@ Message: ${enquiryData.message}
                     icon: "🛡️",
                   },
                   {
-                    title: "Oral Care and Emmi-Pet Teeth Cleaning",
-                    desc: "Officially trained and endorsed by Emmi Ultrasonic, Rachel offers Emmi-Pet oral care services giving you peace of mind that your dog is receiving safe and gentle care.",
+                    title: "Emmi-Pet Oral Care",
+                    desc: "Maisey Days has been officially trained and endorsed by Emmi Ultrasonic to provide gentle Emmi-Pet oral care for your dog. Emmi-Pet uses silent, vibration-free ultrasonic technology to help maintain oral hygiene, healthy gums and prevent plaque build-up.",
                     icon: "🦷",
                   },
                 ].map((item, idx) => (
