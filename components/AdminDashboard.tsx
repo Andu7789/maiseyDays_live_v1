@@ -144,6 +144,8 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
   const [diaryMobileDate, setDiaryMobileDate] = useState<Date>(() => new Date());
   const [showDiarySlotModal, setShowDiarySlotModal] = useState(false);
   const [diarySlotDate, setDiarySlotDate] = useState("");
+  // Set when the diary modal is opened from an existing booking, so "In N weeks" counts from it.
+  const [diarySlotRebookFrom, setDiarySlotRebookFrom] = useState<string | null>(null);
   const [diarySlotTime, setDiarySlotTime] = useState("");
   const [diarySlotDuration, setDiarySlotDuration] = useState(120);
   const [diarySlotPersonal, setDiarySlotPersonal] = useState(false);
@@ -1123,6 +1125,7 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
       deposit_notes: "",
       confirm_channel: "whatsapp",
     });
+    setDiarySlotRebookFrom(booking.confirmed_date || booking.date || null);
     setShowDiarySlotModal(true);
   };
 
@@ -1704,6 +1707,7 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
       deposit_notes: "",
       confirm_channel: "whatsapp",
     });
+    setDiarySlotRebookFrom(null);
     setShowDiarySlotModal(true);
   };
 
@@ -5440,7 +5444,7 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
               {diarySlotPersonal && <p className="text-sm text-slate-600 mb-3">Blocks this time in the diary, even on a closed or fully booked day. Customers cannot book it, and nothing is sent to anyone.</p>}
               <div className="flex items-center gap-2 mb-3 flex-wrap">
                 <label className="text-xs font-bold text-slate-500 whitespace-nowrap">Date</label>
-                <DateJumpPicker value={diarySlotDate} onChange={setDiarySlotDate} className="flex-1 min-w-[240px]" />
+                <DateJumpPicker value={diarySlotDate} onChange={setDiarySlotDate} className="flex-1 min-w-[240px]" jumpFrom={diarySlotRebookFrom} />
               </div>
               <div className="flex items-center gap-2 mb-4">
                 <label className="text-xs font-bold text-slate-500 whitespace-nowrap">Time</label>
