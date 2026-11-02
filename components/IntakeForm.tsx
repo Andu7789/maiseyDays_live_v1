@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Customer, Dog } from "../types";
-import { INTAKE_TERMS, INTAKE_TERMS_VERSION, MATTING_INTRO, MATTING_TERMS, MATTING_BULLETS, MATTING_CLOSING } from "../constants";
+import { INTAKE_TERMS, INTAKE_TERMS_VERSION, MATTING_INTRO, MATTING_TERMS, MATTING_BULLETS, MATTING_CLOSING, ORAL_CARE_TERMS_TITLE } from "../constants";
+import { OralCareTerms } from "./OralCareTerms";
 import { loadIntakeForm, submitIntakeForm, submitMattingConsent } from "../services/customerService";
 import SignatureCanvas from "./SignatureCanvas";
 
@@ -337,6 +338,13 @@ const IntakeForm: React.FC<IntakeFormProps> = ({ token }) => {
             <li key={i}>{term}</li>
           ))}
         </ol>
+      </SectionCard>
+
+      {/* ORAL HYGIENE CONSENT (covered by the same signature below) */}
+      <SectionCard title={`Oral hygiene consent: ${ORAL_CARE_TERMS_TITLE}`}>
+        <div className="max-h-72 overflow-y-auto pr-2 text-sm text-slate-600 leading-relaxed">
+          <OralCareTerms />
+        </div>
       </SectionCard>
 
       {/* MATTING RELEASE (only when the groomer has flagged it as needed) */}

@@ -3,7 +3,8 @@ import { DogRecordTabs } from "./DogRecordTabs";
 import { sendDepositOutcomeEmail, getDepositCreditBalance, carryDepositAsCredit, refundDepositViaStripe, addBookingPhoto, BookingPhoto, buildCancellationMessage, buildConfirmationMessage, buildRebookNudgeMessage, checkAuthStatus, confirmAppointmentBooking, createManualAppointment, deleteAppointment, deleteBookingPhoto, enrollMfaTotp, exportAppointmentsToExcel, findBookingClash, getDayBookings, getAppointments, getAvailableSlotTimes, getBookingPhotos, getBookingRevenue, getCurrentUser, getEffectiveSchedule, getMfaAssuranceLevel, getReminderSettings, getServiceBasePrice, getUnavailableDays, getUnavailableDayEntries, getUnavailableWeekdays, getUnavailableWeekdayEntries, listMfaFactors, removeUnavailableEntry, saveUnavailableDay, saveUnavailableDateRange, saveUnavailableWeekday, sendCustomEmail, sendCustomerCancellationSms, sendCustomerConfirmationSms, signInAdmin, signOutAdmin, unenrollMfaFactor, updateAppointment, updateReminderSettings, getHolidaySettings, updateHolidaySettings, updateAdvertSettings, updateWeekendBookingsEnabled, updateGoogleReviewLink, verifyMfaCode, getDogNotes, getAllDogNotes, upsertDogNote, UnavailabilityEntry, createPersonalAppointment, isPersonalAppointment } from "../services/bookingService";
 import { buildIntakeLink, buildIntakeMessage, buildReviewMessage, buildWhatsAppLink, createCustomer, deleteCustomer, deleteDog, ensureIntakeToken, getCustomers, getDeletedCustomers, getFirstName, markIntakeSent, markReviewLinkSent, permanentlyDeleteCustomer, restoreCustomer, saveDog, sendIntakeEmail, sendIntakeSms, updateCustomer } from "../services/customerService";
 import { Appointment, Customer, Dog, IntakeStatus, Service, StarPost } from "../types";
-import { ALL_LOCATIONS, DEPOSIT_PER_DOG, INTAKE_TERMS, LOCATIONS, MATTING_BULLETS, MATTING_CLOSING, MATTING_TERMS, SERVICES, SLOT_TIMES, getLocationSlotTimes } from "../constants";
+import { ALL_LOCATIONS, DEPOSIT_PER_DOG, INTAKE_TERMS, LOCATIONS, MATTING_BULLETS, MATTING_CLOSING, MATTING_TERMS, ORAL_CARE_TERMS_TITLE, SERVICES, SLOT_TIMES, getLocationSlotTimes, termsVersionIncludesOralCare } from "../constants";
+import { oralCareTermsHtml } from "./OralCareTerms";
 import { createServiceCatalogEntry, deleteServiceCatalogEntry, getServiceCatalog, updateServiceCatalogEntry, uploadServicePhoto } from "../services/serviceCatalogService";
 import { createStarPost, deleteStarPost, getStarPosts, publishStarPost, uploadStarPhoto } from "../services/starPostService";
 import { RoundTimePicker } from "./RoundTimePicker";
@@ -1033,6 +1034,7 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
       ${dogsHtml || "<p>No dogs recorded.</p>"}
       <h2>Terms and Conditions (version ${customer.terms_version || "—"})</h2>
       <ol>${termsHtml}</ol>
+      ${termsVersionIncludesOralCare(customer.terms_version) ? `<h2>Oral Hygiene Consent: ${ORAL_CARE_TERMS_TITLE}</h2>${oralCareTermsHtml()}` : ""}
       <h2>Emergency Care Authorisation</h2>
       <p>In the event of illness or injury during grooming, I authorise emergency veterinary care for my pet. Please use my preferred vet, but in case of urgency, any qualified veterinarian may be contacted.</p>
       <table>

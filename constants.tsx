@@ -7,7 +7,8 @@ export const EMAIL_ENDPOINT = "https://formspree.io/f/xnjvowlz";
 // via the send-customer-email edge function using Resend on the verified domain.
 
 // GROOMING AGREEMENT (customer intake form)
-export const INTAKE_TERMS_VERSION = "2026-07";
+// 2026-11 added the emmi®-pet oral hygiene terms (ORAL_CARE_TERMS below).
+export const INTAKE_TERMS_VERSION = "2026-11";
 export const INTAKE_TERMS: string[] = [
   "Please tell us if your dog is aggressive with people/other pets, we may need to use a muzzle if we deem necessary.",
   "In accordance with the Animal Welfare Act, we will not spend more than 15 minutes de-matting. A matted coat may result in us having to clip the coat short all over - our priority here is comfort as matting can be painful for the dog and dangerous to remove. There is an extra charge for matted dogs due to the extra time it takes and excess wear and tear to equipment.",
@@ -20,6 +21,65 @@ export const INTAKE_TERMS: string[] = [
   "A £10 deposit per dog is required at the time of booking. This deposit will be deducted from the total cost of the groom. If you cancel at least 48 hours before your appointment the deposit is refundable to the card you paid with, or may be carried over as credit towards your next groom (valid for 12 months). If you cancel with less than 24 hours' notice or fail to attend your appointment, a cancellation fee of 50% of the grooming price per dog will apply. In these cases, the deposit will be retained and counted towards the cancellation fee.",
   "If you are dissatisfied with your pet's groom, please let us know within 48 hours and we will do our best to resolve it for you.",
 ];
+
+// ORAL HYGIENE CONSENT (part of the grooming agreement from INTAKE_TERMS_VERSION 2026-11,
+// and of the Service Agreement customers accept when booking online)
+export const ORAL_CARE_TERMS_TITLE = "emmi®-pet Ultrasonic Oral Hygiene Terms & Conditions";
+export const ORAL_CARE_TERMS_INTRO = "By booking or authorising an emmi®-pet ultrasonic oral care session with Maisey Days Dog Grooming, you acknowledge, understand, and agree to the following terms and conditions.";
+
+export interface OralCareTermsSection {
+  heading: string;
+  intro?: string;
+  points: { label?: string; text: string }[];
+}
+
+export const ORAL_CARE_TERMS: OralCareTermsSection[] = [
+  {
+    heading: "1. Scope & Nature of Service",
+    points: [
+      { label: "Cosmetic Hygiene Only", text: "emmi®-pet ultrasonic teeth cleaning provided by Maisey Days is a non-invasive, cosmetic oral hygiene service designed strictly to support routine oral hygiene, maintain healthy gums, and help prevent plaque build-up." },
+      { label: "Non-Veterinary", text: "This service is not a veterinary procedure, dental surgery, scaling under anaesthesia, or a medical treatment. It does not replace regular veterinary dental care, diagnosis, or clinical examinations." },
+    ],
+  },
+  {
+    heading: "2. Qualifications & Official Endorsement",
+    points: [{ text: "Maisey Days has been officially trained and endorsed by Emmi Ultrasonic to provide gentle emmi®-pet oral care for your dog." }],
+  },
+  {
+    heading: "3. Pre-Session Oral Assessment & Veterinary Referrals",
+    points: [
+      { label: "Initial Assessment", text: "A mandatory visual oral assessment of your dog’s mouth will be conducted prior to commencing any session, as well as ongoing checks throughout the process." },
+      { label: "Right to Decline or Pause Service", text: "If any visible signs of active dental disease, oral infection, severe tartar build-up, loose or damaged teeth, bleeding, or mouth pain are observed during the assessment or session, we reserve the right to decline or halt the service immediately." },
+      { label: "Veterinary Referral", text: "If a session is paused or declined due to observed oral health concerns, we will advise you to seek appropriate advice and clinical examination from your registered veterinary surgeon." },
+    ],
+  },
+  {
+    heading: "4. Personal Toothbrush Head & Equipment Hygiene",
+    points: [
+      { label: "Dedicated Equipment", text: "For optimal hygiene and safety, each dog requires their own personal emmi®-pet attachment toothbrush head." },
+      { label: "Initial Session", text: "The purchase or provision of an individual toothbrush head is required for your dog's initial session and will be stored or handled according to salon hygiene standards." },
+    ],
+  },
+  {
+    heading: "5. Temperament, Behaviour & Session Completion",
+    points: [
+      { label: "Dog Comfort & Welfare", text: "emmi®-pet relies on a calm, stress-free environment. While the technology is completely silent and vibration-free, sessions depend on your dog’s comfort and cooperation." },
+      { label: "Behaviour", text: "If a dog becomes stressed, anxious, or uncooperative, we will suspend the session in the interest of animal welfare." },
+    ],
+  },
+  {
+    heading: "6. Client Declaration & Consent",
+    intro: "By confirming your booking or signing your intake form, you declare and agree that:",
+    points: [
+      { text: "You understand that emmi®-pet oral care is a purely cosmetic, preventative oral hygiene service and not a veterinary dental procedure or medical treatment." },
+      { text: "You confirm your dog is not currently undergoing veterinary care for severe periodontal disease or mouth pain, unless cleared by your veterinary surgeon." },
+      { text: "You authorise Maisey Days to conduct a pre-session oral assessment and to pause or decline the service if veterinary attention is indicated." },
+    ],
+  },
+];
+
+/** The printed agreement only includes the oral care terms for customers who signed a version that had them. */
+export const termsVersionIncludesOralCare = (version?: string | null) => !!version && /^\d{4}-\d{2}/.test(version) && version >= "2026-11";
 
 // MATTING RELEASE FORM (sent alongside the grooming agreement when needed)
 export const MATTING_INTRO = "We understand life can get heavy and sometimes things go wrong that can lead to you not being able to afford grooms or get your dog booked in. We are not judgmental. If you require help on how to care for your dog between grooming sessions, please do ask. I will be more than happy to give you advice and go through an individual schedule suited to you and your dog. We appreciate it can be expected for even a well-cared coat to have a few small knots.";

@@ -5,8 +5,9 @@ import Footer from "./components/Footer";
 import AdminDashboard from "./components/AdminDashboard";
 import IntakeForm from "./components/IntakeForm";
 import { CalendarPicker } from "./components/CalendarPicker";
+import { OralCareTerms } from "./components/OralCareTerms";
 import { Service } from "./types";
-import { SERVICES, LOCATIONS, getLocationSlotTimes, getOpenLocations, EMAIL_ENDPOINT, DEPOSIT_PER_DOG, HOME_GROOM_POSTCODE_AREAS, formatPostcode, isInHomeGroomArea } from "./constants";
+import { SERVICES, LOCATIONS, getLocationSlotTimes, getOpenLocations, EMAIL_ENDPOINT, DEPOSIT_PER_DOG, HOME_GROOM_POSTCODE_AREAS, formatPostcode, isInHomeGroomArea, ORAL_CARE_TERMS_TITLE } from "./constants";
 import { isBeforeBookableFrom, isAfterBookableUntil, getAvailableSlotTimes, saveAppointmentAwaitingPayment, startDepositCheckout, getDepositStatus, abandonDepositBooking, prepareBookingPhoto, sendBookingEmail, sendConfirmationEmail, isDateAvailable, getUnavailableDays, getUnavailableWeekdays, sendHolidayEnquiryConfirmation, getHolidaySettings, signOutAdmin } from "./services/bookingService";
 import { getServiceCatalog } from "./services/serviceCatalogService";
 import { getPublicStarPosts } from "./services/starPostService";
@@ -1176,6 +1177,13 @@ Message: ${enquiryData.message}
                   <div>
                     <strong>Cancellation Fee:</strong> If you cancel with less than 24 hours' notice, or fail to attend (no-show), a fee of 50% of the full groom price will apply. In these cases, your £{DEPOSIT_PER_DOG} deposit will be retained and applied toward this fee.
                   </div>
+                </div>
+              </div>
+
+              <div>
+                <h3 className="text-lg font-black text-slate-800 mb-3">4. Oral Hygiene Consent: {ORAL_CARE_TERMS_TITLE}</h3>
+                <div className="ml-4">
+                  <OralCareTerms />
                 </div>
               </div>
             </div>
