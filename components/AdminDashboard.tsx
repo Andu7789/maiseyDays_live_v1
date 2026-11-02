@@ -8,6 +8,8 @@ import { createServiceCatalogEntry, deleteServiceCatalogEntry, getServiceCatalog
 import { createStarPost, deleteStarPost, getStarPosts, publishStarPost, uploadStarPhoto } from "../services/starPostService";
 import { RoundTimePicker } from "./RoundTimePicker";
 import { DateJumpPicker } from "./DateJumpPicker";
+import { BookingHistoryPanel, BookingHistoryView } from "./BookingHistory";
+import { logBookingNote } from "../services/bookingHistoryService";
 
 const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const EMAIL_CUSTOMER_REPLY_TO = "hello@maiseydaysdoggrooming.co.uk";
@@ -59,7 +61,7 @@ const TriYesNo: React.FC<{ label: string; value: boolean | null | undefined; onC
   </div>
 );
 
-type AdminView = "dashboard" | "bookings" | "diary" | "unavailable" | "services" | "settings" | "customers" | "stars" | "mailshot" | "reviews";
+type AdminView = "dashboard" | "bookings" | "diary" | "history" | "unavailable" | "services" | "settings" | "customers" | "stars" | "mailshot" | "reviews";
 
 const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> = ({ initialView, minimal }) => {
   const [isAuthorized, setIsAuthorized] = useState(false);
@@ -1376,6 +1378,7 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
       return;
     }
     window.open(buildWhatsAppLink(apt.phone, buildRebookNudgeMessage(apt)), "_blank");
+    logBookingNote("message_sent", apt, { channel: "whatsapp", kind: "rebook nudge", message: buildRebookNudgeMessage(apt) });
   };
 
   const handleMarkNudgeContacted = async (apt: Appointment) => {
@@ -1498,6 +1501,7 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
           alert("No phone number on record — cancelling without notifying.");
         } else {
           window.open(buildWhatsAppLink(booking.phone, buildCancellationMessage(booking)), "_blank");
+          logBookingNote("message_sent", booking, { channel: "whatsapp", kind: "cancellation", message: buildCancellationMessage(booking) });
         }
       } else if (channel === "sms") {
         await sendCustomerCancellationSms(booking);
@@ -1645,6 +1649,7 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
           } else {
             // Free channel: open WhatsApp with the confirmation ready to send
             window.open(buildWhatsAppLink(addForm.phone, buildConfirmationMessage(confirmedAppointment)), "_blank");
+            logBookingNote("message_sent", confirmedAppointment, { channel: "whatsapp", kind: "confirmation", message: buildConfirmationMessage(confirmedAppointment) });
           }
           await updateAppointment(createdBooking.id, {
             is_confirmed: true,
@@ -1815,6 +1820,7 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
             await sendCustomerConfirmationSms(confirmedAppointment);
           } else {
             window.open(buildWhatsAppLink(diarySlotForm.phone, buildConfirmationMessage(confirmedAppointment)), "_blank");
+            logBookingNote("message_sent", confirmedAppointment, { channel: "whatsapp", kind: "confirmation", message: buildConfirmationMessage(confirmedAppointment) });
           }
           await updateAppointment(created.id, { is_confirmed: true, confirmed_at: nowIso, confirmation_sent_at: nowIso });
         } catch (sendErr: any) {
@@ -1919,6 +1925,9 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
             <button onClick={() => setView("diary")} className={`px-4 py-2 rounded-lg font-bold transition-all ${view === "diary" ? "bg-white shadow-sm text-emerald-600" : "text-slate-600"}`}>
               Diary
             </button>
+            <button onClick={() => setView("history")} className={`px-4 py-2 rounded-lg font-bold transition-all ${view === "history" ? "bg-white shadow-sm text-emerald-600" : "text-slate-600"}`}>
+              History
+            </button>
             <button onClick={() => { setView("customers"); refreshCustomers(); getAllDogNotes().then(setAllDogNotes).catch(() => {}); }} className={`px-4 py-2 rounded-lg font-bold transition-all ${view === "customers" ? "bg-white shadow-sm text-emerald-600" : "text-slate-600"}`}>
               Customers
             </button>
@@ -1943,6 +1952,17 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
           </div>
         )}
       </div>
+
+      {/* The home-screen shortcut hides the tab bar, so give it just the two views Rachel needs there. */}
+      {minimal && (
+        <div className="flex bg-slate-200 p-1 rounded-xl mb-4">
+          {(["diary", "history"] as const).map((v) => (
+            <button key={v} onClick={() => setView(v)} aria-pressed={view === v} className={`flex-1 px-4 py-2 rounded-lg font-bold transition-all ${view === v ? "bg-white shadow-sm text-emerald-700" : "text-slate-700"}`}>
+              {v === "diary" ? "Diary" : "History"}
+            </button>
+          ))}
+        </div>
+      )}
 
       <div className={`mb-8 flex gap-4 ${minimal ? "flex-col" : "overflow-x-auto pb-2"}`}>
         <button onClick={() => setSelectedLocation(ALL_LOCATIONS)} className={`px-6 py-3 rounded-2xl font-bold border-2 transition-all whitespace-nowrap ${selectedLocation === ALL_LOCATIONS ? "border-teal-600 bg-teal-50 text-teal-700" : "border-slate-200 text-slate-500"}`}>
@@ -3493,6 +3513,8 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
                 </div>
               </div>
             )}
+
+            {activeBooking.id && <BookingHistoryPanel appointmentId={activeBooking.id} />}
           </div>
         </div>
       )}
@@ -4017,6 +4039,8 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
           </div>
         </div>
       )}
+
+      {view === "history" && <BookingHistoryView onRestored={loadData} />}
 
       {view === "diary" && (() => {
         const weekDates: string[] = [];

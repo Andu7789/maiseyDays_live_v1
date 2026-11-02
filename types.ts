@@ -77,6 +77,8 @@ export interface Location {
   bookableUntil?: string;
   /** Bookable 2-hour slot start times for customers. Defaults to the global SLOT_TIMES. */
   slotTimes?: string[];
+  /** Where to find us, as it reads in the booking confirmation: "Your appointment is with Maisey Days Dog Grooming, <this>." */
+  confirmationPlace?: string;
   coordinates: {
     lat: number;
     lng: number;

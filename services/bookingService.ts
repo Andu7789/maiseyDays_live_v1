@@ -2,6 +2,7 @@ import { createClient } from "@supabase/supabase-js";
 import { Appointment, AvailabilitySlot, OralCareEntry, WeeklyTemplate } from "../types";
 import { ALL_LOCATIONS, DEPOSIT_PER_DOG, EMAIL_ENDPOINT, LOCATIONS, SERVICES, SUPABASE_URL, SUPABASE_ANON_KEY, STANDARD_HOURS, SLOT_TIMES, SLOT_DURATION_MINUTES, BOOKABLE_WEEKDAYS, getLocationSlotTimes } from "../constants";
 import { getServiceNameSync } from "./serviceCatalogService";
+import { logBookingNote } from "./bookingHistoryService";
 
 // Validation for the user's convenience
 if (SUPABASE_ANON_KEY && !SUPABASE_ANON_KEY.startsWith("eyJ")) {
@@ -351,11 +352,25 @@ export const saveAppointment = async (app: Appointment) => {
       return fallbackResult.data;
     }
     console.error("Supabase Save Fallback Error:", fallbackResult.error);
+    await logBookingNote("save_failed", app, { operation: "create", error: fallbackResult.error.message });
     throw new Error(`Database Error: ${fallbackResult.error.message}`);
   }
 
   console.error("Supabase Save Error:", error);
+  await logBookingNote("save_failed", app, { operation: "create", error: error.message });
   throw new Error(`Database Error: ${error.message}`);
+};
+
+// A failed change only carries the edited fields, so pull the booking's names in for searching.
+const logFailedChange = async (id: string, operation: "update" | "delete", attempted: Record<string, unknown>, message: string) => {
+  let current: Record<string, unknown> = {};
+  try {
+    const { data } = await supabase.from("appointments").select("*").eq("id", id).maybeSingle();
+    current = data || {};
+  } catch {
+    // Still record the failure without the names.
+  }
+  await logBookingNote("save_failed", { ...current, ...attempted, id } as Partial<Appointment>, { operation, error: message, attempted });
 };
 
 export const createManualAppointment = async (app: Appointment) => {
@@ -416,10 +431,12 @@ export const updateAppointment = async (id: string, updates: Partial<Appointment
       return fallbackResult.data;
     }
     console.error("Supabase Update Fallback Error:", fallbackResult.error);
+    await logFailedChange(id, "update", payload, fallbackResult.error.message);
     throw new Error(`Database Error: ${fallbackResult.error.message}`);
   }
 
   console.error("Supabase Update Error:", error);
+  await logFailedChange(id, "update", payload, error.message);
   throw new Error(`Database Error: ${error.message}`);
 };
 
@@ -427,6 +444,7 @@ export const deleteAppointment = async (id: string) => {
   const { error } = await supabase.from("appointments").delete().eq("id", id);
   if (error) {
     console.error("Supabase Delete Error:", error);
+    await logFailedChange(id, "delete", {}, error.message);
     throw new Error(`Database Error: ${error.message}`);
   }
 };
@@ -474,11 +492,27 @@ export const getBookingRevenue = (apt: Appointment): { amount: number; isActual:
   return { amount: getServiceBasePrice(apt.serviceid) * (apt.number_of_dogs || 1), isActual: false };
 };
 
+// "09:00:00" -> "9:00 am", "14:30" -> "2:30 pm"
+const formatClockTime = (time: string) => {
+  const [h, m] = time.split(":").map(Number);
+  if (Number.isNaN(h)) return time;
+  return `${h % 12 === 0 ? 12 : h % 12}:${String(m || 0).padStart(2, "0")} ${h < 12 ? "am" : "pm"}`;
+};
+
 export const buildConfirmationMessage = (appointment: Appointment) => {
   const confirmedDate = appointment.confirmed_date || appointment.date;
-  const confirmedTime = appointment.confirmed_time || "TBC";
-  const dayName = confirmedDate ? new Date(`${confirmedDate}T00:00:00`).toLocaleDateString("en-GB", { weekday: "long" }) : "";
-  return `Thank you for booking ${appointment.dogname} in for a pamper with Rachel on ${dayName}, ${formatHumanDate(confirmedDate)} at ${confirmedTime} at Maisey Days (${getLocationName(appointment.locationid)}). To confirm please reply YES or message Rachel on 07368465966 if you have any queries.`;
+  // Built by hand so it always reads "Monday, 11 January 2027" whatever the browser's date style.
+  const d = confirmedDate ? new Date(`${String(confirmedDate).slice(0, 10)}T00:00:00`) : null;
+  const when = d ? `${d.toLocaleDateString("en-GB", { weekday: "long" })}, ${d.getDate()} ${d.toLocaleDateString("en-GB", { month: "long" })} ${d.getFullYear()}` : "a date to be confirmed";
+  const time = appointment.confirmed_time ? formatClockTime(appointment.confirmed_time) : "a time to be confirmed";
+  const location = LOCATIONS.find((loc) => loc.id === appointment.locationid);
+  const place = location?.confirmationPlace || `at our ${getLocationName(appointment.locationid)}`;
+  return [
+    `Thank you for booking ${appointment.dogname} in for a pamper with Rachel on ${when} at ${time}.`,
+    `Your appointment is with Maisey Days Dog Grooming, ${place}.`,
+    `Please reply YES to confirm your booking. If you need to cancel or reschedule, please give us at least 48 hours’ notice where possible. As we’re self-employed groomers, this really helps us manage our appointments and offer the slot to another customer. Thanks so much for understanding!`,
+    `If you have any questions, message Rachel on 07368 465966. We look forward to seeing you both!`,
+  ].join("\n\n");
 };
 
 export const buildCancellationMessage = (appointment: Appointment) => {
@@ -505,6 +539,7 @@ export const sendCustomerCancellationSms = async (appointment: Appointment) => {
     const providerError = (result as any)?.error || "SMS provider rejected the message.";
     throw new Error(`SMS failed: ${providerError}`);
   }
+  await logBookingNote("message_sent", appointment, { channel: "sms", kind: "cancellation", message });
   return true;
 };
 
@@ -525,6 +560,7 @@ export const sendCustomerConfirmationSms = async (appointment: Appointment) => {
     const providerError = (result as any)?.error || "SMS provider rejected the message.";
     throw new Error(`SMS failed: ${providerError}`);
   }
+  await logBookingNote("message_sent", appointment, { channel: "sms", kind: "confirmation", message });
 
   return true;
 };
@@ -571,6 +607,10 @@ export const confirmAppointmentBooking = async (
     if (!smsSent) {
       throw new Error("SMS confirmation failed to send.");
     }
+  }
+  // SMS is recorded by sendCustomerConfirmationSms itself.
+  if (channel === "whatsapp") {
+    await logBookingNote("message_sent", smsPayload, { channel, kind: "confirmation", message: buildConfirmationMessage(smsPayload) });
   }
 
   await updateAppointment(appointment.id, {

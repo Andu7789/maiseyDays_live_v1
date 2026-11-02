@@ -136,6 +136,7 @@ export const LOCATIONS: Location[] = [
     phone: "07368 465966",
     hours: "Mon-Sun: 8am - 8pm",
     bookableUntil: "2026-11-14", // Rachel's last day at Caister
+    confirmationPlace: "at 49a High Street, Caister on Sea",
     image: "/locations/Dirty.jpg",
     coordinates: {
       lat: 52.6406,
@@ -150,6 +151,7 @@ export const LOCATIONS: Location[] = [
     phone: "07368 465966",
     hours: "Mon-Sun: 9am - 5pm",
     slotTimes: ["09:00", "11:00", "13:00", "15:00", "17:00"],
+    confirmationPlace: "at Dirty Dawg in Hemsby, opposite the Co-op",
     image: "",
     coordinates: {
       lat: 52.6862,
