@@ -1053,7 +1053,7 @@ Message: ${enquiryData.message}
                       )}
                     </div>
                     <div className={`p-6 rounded-2xl border-2 transition-all ${marketingConsent === "" ? "bg-rose-50 border-rose-200" : "bg-emerald-50 border-emerald-200"}`}>
-                      <label className={`block text-sm font-bold mb-4 ${marketingConsent === "" ? "text-rose-800" : "text-emerald-800"}`}>Should Maisey Days be unable to fulfil an appointment, I consent to my contact details being shared with the grooming team at Maisey Days Dog Grooming ONLY for the purpose of arranging an alternative booking.</label>
+                      <label className={`block text-sm font-bold mb-4 ${marketingConsent === "" ? "text-rose-800" : "text-emerald-800"}`}>If Rachel at Maisey Days is unable to fulfil my booking request, I agree to my contact details being shared with Dirty Dawg solely to arrange an alternative appointment with a Dirty Dawg groomer.</label>
                       <div className="flex gap-8">
                         <label className="flex items-center gap-3 cursor-pointer">
                           <input type="radio" name="marketing" value="yes" checked={marketingConsent === "yes"} onChange={(e) => setMarketingConsent("yes")} className="w-5 h-5 accent-emerald-600 cursor-pointer" />
