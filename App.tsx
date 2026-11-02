@@ -511,8 +511,8 @@ Message: ${enquiryData.message}
                     icon: "🛡️",
                   },
                   {
-                    title: "Teeth Cleaning",
-                    desc: "No scraping, noise or vibration, so it's stress-free even for nervous dogs.",
+                    title: "Oral Care and Emmi-Pet Teeth Cleaning",
+                    desc: "Officially trained and endorsed by Emmi Ultrasonic, Rachel offers Emmi-Pet oral care services giving you peace of mind that your dog is receiving safe and gentle care.",
                     icon: "🦷",
                   },
                 ].map((item, idx) => (
