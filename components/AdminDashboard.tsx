@@ -4158,6 +4158,12 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
                     aria-label="Pick a date to show that week"
                     value={toDateString(diaryWeekStart)}
                     onChange={(e) => e.target.value && jumpToDate(e.target.value)}
+                    // Desktop browsers only open the picker from the (hidden) calendar icon, so open it on any click.
+                    onClick={(e) => {
+                      try {
+                        e.currentTarget.showPicker?.();
+                      } catch {}
+                    }}
                     className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                   />
                 </label>
@@ -4180,6 +4186,11 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
                       aria-label="Pick a date"
                       value={mobileDateStr}
                       onChange={(e) => e.target.value && jumpToDate(e.target.value)}
+                      onClick={(e) => {
+                        try {
+                          e.currentTarget.showPicker?.();
+                        } catch {}
+                      }}
                       className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                     />
                   </label>
