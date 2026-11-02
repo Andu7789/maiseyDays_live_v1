@@ -4,6 +4,8 @@ interface DateJumpPickerProps {
   value: string; // "YYYY-MM-DD"
   onChange: (value: string) => void;
   className?: string;
+  /** "YYYY-MM-DD" to count the weeks-ahead shortcut from (e.g. the booking being rebooked) instead of today. */
+  jumpFrom?: string | null;
 }
 
 const WEEKS_AHEAD_OPTIONS = Array.from({ length: 7 }, (_, i) => i + 4); // 4..10
@@ -19,8 +21,12 @@ const isSameDay = (a: Date, b: Date) => a.getFullYear() === b.getFullYear() && a
 
 /** Date field replacement: a browsable month calendar plus a "jump N weeks ahead"
  * shortcut, so bookings that always land ~6 weeks out don't need month-by-month clicking. */
-export const DateJumpPicker: React.FC<DateJumpPickerProps> = ({ value, onChange, className }) => {
+const formatShort = (d: Date) => d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+
+export const DateJumpPicker: React.FC<DateJumpPickerProps> = ({ value, onChange, className, jumpFrom }) => {
   const [open, setOpen] = useState(false);
+  const [jumpWarning, setJumpWarning] = useState<string | null>(null);
+  const jumpFromDate = jumpFrom ? new Date(`${jumpFrom.slice(0, 10)}T00:00:00`) : null;
   const containerRef = useRef<HTMLDivElement>(null);
 
   const selected = value ? new Date(`${value}T00:00:00`) : null;
@@ -46,9 +52,20 @@ export const DateJumpPicker: React.FC<DateJumpPickerProps> = ({ value, onChange,
     return t;
   }, []);
 
+  // Rebooks count from the original booking so the gap between grooms stays right.
+  // If that lands in the past (the rebook is late), fall back to counting from today
+  // and say so, rather than silently picking a date that has already gone.
   const jumpWeeks = (weeks: number) => {
-    const d = new Date();
+    let d = new Date(jumpFromDate || today);
     d.setDate(d.getDate() + weeks * 7);
+    if (jumpFromDate && d < today) {
+      const fromToday = new Date(today);
+      fromToday.setDate(fromToday.getDate() + weeks * 7);
+      setJumpWarning(`${weeks} weeks from the original booking (${formatShort(jumpFromDate)}) was ${formatShort(d)}, which has already passed. Using ${weeks} weeks from today instead.`);
+      d = fromToday;
+    } else {
+      setJumpWarning(null);
+    }
     onChange(toISODate(d));
     setViewDate(d);
   };
@@ -67,11 +84,13 @@ export const DateJumpPicker: React.FC<DateJumpPickerProps> = ({ value, onChange,
 
   const pickDay = (d: Date) => {
     onChange(toISODate(d));
+    setJumpWarning(null);
     setOpen(false);
   };
 
   return (
-    <div ref={containerRef} className={`relative flex items-center gap-2 ${className || ""}`}>
+    <div ref={containerRef} className={`relative ${className || ""}`}>
+      <div className="flex items-center gap-2">
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
@@ -86,7 +105,7 @@ export const DateJumpPicker: React.FC<DateJumpPickerProps> = ({ value, onChange,
           const weeks = Number(e.target.value);
           if (weeks) jumpWeeks(weeks);
         }}
-        title="Jump to a date this many weeks from today"
+        title={jumpFromDate ? `Jump to a date this many weeks after the original booking (${formatShort(jumpFromDate)})` : "Jump to a date this many weeks from today"}
         className="shrink-0 px-2 py-3 border rounded-lg text-sm font-bold bg-white hover:bg-slate-50"
       >
         <option value="">In... weeks</option>
@@ -96,6 +115,14 @@ export const DateJumpPicker: React.FC<DateJumpPickerProps> = ({ value, onChange,
           </option>
         ))}
       </select>
+      </div>
+      {jumpWarning ? (
+        <p role="alert" className="mt-1 text-xs font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+          ⚠ {jumpWarning}
+        </p>
+      ) : (
+        jumpFromDate && <p className="mt-1 text-[11px] font-medium text-slate-500">Weeks count from the original booking, {formatShort(jumpFromDate)}</p>
+      )}
 
       {open && (
         <div className="absolute z-[80] top-full mt-2 left-0 p-3 bg-white border border-slate-200 rounded-2xl shadow-xl" style={{ width: 272 }}>

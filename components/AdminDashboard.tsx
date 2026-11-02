@@ -166,6 +166,8 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
     deposit_notes: "",
     confirm_channel: "whatsapp" as "none" | "whatsapp" | "sms",
   });
+  // Date of the booking being rebooked, so "In N weeks" counts from that groom, not today.
+  const [addFormRebookFrom, setAddFormRebookFrom] = useState<string | null>(null);
 
   const [reminderSettings, setReminderSettings] = useState({
     enabled_28day: true,
@@ -1177,6 +1179,7 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
       deposit_notes: "",
       confirm_channel: "whatsapp" as "none" | "whatsapp" | "sms",
     });
+    setAddFormRebookFrom(null);
     setShowAddModal(true);
   };
 
@@ -1459,6 +1462,7 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
       deposit_notes: "",
       confirm_channel: "whatsapp" as "none" | "whatsapp" | "sms",
     });
+    setAddFormRebookFrom(booking.confirmed_date || booking.date || null);
     setShowAddModal(true);
   };
 
@@ -5232,6 +5236,14 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
                       deposit_notes: "",
                       confirm_channel: "none" as "none" | "whatsapp" | "sms",
                     });
+                    // Count "In N weeks" from these dogs' most recent groom (cancellations don't count).
+                    const lastGroom = customerData
+                      .filter((a) => a.booking_status !== "cancelled" && selectedDogs.some((d) => (a.dogname || "").includes(d)))
+                      .map((a) => a.confirmed_date || a.date)
+                      .filter(Boolean)
+                      .sort()
+                      .pop();
+                    setAddFormRebookFrom(lastGroom || null);
                     setShowCustomerModal(false);
                     setShowAddModal(true);
                   }}
@@ -5743,7 +5755,7 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
                   </option>
                 ))}
               </select>
-              <DateJumpPicker value={addForm.date} onChange={(v) => setAddForm({ ...addForm, date: v })} />
+              <DateJumpPicker value={addForm.date} onChange={(v) => setAddForm({ ...addForm, date: v })} jumpFrom={addFormRebookFrom} />
               <select value={SLOT_TIMES.includes(addForm.confirmed_time) ? addForm.confirmed_time : ""} onChange={(e) => setAddForm({ ...addForm, confirmed_time: e.target.value, confirmed_duration_minutes: 120 })} className="px-4 py-3 border rounded-lg">
                 <option value="">Quick slot (2 hrs)...</option>
                 {SLOT_TIMES.map((slot) => (
