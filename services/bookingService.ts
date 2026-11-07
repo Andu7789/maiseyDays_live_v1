@@ -1489,6 +1489,37 @@ export const carryDepositAsCredit = (appointmentId: string) => invokeAdminDeposi
 
 export const getDepositCreditBalance = (email: string): Promise<{ balance: number; expiresAt: string | null }> => invokeAdminDepositFunction({ action: "balance", email }) as Promise<{ balance: number; expiresAt: string | null }>;
 
+export interface StripePayout {
+  id: string;
+  /** Pence actually sent to the bank, after fees and refunds. */
+  amount: number;
+  /** Unix seconds. */
+  arrivalDate: number;
+  status: "paid" | "pending" | "in_transit" | "canceled" | "failed";
+  automatic: boolean;
+}
+
+export interface StripePayoutLine {
+  id: string;
+  kind: "payment" | "refund" | "other";
+  /** Pence, negative for refunds. */
+  amount: number;
+  fee: number;
+  created: number;
+  ownerName: string | null;
+  dogName: string | null;
+  groomDate: string | null;
+  locationId: string | null;
+  matched: boolean;
+  description: string;
+}
+
+/** Recent payouts from Rachel's Stripe account to her bank, plus what's still waiting to be paid out (pence). */
+export const getStripePayouts = (): Promise<{ payouts: StripePayout[]; notPaidOut: number }> => invokeAdminDepositFunction({ action: "payouts" }) as Promise<{ payouts: StripePayout[]; notPaidOut: number }>;
+
+/** Which deposits, refunds and fees make up one payout, matched to bookings. */
+export const getStripePayoutLines = (payoutId: string): Promise<{ lines: StripePayoutLine[] }> => invokeAdminDepositFunction({ action: "payout", payoutId }) as Promise<{ lines: StripePayoutLine[] }>;
+
 /** Tells the customer what happened to their deposit. Best effort: a failure never undoes the refund or credit. */
 export const sendDepositOutcomeEmail = async (appointment: Appointment, outcome: "refunded" | "credit", amount: number, expiresAt?: string | null): Promise<boolean> => {
   try {

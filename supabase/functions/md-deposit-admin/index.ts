@@ -19,6 +19,80 @@ const addMonths = (months: number) => {
   return d.toISOString();
 };
 
+class StripeReadError extends Error {
+  constructor(message: string, public needsPermission = false) {
+    super(message);
+  }
+}
+
+// Read only Stripe calls for the Payouts tab. The live key is a restricted key, so it needs
+// Balance: Read and Payouts: Read added before these work.
+async function stripeGet(key: string, path: string) {
+  const res = await fetch(`https://api.stripe.com/v1/${path}`, { headers: { Authorization: `Bearer ${key}`, "Stripe-Version": STRIPE_API_VERSION } });
+  const body = await res.json();
+  if (res.ok) return body;
+  console.error(`Stripe GET ${path} failed:`, body);
+  if (res.status === 403 || /permission/i.test(body?.error?.message || "")) {
+    const missing = (body?.error?.message || "").match(/'(rak_[a-z_]+)'/)?.[1];
+    throw new StripeReadError(`The Stripe key can't read payouts yet. In Stripe, go to Developers, API keys, edit the restricted key and set Balance and Payouts to Read.${missing ? ` (Stripe asked for ${missing}.)` : ""}`, true);
+  }
+  throw new StripeReadError(body?.error?.message || "Stripe couldn't load payouts");
+}
+
+async function listPayouts(key: string) {
+  const [payouts, balance] = await Promise.all([stripeGet(key, "payouts?limit=20"), stripeGet(key, "balance")]);
+  const gbp = (rows: any[] = []) => rows.filter((r) => r.currency === "gbp").reduce((sum, r) => sum + r.amount, 0);
+  return {
+    payouts: (payouts.data || []).map((p: any) => ({ id: p.id, amount: p.amount, arrivalDate: p.arrival_date, status: p.status, automatic: p.automatic })),
+    notPaidOut: gbp(balance.available) + gbp(balance.pending),
+  };
+}
+
+async function payoutBreakdown(key: string, supabase: any, payoutId: string) {
+  if (!/^po_[A-Za-z0-9]+$/.test(payoutId)) throw new StripeReadError("Unknown payout");
+
+  // Every balance movement that was settled by this payout: deposits in, refunds out, and Stripe's fees on each.
+  const rows: any[] = [];
+  let startingAfter = "";
+  for (let page = 0; page < 10; page++) {
+    const list = await stripeGet(key, `balance_transactions?payout=${payoutId}&limit=100&expand[]=data.source${startingAfter ? `&starting_after=${startingAfter}` : ""}`);
+    rows.push(...list.data);
+    if (!list.has_more || !list.data.length) break;
+    startingAfter = list.data[list.data.length - 1].id;
+  }
+  const lines = rows.filter((bt) => bt.type !== "payout");
+
+  const intentOf = (bt: any) => {
+    const pi = bt.source?.payment_intent;
+    return typeof pi === "string" ? pi : pi?.id || null;
+  };
+  const intents = [...new Set(lines.map(intentOf).filter(Boolean))];
+  const { data: bookings } = intents.length
+    ? await supabase.from("appointments").select("ownername, dogname, date, confirmed_date, locationid, stripe_payment_intent_id").in("stripe_payment_intent_id", intents)
+    : { data: [] };
+  const byIntent = new Map((bookings || []).map((b: any) => [b.stripe_payment_intent_id, b]));
+
+  return {
+    lines: lines.map((bt) => {
+      const booking: any = byIntent.get(intentOf(bt));
+      const kind = ["charge", "payment"].includes(bt.type) ? "payment" : ["refund", "payment_refund"].includes(bt.type) ? "refund" : "other";
+      return {
+        id: bt.id,
+        kind,
+        amount: bt.amount,
+        fee: bt.fee,
+        created: bt.created,
+        ownerName: booking?.ownername || bt.source?.billing_details?.name || null,
+        dogName: booking?.dogname || null,
+        groomDate: booking ? booking.confirmed_date || booking.date : null,
+        locationId: booking?.locationid || null,
+        matched: Boolean(booking),
+        description: bt.description || bt.type,
+      };
+    }),
+  };
+}
+
 serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
@@ -33,7 +107,18 @@ serve(async (req: Request) => {
     const userEmail = (userData?.user?.email || "").toLowerCase();
     if (authError || !userEmail || !admins.includes(userEmail)) return json({ error: "Admin sign-in required" }, 401);
 
-    const { action, appointmentId, email } = await req.json();
+    const { action, appointmentId, email, payoutId } = await req.json();
+
+    if (action === "payouts" || action === "payout") {
+      const stripeKey = Deno.env.get("MD_STRIPE_SECRET_KEY");
+      if (!stripeKey) return json({ error: "Stripe is not configured" }, 500);
+      try {
+        return json(action === "payouts" ? await listPayouts(stripeKey) : await payoutBreakdown(stripeKey, supabase, String(payoutId || "")));
+      } catch (err) {
+        if (err instanceof StripeReadError) return json({ error: err.message, needsPermission: err.needsPermission }, err.needsPermission ? 403 : 502);
+        throw err;
+      }
+    }
 
     if (action === "balance") {
       const { data } = await supabase

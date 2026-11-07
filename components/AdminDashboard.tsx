@@ -12,6 +12,7 @@ import { DateJumpPicker } from "./DateJumpPicker";
 import { BookingHistoryPanel, BookingHistoryView } from "./BookingHistory";
 import { logBookingNote } from "../services/bookingHistoryService";
 import { QrCodePanel } from "./QrCodePanel";
+import { PayoutsPanel } from "./PayoutsPanel";
 
 const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
@@ -62,7 +63,7 @@ const TriYesNo: React.FC<{ label: string; value: boolean | null | undefined; onC
   </div>
 );
 
-type AdminView = "dashboard" | "bookings" | "diary" | "history" | "unavailable" | "services" | "settings" | "customers" | "stars" | "mailshot" | "reviews" | "qr";
+type AdminView = "dashboard" | "bookings" | "diary" | "history" | "unavailable" | "services" | "settings" | "customers" | "stars" | "mailshot" | "reviews" | "qr" | "payouts";
 
 const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> = ({ initialView, minimal }) => {
   const [isAuthorized, setIsAuthorized] = useState(false);
@@ -1970,6 +1971,9 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
             <button onClick={() => setView("qr")} className={`px-4 py-2 rounded-lg font-bold transition-all ${view === "qr" ? "bg-white shadow-sm text-emerald-600" : "text-slate-600"}`}>
               QR Code
             </button>
+            <button onClick={() => setView("payouts")} className={`px-4 py-2 rounded-lg font-bold transition-all ${view === "payouts" ? "bg-white shadow-sm text-emerald-600" : "text-slate-600"}`}>
+              Payouts
+            </button>
             <button onClick={() => { setView("settings"); refreshMfaFactors(); }} className={`px-4 py-2 rounded-lg font-bold transition-all ${view === "settings" ? "bg-white shadow-sm text-emerald-600" : "text-slate-600"}`}>
               Settings
             </button>
@@ -1980,16 +1984,16 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
       {/* The home-screen shortcut hides the tab bar, so give it just the views Rachel needs there. */}
       {minimal && (
         <div className="flex bg-slate-200 p-1 rounded-xl mb-4">
-          {(["diary", "history", "qr"] as const).map((v) => (
-            <button key={v} onClick={() => setView(v)} aria-pressed={view === v} className={`flex-1 px-3 py-2 rounded-lg font-bold transition-all whitespace-nowrap ${view === v ? "bg-white shadow-sm text-emerald-700" : "text-slate-700"}`}>
-              {v === "diary" ? "Diary" : v === "history" ? "History" : "QR Code"}
+          {(["diary", "history", "qr", "payouts"] as const).map((v) => (
+            <button key={v} onClick={() => setView(v)} aria-pressed={view === v} className={`flex-1 px-1.5 sm:px-3 py-2 rounded-lg text-sm sm:text-base font-bold transition-all whitespace-nowrap ${view === v ? "bg-white shadow-sm text-emerald-700" : "text-slate-700"}`}>
+              {v === "diary" ? "Diary" : v === "history" ? "History" : v === "qr" ? "QR Code" : "Payouts"}
             </button>
           ))}
         </div>
       )}
 
-      {/* Salon choice doesn't affect the QR code, so keep it out of the way there. */}
-      <div className={`mb-8 flex gap-4 ${minimal ? "flex-col" : "overflow-x-auto pb-2"} ${view === "qr" ? "hidden" : ""}`}>
+      {/* Salon choice doesn't affect the QR code or payouts, so keep it out of the way there. */}
+      <div className={`mb-8 flex gap-4 ${minimal ? "flex-col" : "overflow-x-auto pb-2"} ${view === "qr" || view === "payouts" ? "hidden" : ""}`}>
         <button onClick={() => setSelectedLocation(ALL_LOCATIONS)} className={`px-6 py-3 rounded-2xl font-bold border-2 transition-all whitespace-nowrap ${selectedLocation === ALL_LOCATIONS ? "border-teal-600 bg-teal-50 text-teal-700" : "border-slate-200 text-slate-500"}`}>
           All Locations
         </button>
@@ -3658,6 +3662,8 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
       )}
 
       {view === "qr" && <QrCodePanel reviewLink={reviewLinkForm} />}
+
+      {view === "payouts" && <PayoutsPanel />}
 
       {view === "settings" && (
         <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-8">
