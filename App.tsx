@@ -11,6 +11,7 @@ import { SERVICES, LOCATIONS, getLocationSlotTimes, getOpenLocations, EMAIL_ENDP
 import { isBeforeBookableFrom, isAfterBookableUntil, getAvailableSlotTimes, saveAppointmentAwaitingPayment, startDepositCheckout, getDepositStatus, abandonDepositBooking, prepareBookingPhoto, sendBookingEmail, sendConfirmationEmail, isDateAvailable, getUnavailableDays, getUnavailableWeekdays, sendHolidayEnquiryConfirmation, getHolidaySettings, signOutAdmin } from "./services/bookingService";
 import { getServiceCatalog } from "./services/serviceCatalogService";
 import { getPublicStarPosts } from "./services/starPostService";
+import { UpdateBanner } from "./components/UpdateBanner";
 
 
 // Lets the installed home-screen app icon (manifest start_url: "/#manager")
@@ -1312,6 +1313,7 @@ Message: ${enquiryData.message}
       <AgreementModal />
       {renderBookingNoticeModal()}
       {renderOralCareDisclaimerModal()}
+      {(minimalChrome || currentPage === "admin") && <UpdateBanner />}
       {!minimalChrome && (
         <div className="fixed bottom-4 left-4 z-40">
           <button onClick={() => setCurrentPage(currentPage === "admin" ? "home" : "admin")} className="text-[9px] text-slate-300 hover:text-slate-600 font-black uppercase tracking-[0.2em] transition-colors">
