@@ -33,8 +33,9 @@ async function stripeGet(key: string, path: string) {
   if (res.ok) return body;
   console.error(`Stripe GET ${path} failed:`, body);
   if (res.status === 403 || /permission/i.test(body?.error?.message || "")) {
-    const missing = (body?.error?.message || "").match(/'(rak_[a-z_]+)'/)?.[1];
-    throw new StripeReadError(`The Stripe key can't read payouts yet. In Stripe, go to Developers, API keys, edit the restricted key and set Balance and Payouts to Read.${missing ? ` (Stripe asked for ${missing}.)` : ""}`, true);
+    // Stripe names the missing permission, e.g. "Enabling Balance Transaction Sources Read ('balance_transaction_source_read') permissions".
+    const missing = (body?.error?.message || "").match(/Enabling (.+?) \(/)?.[1];
+    throw new StripeReadError(`The Stripe key can't read payouts yet. In Stripe, go to Developers, API keys, edit the restricted key and turn on ${missing || "Balance, Payouts and Balance Transaction Sources, each set to Read"}.`, true);
   }
   throw new StripeReadError(body?.error?.message || "Stripe couldn't load payouts");
 }
