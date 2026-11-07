@@ -137,6 +137,18 @@ const App: React.FC = () => {
     return () => window.removeEventListener("hashchange", applyIntakeHash);
   }, []);
 
+  // Booking deep link (#book) used by the QR codes on posters and business cards.
+  useEffect(() => {
+    const applyBookHash = () => {
+      if (window.location.hash !== "#book") return;
+      setCurrentPage("booking");
+      window.history.replaceState(null, "", window.location.pathname + window.location.search);
+    };
+    applyBookHash();
+    window.addEventListener("hashchange", applyBookHash);
+    return () => window.removeEventListener("hashchange", applyBookHash);
+  }, []);
+
   // Load holiday + advert settings from Supabase on mount
   useEffect(() => {
     getHolidaySettings()

@@ -11,6 +11,7 @@ import { RoundTimePicker } from "./RoundTimePicker";
 import { DateJumpPicker } from "./DateJumpPicker";
 import { BookingHistoryPanel, BookingHistoryView } from "./BookingHistory";
 import { logBookingNote } from "../services/bookingHistoryService";
+import { QrCodePanel } from "./QrCodePanel";
 
 const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
@@ -61,7 +62,7 @@ const TriYesNo: React.FC<{ label: string; value: boolean | null | undefined; onC
   </div>
 );
 
-type AdminView = "dashboard" | "bookings" | "diary" | "history" | "unavailable" | "services" | "settings" | "customers" | "stars" | "mailshot" | "reviews";
+type AdminView = "dashboard" | "bookings" | "diary" | "history" | "unavailable" | "services" | "settings" | "customers" | "stars" | "mailshot" | "reviews" | "qr";
 
 const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> = ({ initialView, minimal }) => {
   const [isAuthorized, setIsAuthorized] = useState(false);
@@ -1966,6 +1967,9 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
             <button onClick={() => { setView("stars"); getStarPosts().then(setStarPosts).catch(() => {}); }} className={`px-4 py-2 rounded-lg font-bold transition-all ${view === "stars" ? "bg-white shadow-sm text-emerald-600" : "text-slate-600"}`}>
               Stars ⭐
             </button>
+            <button onClick={() => setView("qr")} className={`px-4 py-2 rounded-lg font-bold transition-all ${view === "qr" ? "bg-white shadow-sm text-emerald-600" : "text-slate-600"}`}>
+              QR Code
+            </button>
             <button onClick={() => { setView("settings"); refreshMfaFactors(); }} className={`px-4 py-2 rounded-lg font-bold transition-all ${view === "settings" ? "bg-white shadow-sm text-emerald-600" : "text-slate-600"}`}>
               Settings
             </button>
@@ -3651,6 +3655,8 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
           </div>
         </div>
       )}
+
+      {view === "qr" && <QrCodePanel reviewLink={reviewLinkForm} />}
 
       {view === "settings" && (
         <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-8">
