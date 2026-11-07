@@ -1977,18 +1977,19 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
         )}
       </div>
 
-      {/* The home-screen shortcut hides the tab bar, so give it just the two views Rachel needs there. */}
+      {/* The home-screen shortcut hides the tab bar, so give it just the views Rachel needs there. */}
       {minimal && (
         <div className="flex bg-slate-200 p-1 rounded-xl mb-4">
-          {(["diary", "history"] as const).map((v) => (
-            <button key={v} onClick={() => setView(v)} aria-pressed={view === v} className={`flex-1 px-4 py-2 rounded-lg font-bold transition-all ${view === v ? "bg-white shadow-sm text-emerald-700" : "text-slate-700"}`}>
-              {v === "diary" ? "Diary" : "History"}
+          {(["diary", "history", "qr"] as const).map((v) => (
+            <button key={v} onClick={() => setView(v)} aria-pressed={view === v} className={`flex-1 px-3 py-2 rounded-lg font-bold transition-all whitespace-nowrap ${view === v ? "bg-white shadow-sm text-emerald-700" : "text-slate-700"}`}>
+              {v === "diary" ? "Diary" : v === "history" ? "History" : "QR Code"}
             </button>
           ))}
         </div>
       )}
 
-      <div className={`mb-8 flex gap-4 ${minimal ? "flex-col" : "overflow-x-auto pb-2"}`}>
+      {/* Salon choice doesn't affect the QR code, so keep it out of the way there. */}
+      <div className={`mb-8 flex gap-4 ${minimal ? "flex-col" : "overflow-x-auto pb-2"} ${view === "qr" ? "hidden" : ""}`}>
         <button onClick={() => setSelectedLocation(ALL_LOCATIONS)} className={`px-6 py-3 rounded-2xl font-bold border-2 transition-all whitespace-nowrap ${selectedLocation === ALL_LOCATIONS ? "border-teal-600 bg-teal-50 text-teal-700" : "border-slate-200 text-slate-500"}`}>
           All Locations
         </button>
