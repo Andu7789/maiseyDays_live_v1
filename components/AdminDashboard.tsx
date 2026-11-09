@@ -3483,11 +3483,25 @@ const AdminDashboard: React.FC<{ initialView?: AdminView; minimal?: boolean }> =
                       <option value="other">Other</option>
                     </select>
                     <label className={`px-4 py-2 rounded-lg text-sm font-bold cursor-pointer ${uploadingPhoto ? "bg-slate-200 text-slate-400" : "bg-slate-700 hover:bg-slate-800 text-white"}`}>
-                      {uploadingPhoto ? "Uploading..." : "+ Add Photo"}
+                      {uploadingPhoto ? "Uploading..." : "📷 Take Photo"}
                       <input
                         type="file"
                         accept="image/*"
                         capture="environment"
+                        disabled={uploadingPhoto}
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) handleUploadPhoto(file);
+                          e.target.value = "";
+                        }}
+                      />
+                    </label>
+                    <label className={`px-4 py-2 rounded-lg text-sm font-bold cursor-pointer ${uploadingPhoto ? "bg-slate-200 text-slate-400" : "bg-slate-700 hover:bg-slate-800 text-white"}`}>
+                      {uploadingPhoto ? "Uploading..." : "🖼 Upload from Phone"}
+                      <input
+                        type="file"
+                        accept="image/*"
                         disabled={uploadingPhoto}
                         className="hidden"
                         onChange={(e) => {
